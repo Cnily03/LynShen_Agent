@@ -147,6 +147,28 @@ fn write_session(session: &Value) -> Result<(), String> {
     crate::secrets::restrict_to_owner(&session_path());
     Ok(())
 }
+/// DA-4a: a random id generated once per installation and kept across sign-outs, so the
+/// gateway lets this install sign in again in its own device seat.
+fn installation_id() -> Option<String> {
+    let path = crate::lynshen_dir().join("installation-id");
+    let valid = |value: &str| {
+        (8..=64).contains(&value.len())
+            && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    };
+    if let Ok(stored) = std::fs::read_to_string(&path) {
+        let stored = stored.trim();
+        if valid(stored) {
+            return Some(stored.to_string());
+        }
+    }
+    let mut bytes = [0u8; 16];
+    getrandom::getrandom(&mut bytes).ok()?;
+    let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    std::fs::create_dir_all(crate::lynshen_dir()).ok()?;
+    std::fs::write(&path, &id).ok()?;
+    Some(id)
+}
+
 fn clear_session() {
     let _ = std::fs::remove_file(session_path());
 }
@@ -221,7 +243,11 @@ pub fn monoize_oauth_poll(user_code: String) -> Result<Value, String> {
         "POST",
         "/api/desktop/oauth/token",
         None,
-        Some(json!({"client_id":"lynshen-desktop", "device_code": attempt.device_code})),
+        Some(json!({
+            "client_id": "lynshen-desktop",
+            "device_code": attempt.device_code,
+            "installation_id": installation_id(),
+        })),
     )?;
     if let Some(error) = response["error"].as_str() {
         return match error {
