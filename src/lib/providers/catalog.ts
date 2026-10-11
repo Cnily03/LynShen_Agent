@@ -147,3 +147,11 @@ export function providerFormPrefill(provider: CatalogProvider): ProviderFormPref
 }
 
 export const PROVIDER_CATALOG = parseProviderCatalog(snapshot);
+
+/** The bundled metadata for a LynShen gateway model id. Gateway ids and
+ *  catalog names can differ in case ("DeepSeek-V4.1-Flash" / "deepseek-v4.1-flash").
+ *  The gateway's model list has no reasoning efforts; this is where they come from. */
+export function gatewayCatalogModel(id: string): ProviderModel | undefined {
+	const models = PROVIDER_CATALOG.providers.find((p) => p.id === 'monoize')?.models ?? [];
+	return models.find((m) => m.name === id) ?? models.find((m) => m.name.toLowerCase() === id.toLowerCase());
+}

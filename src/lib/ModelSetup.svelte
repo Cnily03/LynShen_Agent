@@ -124,7 +124,7 @@
 		const order = groups.length && !query ? groups.flatMap(([, list]) => list) : models;
 		const chosen = order
 			.filter((m) => picked.includes(m.id))
-			.map(savedModel);
+			.map((m) => savedModel(m));
 		// Windows for models outside this account's list (another login) stay.
 		const overrides: Record<string, number> = {};
 		for (const [k, v] of Object.entries((cfg.context_window_overrides ?? {}) as Record<string, unknown>)) {

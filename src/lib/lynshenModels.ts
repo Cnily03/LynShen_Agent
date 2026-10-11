@@ -5,6 +5,7 @@
 
 import { fetchLynShenModels, readConfig, writeConfig, type LynShenModel } from './protocol';
 import { DEFAULT_MODELS } from './defaultModels';
+import { gatewayCatalogModel } from './providers/catalog';
 
 /** Models the account is offered that it was not offered before: shown at
  *  once (put on sale since the last look). `lynshen_models_seen` remembers
@@ -20,15 +21,31 @@ export function newlyOffered(ids: string[], cfg: Record<string, unknown>): { fre
 	return { fresh: ids.filter((id) => !recorded.has(id)), seen: ids };
 }
 
+/** Efforts that say something: not missing, and not only "none" (the explicit
+ *  unknown older versions saved for every model). */
+const knownEfforts = (value: unknown): string[] | undefined =>
+	Array.isArray(value) && value.some((e) => typeof e === 'string' && e !== 'none') ? (value as string[]) : undefined;
+
+/** The reasoning efforts a gateway model offers. The gateway's list has none,
+ *  so they come from the bundled catalog (Auto: its target's), else from what
+ *  was saved before; ["none"] only when neither knows the model. */
+export function gatewayEfforts(m: LynShenModel & { auto_target?: string }, previous?: unknown): string[] {
+	return (
+		knownEfforts(m.reasoning_efforts) ??
+		knownEfforts(gatewayCatalogModel(m.auto_target || m.id)?.reasoning_efforts) ??
+		knownEfforts(previous) ?? ['none']
+	);
+}
+
 /** One saved entry. Explicit unknowns (0 / ["none"]), as the engine's own
  *  login writes them: a missing field would read back as a default. */
-export function savedModel(m: LynShenModel): Record<string, unknown> {
+export function savedModel(m: LynShenModel, previous?: Record<string, unknown>): Record<string, unknown> {
 	return {
 		name: m.id,
 		context_window: m.context_window ?? 0,
 		max_context_window: m.max_context_window ?? 0,
 		max_output_tokens: m.max_output_tokens ?? 0,
-		reasoning_efforts: m.reasoning_efforts ?? ['none'],
+		reasoning_efforts: gatewayEfforts(m, previous?.reasoning_efforts),
 		...(m.display_name ? { display_name: m.display_name } : m.id === 'auto' ? { display_name: 'Auto' } : {}),
 		...(m.group_context_windows ? { group_context_windows: m.group_context_windows } : {})
 	};
@@ -49,14 +66,14 @@ export async function refreshLynShenModels(): Promise<boolean> {
 	});
 	const kept = saved.flatMap((entry) => {
 		const model = byId.get(String(entry.name));
-		return model ? [savedModel(model)] : [];
+		return model ? [savedModel(model, entry)] : [];
 	});
 	// A model the gateway newly lists (put on sale since the last look) is
 	// shown at once: only the user's own unchecking hides a model. `seen`
 	// holds every id the account was offered, so a hidden one stays hidden.
 	const offer = newlyOffered(live.map((m) => m.id), cfg);
-	const fresh = live.filter((m) => offer.fresh.includes(m.id)).map(savedModel);
-	const base = kept.length ? kept : recommended.length ? recommended : live.slice(0, 6).map(savedModel);
+	const fresh = live.filter((m) => offer.fresh.includes(m.id)).map((m) => savedModel(m));
+	const base = kept.length ? kept : recommended.length ? recommended : live.slice(0, 6).map((m) => savedModel(m));
 	const next = [...base, ...fresh.filter((m) => !base.some((b) => b.name === m.name))];
 	const patch: Record<string, unknown> = {};
 	if (JSON.stringify(next) !== JSON.stringify(saved)) patch.lynshen_models = next;

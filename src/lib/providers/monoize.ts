@@ -1,6 +1,6 @@
 import { fetchMonoizeModels, readConfig, writeConfig, type MonoizeModel, type MonoizeRoute } from '$lib/protocol';
 import { newlyOffered } from '$lib/lynshenModels';
-import { PROVIDER_CATALOG } from './catalog';
+import { PROVIDER_CATALOG, gatewayCatalogModel } from './catalog';
 
 /** A gateway model as the picker and config.json hold it. */
 export interface MonoizeModelEntry {
@@ -22,13 +22,7 @@ export interface MonoizeModelEntry {
 
 type CatalogModel = { name: string; reasoning_efforts?: string[]; context_window?: number; max_output_tokens?: number };
 
-/** The bundled catalog's metadata for a gateway id. Gateway ids and catalog
- *  names can differ in case ("DeepSeek-V4.1-Flash" / "deepseek-v4.1-flash"). */
-function catalogModel(id: string): CatalogModel | undefined {
-	const template = PROVIDER_CATALOG.providers.find((p) => p.id === 'monoize');
-	const models = (template?.models ?? []) as CatalogModel[];
-	return models.find((m) => m.name === id) ?? models.find((m) => m.name.toLowerCase() === id.toLowerCase());
-}
+const catalogModel = (id: string): CatalogModel | undefined => gatewayCatalogModel(id);
 
 /** A model that draws images and cannot chat (gpt-image-2, grok-imagine-image…). */
 export const isImageModel = (name: string) => /image/i.test(name);

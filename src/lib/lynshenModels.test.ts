@@ -9,7 +9,7 @@ vi.mock('./protocol', () => ({
 	writeConfig: (patch: Record<string, unknown>) => writeConfig(patch)
 }));
 
-import { refreshLynShenModels, savedModel } from './lynshenModels';
+import { gatewayEfforts, refreshLynShenModels, savedModel } from './lynshenModels';
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -106,5 +106,35 @@ describe('refreshLynShenModels', () => {
 		fetchLynShenModels.mockResolvedValue([{ id: 'private-model', reasoning_efforts: ['low', 'high'] }]);
 		expect(await refreshLynShenModels()).toBe(true);
 		expect(writeConfig.mock.calls[0][0]).toMatchObject({ model: 'private-model', reasoning_effort: 'low' });
+	});
+});
+
+describe('gatewayEfforts', () => {
+	it('takes the bundled catalog\'s efforts for a gateway model (the gateway lists none)', () => {
+		expect(gatewayEfforts({ id: 'deepseek-v4.1-flash' })).toEqual(['low', 'high', 'max']);
+		expect(gatewayEfforts({ id: 'DeepSeek-V4.1-Flash' })).toEqual(['low', 'high', 'max']);
+	});
+
+	it('gives Auto its target\'s efforts and keeps the gateway\'s own when it sends them', () => {
+		expect(gatewayEfforts({ id: 'auto', auto_target: 'kimi-k3' })).toEqual(['low', 'medium', 'high']);
+		expect(gatewayEfforts({ id: 'kimi-k3', reasoning_efforts: ['high'] })).toEqual(['high']);
+	});
+
+	it('keeps a known earlier list, and offers only "none" for a model nobody knows', () => {
+		expect(gatewayEfforts({ id: 'not-in-catalog' }, ['low', 'high'])).toEqual(['low', 'high']);
+		expect(gatewayEfforts({ id: 'not-in-catalog' }, ['none'])).toEqual(['none']);
+		expect(gatewayEfforts({ id: 'not-in-catalog' })).toEqual(['none']);
+	});
+
+	it('upgrades a saved "none"-only entry when the models are refreshed', async () => {
+		readConfig.mockResolvedValue({
+			provider: 'lynshen',
+			lynshen_models: [{ name: 'deepseek-v4.1-flash', reasoning_efforts: ['none'] }],
+			lynshen_models_seen: ['deepseek-v4.1-flash']
+		});
+		fetchLynShenModels.mockResolvedValue([{ id: 'deepseek-v4.1-flash', context_window: 1_000_000 }]);
+		expect(await refreshLynShenModels()).toBe(true);
+		const patch = writeConfig.mock.calls[0][0] as { models: { reasoning_efforts: string[] }[] };
+		expect(patch.models[0].reasoning_efforts).toEqual(['low', 'high', 'max']);
 	});
 });

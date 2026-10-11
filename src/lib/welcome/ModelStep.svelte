@@ -8,7 +8,7 @@
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircleIcon';
 	import { fetchLynShenModels, readConfig, writeConfig } from '$lib/protocol';
-	import { refreshLynShenModels } from '$lib/lynshenModels';
+	import { gatewayEfforts, refreshLynShenModels } from '$lib/lynshenModels';
 	import type { BackendId } from '$lib/backends';
 	import { BACKEND_LABELS } from '$lib/backends';
 	import { loadProfile } from '$lib/backendProfile';
@@ -92,7 +92,7 @@
 					name: m.id,
 					label: m.display_name,
 					context_window: m.context_window,
-					reasoning_efforts: m.reasoning_efforts
+					reasoning_efforts: gatewayEfforts(m)
 				}));
 				provider = 'lynshen';
 			} else {
