@@ -217,7 +217,70 @@ fn daemon_listening() -> bool {
 /// otherwise both spawn one.
 static DAEMON_START: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn ensure_daemon(bin_override: Option<&str>, env: &[(String, String)]) -> Result<(), String> {
+/// The phone page (`/remote`) the daemon serves to a LAN or Tailscale
+/// address: this app's own frontend, written out to `~/.lynshen/web` for the
+/// daemon's `--web`. The daemon only ships its own page in a release archive,
+/// so without this a phone opening the computer's address got "no web page
+/// is installed". The copy is rewritten when the app's assets change. None
+/// when the build embeds no frontend (development) or the copy fails.
+fn remote_web_dir(app: &AppHandle) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let resolver = app.asset_resolver();
+    let mut files: Vec<(String, Vec<u8>)> = resolver
+        .iter()
+        .filter_map(|(key, _)| {
+            let key = key.trim_start_matches('/').to_string();
+            // Decompressed, with the CSP nonces filled in for HTML.
+            resolver.get(key.clone()).map(|asset| (key, asset.bytes))
+        })
+        .collect();
+    if !files.iter().any(|(key, _)| key == "index.html") {
+        return None;
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (key, bytes) in &files {
+        // HTML carries fresh nonces each read; its size stands in for it.
+        key.hash(&mut hasher);
+        if key.ends_with(".html") {
+            bytes.len().hash(&mut hasher);
+        } else {
+            bytes.hash(&mut hasher);
+        }
+    }
+    let stamp = format!("{:016x}", hasher.finish());
+    let dir = lynshen_dir().join("web");
+    let marker = dir.join(".stamp");
+    if std::fs::read_to_string(&marker).ok().as_deref() == Some(stamp.as_str()) {
+        return Some(dir);
+    }
+    let staging = lynshen_dir().join("web.new");
+    let _ = std::fs::remove_dir_all(&staging);
+    for (key, bytes) in &files {
+        let relative = std::path::Path::new(key);
+        if relative
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            continue;
+        }
+        let path = staging.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok()?;
+        }
+        std::fs::write(&path, bytes).ok()?;
+    }
+    std::fs::write(staging.join(".stamp"), &stamp).ok()?;
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::rename(&staging, &dir).ok()?;
+    Some(dir)
+}
+
+fn ensure_daemon(
+    bin_override: Option<&str>,
+    env: &[(String, String)],
+    web: Option<&std::path::Path>,
+) -> Result<(), String> {
     if daemon_listening() {
         return Ok(());
     }
@@ -237,8 +300,11 @@ fn ensure_daemon(bin_override: Option<&str>, env: &[(String, String)]) -> Result
         bin_override,
     ));
     no_window(&mut cmd);
-    cmd.args(["daemon", "--listen", DAEMON_ADDR])
-        .stdin(std::process::Stdio::null())
+    cmd.args(["daemon", "--listen", DAEMON_ADDR]);
+    if let Some(web) = web {
+        cmd.arg("--web").arg(web);
+    }
+    cmd.stdin(std::process::Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
     // The terminal's environment: a GUI launch has a bare PATH, so an
@@ -383,6 +449,7 @@ fn replace_stale_daemon() {
 /// has to be started.
 #[tauri::command(async)]
 fn daemon_endpoint(
+    app: AppHandle,
     bin_override: Option<String>,
     env: Option<serde_json::Value>,
 ) -> Result<DaemonEndpoint, String> {
@@ -395,7 +462,12 @@ fn daemon_endpoint(
     };
     #[cfg(unix)]
     replace_stale_daemon();
-    ensure_daemon(bin_override.as_deref(), &env)?;
+    let web = if daemon_listening() {
+        None
+    } else {
+        remote_web_dir(&app)
+    };
+    ensure_daemon(bin_override.as_deref(), &env, web.as_deref())?;
     let path = lynshen_dir().join("daemon").join("token");
     let token = std::fs::read_to_string(&path)
         .map(|token| token.trim().to_string())
