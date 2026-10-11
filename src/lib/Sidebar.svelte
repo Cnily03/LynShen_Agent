@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwiseIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
@@ -79,6 +79,7 @@
 		onDesk = () => {},
 		onHome = () => {},
 		homeOpen = false,
+		holdOpen = false,
 		footer
 	}: {
 		projects: Project[];
@@ -131,8 +132,11 @@
 		onHome?: () => void;
 		/** The home page is in front. */
 		homeOpen?: boolean;
+		/** A popover opened from the sidebar is showing (a row's right-click menu):
+		 *  a peeking rail stays open under it. */
+		holdOpen?: boolean;
 		/** The account row at the bottom. */
-		footer: Omit<ComponentProps<typeof SidebarFooter>, 'collapsed'>;
+		footer: Omit<ComponentProps<typeof SidebarFooter>, 'collapsed' | 'onCardOpenChange'>;
 	} = $props();
 	const reqs = useRequirements();
 
@@ -308,22 +312,56 @@
 	// Collapsed, the rail opens the whole sidebar over the canvas while the
 	// pointer rests on it (or focus is in it), so the conversations stay in
 	// reach without expanding the layout; it folds back once the pointer
-	// leaves or a conversation is picked.
+	// leaves or a conversation is picked. A popover opened from it (the
+	// account card, a row's right-click menu) lies outside the panel: while
+	// one shows, the panel stays open, and it folds once the popover closes
+	// with the pointer elsewhere.
 	const PEEK_OPEN_MS = 160;
 	const PEEK_CLOSE_MS = 280;
+	/** Longer than the clip's --t-base close, so the panel keeps its surface
+	 *  until it has slid shut even if no transitionend arrives. */
+	const FOLD_MS = 420;
+	let aside = $state<HTMLElement | null>(null);
 	let peek = $state(false);
+	let closing = $state(false);
+	let cardOpen = $state(false);
+	const held = $derived(holdOpen || cardOpen);
 	let peekTimer: ReturnType<typeof setTimeout> | undefined;
+	let foldTimer: ReturnType<typeof setTimeout> | undefined;
+	let pointer: { x: number; y: number } | null = null;
+	function setPeek(open: boolean) {
+		if (open === peek) return;
+		clearTimeout(foldTimer);
+		closing = !open;
+		if (closing) foldTimer = setTimeout(() => (closing = false), FOLD_MS);
+		peek = open;
+	}
 	function peekLater(open: boolean) {
 		clearTimeout(peekTimer);
-		if (!railed || resizing || open === peek) return;
-		peekTimer = setTimeout(() => (peek = open), open ? PEEK_OPEN_MS : PEEK_CLOSE_MS);
+		if (!railed || resizing || open === peek || (!open && held)) return;
+		peekTimer = setTimeout(() => setPeek(open), open ? PEEK_OPEN_MS : PEEK_CLOSE_MS);
 	}
 	function endPeek() {
 		clearTimeout(peekTimer);
-		peek = false;
+		setPeek(false);
 	}
 	$effect(() => {
-		if (!railed) endPeek();
+		if (!railed) {
+			clearTimeout(peekTimer);
+			clearTimeout(foldTimer);
+			peek = false;
+			closing = false;
+		}
+	});
+	// The popover closed: fold unless the pointer is back on the panel.
+	let wasHeld = false;
+	$effect(() => {
+		const now = held;
+		if (wasHeld && !now && untrack(() => peek)) {
+			const under = pointer && document.elementFromPoint(pointer.x, pointer.y);
+			if (!under || !aside?.contains(under)) peekLater(false);
+		}
+		wasHeld = now;
 	});
 	/** The labels and lists are hidden: collapsed and not peeking. */
 	const folded = $derived(railed && !peek);
@@ -341,10 +379,12 @@
      panel clips it, so the icons stay on the rail's centre line while the
      width animates and the labels fade instead of re-wrapping. -->
 <aside
+	bind:this={aside}
 	class="sidebar"
 	class:resizing
 	class:railed
 	class:peek
+	class:closing
 	class:collapsed={folded}
 	style:width="{railed ? SIDEBAR_RAIL_WIDTH : width}px"
 	style:--rail-w="{SIDEBAR_RAIL_WIDTH}px"
@@ -355,7 +395,13 @@
 		if (!e.currentTarget.contains(e.relatedTarget as Node | null)) peekLater(false);
 	}}
 >
-<div class="sb-inner" style:width="{width}px">
+<div
+	class="sb-inner"
+	style:width="{width}px"
+	ontransitionend={(e) => {
+		if (e.target === e.currentTarget && e.propertyName === 'clip-path' && !peek) closing = false;
+	}}
+>
 	<!-- Header: the logo and wordmark, or the session filter in its place
 	     while searching. Collapsed, the logo expands the sidebar. -->
 	<div class="brand" data-tauri-drag-region>
@@ -691,11 +737,13 @@
 			{/each}
 		</section>
 	</div>
-	<SidebarFooter {...footer} collapsed={folded} />
+	<SidebarFooter {...footer} collapsed={folded} onCardOpenChange={(open) => (cardOpen = open)} />
 
 </div>
 </aside>
 
+
+<svelte:window onpointermove={(e) => railed && (pointer = { x: e.clientX, y: e.clientY })} />
 <style>
 	/* Only the panel's width moves (one property, one container); its content
 	   keeps the expanded width, so nothing inside re-lays out while it moves.
@@ -734,11 +782,17 @@
 	.sidebar.peek .sb-inner {
 		/* Past the right edge, so the shadow shows. */
 		clip-path: inset(0 -48px 0 0);
-		background: var(--sidebar);
-		border-right: 1px solid var(--border);
 		box-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.28);
 	}
-	:global(:root[data-glass]) .sidebar.peek .sb-inner {
+	/* The surface stays while the panel slides shut (closing), so the fading
+	   labels never show over a bare canvas. */
+	.sidebar.peek .sb-inner,
+	.sidebar.closing .sb-inner {
+		background: var(--sidebar);
+		border-right: 1px solid var(--border);
+	}
+	:global(:root[data-glass]) .sidebar.peek .sb-inner,
+	:global(:root[data-glass]) .sidebar.closing .sb-inner {
 		background: color-mix(in oklab, var(--sidebar) 86%, transparent);
 		-webkit-backdrop-filter: var(--glass-filter);
 		backdrop-filter: var(--glass-filter);

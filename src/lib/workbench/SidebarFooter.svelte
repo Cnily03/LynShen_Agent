@@ -20,7 +20,8 @@
 		onManageAccount,
 		onSettings,
 		onUpdate,
-		onLoggedOut
+		onLoggedOut,
+		onCardOpenChange = () => {}
 	}: {
 		/** Signed in to the LynShen account (not tied to any one chat). */
 		loggedIn: boolean;
@@ -34,6 +35,8 @@
 		onUpdate: () => void;
 		/** The card logged the account out: refresh what depends on it. */
 		onLoggedOut: () => void;
+		/** The account card opened or closed (a peeking rail stays open under it). */
+		onCardOpenChange?: (open: boolean) => void;
 	} = $props();
 
 	let user = $state<MonoizeUser | null>(null);
@@ -97,6 +100,7 @@
 		const el = e.target as Element;
 		if (card && !accountBtn?.contains(el) && !el.closest?.('.acct-card')) closeCard();
 	}
+	$effect(() => onCardOpenChange(!!card));
 	// A collapse or expand moves the row away from the card.
 	$effect(() => {
 		void collapsed;

@@ -1506,6 +1506,7 @@
 				onRenameSession={(id, title) => store.renameSession(id, title)}
 				onSessionMenu={openSessionMenu}
 				onProjectMenu={openProjectMenu}
+				holdOpen={!!sessionChromeFor || !!projectChromeFor}
 				onHistory={(p) => store.openHistory(p)}
 				agents={agentDirectory.agents}
 				agentsStatus={agentDirectory.status}
