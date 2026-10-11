@@ -972,6 +972,7 @@ describe('boundedOutput', () => {
 	});
 });
 
+import { merged, refilled, replayShows } from './chat.svelte';
 describe('letting go of tool outputs while hidden', () => {
 	/** A conversation run live here: a turn with a reasoning block, a tool
 	 *  call and its stats, then the engine idle. */
@@ -996,10 +997,26 @@ describe('letting go of tool outputs while hidden', () => {
 			{ role: 'assistant', content: 'looking' },
 			{ role: 'tool', name: 'read_file', output },
 			{ role: 'assistant', content: 'done' }
-		]
+		] as Record<string, unknown>[]
 	});
-	const tool = (c: ChatState) => c.messages.find((m) => m.kind === 'tool') as { output: string; name: string };
+	/** Released, then shown again: the snapshot of its session follows. */
+	const reshow = (c: ChatState, snapshot: { type: string; items: Record<string, unknown>[] }) => {
+		c.armRefill();
+		c.handle(snapshot);
+	};
+	type Tool = { output: string; name: string; callId: string; isError: boolean; cut?: boolean; released?: string };
+	const tools = (c: ChatState) => c.messages.filter((m) => m.kind === 'tool') as Tool[];
+	const tool = (c: ChatState) => tools(c)[0]!;
 	const stats = (c: ChatState) => c.messages.findLast((m) => m.kind === 'assistant' && !!m.turn);
+	const reasoning = (c: ChatState) => c.messages.some((m) => m.kind === 'reasoning');
+	/** One more live turn. */
+	const turn = (c: ChatState, text: string, events: Record<string, unknown>[]) => {
+		c.handle({ type: 'user_message', content: text });
+		c.handle({ type: 'connecting' });
+		for (const ev of events) c.handle(ev as never);
+		c.handle({ type: 'status', message: 'ready' });
+		c.handle({ type: 'model_status', state: 'ready' });
+	};
 
 	it('is settled only when nothing is under way', () => {
 		const c = live();
@@ -1013,51 +1030,88 @@ describe('letting go of tool outputs while hidden', () => {
 		expect(c.settled).toBe(false);
 	});
 
-	it('empties the tool outputs and fills them back in from the same conversation', () => {
+	it('is not settled while the conversation is open in a TUI', () => {
 		const c = live();
-		const turn = stats(c);
-		expect(turn).toBeTruthy();
-		c.releaseOutputs();
-		expect(tool(c).output).toBe('');
-		expect(c.messages.some((m) => m.kind === 'reasoning')).toBe(true);
-		c.handle(replay());
-		expect(tool(c).output).toBe('file body');
-		// What only this chat knew stays: the reasoning and the turn's stats.
-		expect(c.messages.some((m) => m.kind === 'reasoning')).toBe(true);
-		expect(stats(c)).toBe(turn);
+		c.handle({ type: 'surface', surface: 'tui' });
+		expect(c.settled).toBe(false);
+		c.handle({ type: 'surface', surface: 'gui' });
+		expect(c.settled).toBe(true);
 	});
 
-	it('shows the replay when the conversation moved on, with the stats of the turns it kept', () => {
+	it('empties the tool outputs and fills them back in from the same conversation', () => {
+		const c = live();
+		tool(c).isError = true;
+		const turnStats = stats(c);
+		expect(turnStats).toBeTruthy();
+		c.releaseOutputs();
+		expect(tool(c).output).toBe('');
+		expect(reasoning(c)).toBe(true);
+		reshow(c, replay());
+		expect(tool(c).output).toBe('file body');
+		expect(tool(c).released).toBeUndefined();
+		// What only this chat knew stays: the reasoning, the turn's stats, the
+		// call's id (a subagent card's link) and its error.
+		expect(reasoning(c)).toBe(true);
+		expect(stats(c)).toBe(turnStats);
+		expect(tool(c)).toMatchObject({ callId: 'c1', isError: true });
+	});
+
+	it('keeps the turns it shares with a conversation that moved on, and shows the new ones', () => {
 		const c = live();
 		const before = stats(c);
 		const kept = before?.kind === 'assistant' ? before.turn : undefined;
 		c.releaseOutputs();
+		// Closed by the daemon while hidden, then continued on another client.
 		const moved = replay();
 		moved.items.push({ role: 'user', content: 'more' }, { role: 'tool', name: 'bash', output: 'ok' }, { role: 'assistant', content: 'fine' });
-		c.handle(moved);
-		expect(c.messages.map((m) => m.kind)).toEqual(['user', 'assistant', 'tool', 'assistant', 'user', 'tool', 'assistant']);
-		expect(tool(c).output).toBe('file body');
-		const first = c.messages[3];
+		reshow(c, moved);
+		expect(c.messages.map((m) => m.kind)).toEqual(['user', 'reasoning', 'assistant', 'tool', 'assistant', 'user', 'tool', 'assistant']);
+		expect(tools(c).map((m) => m.output)).toEqual(['file body', 'ok']);
+		expect(tool(c).callId).toBe('c1');
+		const first = c.messages[4];
 		expect(first?.kind === 'assistant' && first.turn).toEqual(kept);
-		const last = c.messages[6];
+		const last = c.messages[7];
 		expect(last?.kind === 'assistant' && last.turn).toBeFalsy();
 	});
 
-	it('shows the replay when the conversation was rewound with the same tool calls', () => {
+	it('shows the replay from where a conversation rewound elsewhere differs, never another output in a card', () => {
 		const c = live();
 		c.releaseOutputs();
 		const rewound = replay('other body');
 		rewound.items[0] = { role: 'user', content: 'fix it differently' };
-		c.handle(rewound);
-		expect(c.messages.some((m) => m.kind === 'reasoning')).toBe(false);
+		reshow(c, rewound);
+		expect(reasoning(c)).toBe(false);
 		expect(tool(c).output).toBe('other body');
 		expect(userTexts(c)).toEqual(['fix it differently']);
+		// The same message and call, another output: not this card's.
+		const other = live();
+		other.releaseOutputs();
+		reshow(other, replay('other body'));
+		expect(tool(other).output).toBe('other body');
+		expect(reasoning(other)).toBe(false);
 		const changed = live();
 		changed.releaseOutputs();
 		const reply = replay();
 		reply.items[1] = { role: 'assistant', content: 'looking elsewhere' };
-		changed.handle(reply);
-		expect(changed.messages.some((m) => m.kind === 'reasoning')).toBe(false);
+		reshow(changed, reply);
+		expect(reasoning(changed)).toBe(false);
+	});
+
+	it('keeps the turns before the one that differs', () => {
+		const c = live();
+		turn(c, 'second', [
+			{ type: 'reasoning_delta', delta: 'hmm' },
+			{ type: 'tool_start', call_id: 'c2', name: 'bash' },
+			{ type: 'tool_output', call_id: 'c2', name: 'bash', output: 'v1' },
+			{ type: 'assistant_delta', delta: 'ran it' }
+		]);
+		c.releaseOutputs();
+		const rewound = replay();
+		rewound.items.push({ role: 'user', content: 'second, again' }, { role: 'assistant', content: 'sure' });
+		reshow(c, rewound);
+		expect(userTexts(c)).toEqual(['fix it', 'second, again']);
+		expect(c.messages.filter((m) => m.kind === 'reasoning').map((m) => m.text)).toEqual(['think']);
+		expect(tools(c).map((m) => [m.callId, m.output])).toEqual([['c1', 'file body']]);
 	});
 
 	it('fills in a conversation whose message was sent while a turn ran', () => {
@@ -1068,15 +1122,168 @@ describe('letting go of tool outputs while hidden', () => {
 		c.releaseOutputs();
 		const queued = replay();
 		queued.items.push({ role: 'user', content: 'and then this' }, { role: 'assistant', content: 'user said: and then this' });
-		c.handle(queued);
+		reshow(c, queued);
 		expect(tool(c).output).toBe('file body');
-		expect(c.messages.some((m) => m.kind === 'reasoning')).toBe(true);
+		expect(reasoning(c)).toBe(true);
+	});
+
+	it('fills in a reply and a call the engine never kept, a blank segment, a command and an image', () => {
+		const c = live();
+		// A command shows as typed; the engine keeps its expanded text.
+		turn(c, '/review src', [
+			{ type: 'assistant_delta', delta: '  \n' },
+			{ type: 'tool_start', call_id: 'c2', name: 'grep' },
+			{ type: 'tool_output', call_id: 'c2', name: 'grep', output: 'match' },
+			{ type: 'assistant_delta', delta: 'reviewed' }
+		]);
+		// Stopped while a call ran and a reply streamed: the engine keeps neither.
+		c.handle({ type: 'user_message', content: 'look again' });
+		c.handle({ type: 'connecting' });
+		c.handle({ type: 'tool_start', call_id: 'c3', name: 'bash' });
+		c.handle({ type: 'tool_update', call_id: 'c3', name: 'bash', output: 'partial' });
+		c.handle({ type: 'assistant_delta', delta: 'half a rep' });
+		c.handle({ type: 'info', message: 'request interrupted' });
+		c.handle({ type: 'status', message: 'interrupted' });
+		c.handle({ type: 'model_status', state: 'ready' });
+		// A message of images only: the engine keeps their names.
+		c.messages.push({ kind: 'user', text: '', images: ['/tmp/shot.png'] }, { kind: 'assistant', text: 'a cat' });
+		expect(c.settled).toBe(true);
+		const cut = tools(c)[2]!;
+		expect(cut).toMatchObject({ callId: 'c3', cut: true, output: 'partial' });
+		c.releaseOutputs();
+		// The call cut short is not let go of: the replay has nothing for it.
+		expect(tools(c).map((m) => m.output)).toEqual(['', '', 'partial']);
+		const snapshot = replay();
+		snapshot.items.push(
+			{ role: 'user', content: 'Review the code in src for bugs.' },
+			{ role: 'tool', name: 'grep', output: 'match' },
+			{ role: 'assistant', content: 'reviewed' },
+			{ role: 'user', content: 'look again' },
+			{ role: 'user', content: '[image: shot.png]' },
+			{ role: 'assistant', content: 'a cat' }
+		);
+		const kinds = c.messages.map((m) => m.kind);
+		reshow(c, snapshot);
+		expect(c.messages.map((m) => m.kind)).toEqual(kinds);
+		expect(tools(c).map((m) => [m.callId, m.output])).toEqual([
+			['c1', 'file body'],
+			['c2', 'match'],
+			['c3', 'partial']
+		]);
+		expect(c.messages.some((m) => m.kind === 'system' && m.text === 'request interrupted')).toBe(true);
+	});
+
+	it('keeps an output the replay would cut, and fills in the rest', () => {
+		const log = JSON.stringify({ command: 'make', stdout: 'line\n'.repeat(5_000), exit_code: 0 });
+		const c = live();
+		turn(c, 'build', [
+			{ type: 'tool_start', call_id: 'c2', name: 'bash' },
+			{ type: 'tool_output', call_id: 'c2', name: 'bash', output: log }
+		]);
+		c.releaseOutputs();
+		expect(tools(c).map((m) => m.output)).toEqual(['', log]);
+		const snapshot = replay();
+		// The engine kept what the model saw: an excerpt and where the rest is.
+		const excerpt = JSON.stringify({ command: 'make', stdout: 'line\n…', model_output_truncated: true, full_output_path: '/tmp/out' });
+		snapshot.items.push({ role: 'user', content: 'build' }, { role: 'tool', name: 'bash', output: excerpt });
+		reshow(c, snapshot);
+		expect(tools(c).map((m) => m.output)).toEqual(['file body', log]);
+		expect(reasoning(c)).toBe(true);
+	});
+
+	it('lets a read go, whose card shows only the file it read', () => {
+		const read = JSON.stringify({ path: '/w/src/main.rs', content: 'fn main() {}\n'.repeat(400), hashlines: '1#ab|fn main() {}\n'.repeat(400) });
+		const c = live();
+		turn(c, 'read it', [
+			{ type: 'tool_start', call_id: 'c2', name: 'read' },
+			{ type: 'tool_output', call_id: 'c2', name: 'read', output: read }
+		]);
+		c.releaseOutputs();
+		expect(tools(c)[1]!.output).toBe('');
+		const snapshot = replay();
+		const kept = JSON.stringify({ path: '/w/src/main.rs', hashlines: '1#ab|fn main() {}\n…', model_output_truncated: true });
+		snapshot.items.push({ role: 'user', content: 'read it' }, { role: 'tool', name: 'read', output: kept });
+		reshow(c, snapshot);
+		expect(tools(c)[1]!.output).toBe(kept);
+		expect(reasoning(c)).toBe(true);
+	});
+
+	it('tells which outputs the replay shows the same', () => {
+		expect(replayShows('bash', JSON.stringify({ stdout: 'ok', exit_code: 0 }))).toBe(true);
+		// Over 16 KB, as the engine counts it (UTF-8).
+		expect(replayShows('bash', 'x'.repeat(16 * 1024))).toBe(true);
+		expect(replayShows('bash', 'x'.repeat(16 * 1024 + 1))).toBe(false);
+		expect(replayShows('bash', '日'.repeat(6_000))).toBe(false);
+		// A diff over 8 KB.
+		expect(replayShows('edit', JSON.stringify({ path: 'a', diff: '+x\n'.repeat(3_000) }))).toBe(false);
+		expect(replayShows('edit', JSON.stringify({ path: 'a', diff: '+x\n'.repeat(100) }))).toBe(true);
+		// A read keeps its file, its text goes; an image keeps its file.
+		expect(replayShows('read', JSON.stringify({ path: 'a', content: 'x'.repeat(40_000), hashlines: 'y'.repeat(40_000) }))).toBe(true);
+		expect(replayShows('read', JSON.stringify({ path: 'a.png', kind: 'image', base64: 'A'.repeat(100_000) }))).toBe(true);
+		expect(replayShows('read', JSON.stringify({ path: 'a', entries: Array(4_000).fill('file.txt') }))).toBe(false);
+	});
+
+	it('fills in a turn that started while hidden, as it runs', () => {
+		const started = () => {
+			const c = live();
+			c.releaseOutputs();
+			// Another session's message starts a turn: its events still arrive.
+			c.handle({ type: 'user_message', content: 'from elsewhere' });
+			c.handle({ type: 'connecting' });
+			c.handle({ type: 'tool_start', call_id: 'c2', name: 'grep' });
+			c.handle({ type: 'tool_output', call_id: 'c2', name: 'grep', output: 'hit' });
+			expect(c.settled).toBe(false);
+			return c;
+		};
+		const snapshot = replay();
+		snapshot.items.push({ role: 'user', content: 'from elsewhere' }, { role: 'tool', name: 'grep', output: 'hit' });
+		// A call still running: the engine has no output for it yet.
+		const running = started();
+		running.handle({ type: 'tool_start', call_id: 'c3', name: 'bash' });
+		reshow(running, snapshot);
+		expect(tool(running).output).toBe('file body');
+		running.handle({ type: 'tool_output', call_id: 'c3', name: 'bash', output: 'built' });
+		expect(tools(running).map((m) => m.output)).toEqual(['file body', 'hit', 'built']);
+		// A reply streaming: it goes on in the same message.
+		const streaming = started();
+		streaming.handle({ type: 'assistant_delta', delta: 'work' });
+		reshow(streaming, snapshot);
+		streaming.handle({ type: 'assistant_delta', delta: 'ing' });
+		expect(streaming.messages.at(-1)).toMatchObject({ kind: 'assistant', text: 'working' });
+		expect(reasoning(streaming)).toBe(true);
+	});
+
+	it('fills in only from the snapshot of a chat shown again, not a transcript sent while hidden', () => {
+		const c = live();
+		c.releaseOutputs();
+		// The TUI on another client exits while this chat is hidden: every
+		// chat replaces its messages with the replay.
+		c.handle(replay());
+		expect(reasoning(c)).toBe(false);
+		expect(tool(c).output).toBe('file body');
+		c.handle({ type: 'info', message: 'later note' });
+		reshow(c, replay());
+		expect(c.messages.some((m) => m.kind === 'system' && m.text === 'later note')).toBe(true);
+		// Only the next transcript: the one after it replays as usual.
+		c.handle(replay());
+		expect(c.messages.some((m) => m.kind === 'system')).toBe(false);
 	});
 
 	it('replays as before when nothing was let go', () => {
 		const c = live();
+		c.armRefill();
 		c.handle(replay());
-		expect(c.messages.some((m) => m.kind === 'reasoning')).toBe(false);
+		expect(reasoning(c)).toBe(false);
+	});
+
+	it('pairs the turns of the shown and the replayed conversation', () => {
+		const shown = [
+			{ kind: 'user', text: '/plan x' },
+			{ kind: 'tool', callId: 'a', name: 'ls', output: '', running: false, isError: false, released: '3:0' }
+		] as const;
+		// A replayed call with another output does not fill the card.
+		expect(refilled([...shown], [{ kind: 'user', text: 'expanded' }, { kind: 'tool', callId: '', name: 'ls', output: 'abc', running: false, isError: false }])).toBeNull();
+		expect(merged([...shown], [{ kind: 'user', text: 'other' }])).toEqual([{ kind: 'user', text: 'other' }]);
 	});
 
 	it('keeps a long output of a replay to its head and tail, as a live one', () => {

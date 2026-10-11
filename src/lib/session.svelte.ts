@@ -630,12 +630,15 @@ export class SessionStore {
 		return id;
 	}
 
-	/** Opens a dormant session's engine (through the daemon). */
+	/** Opens a dormant session's engine (through the daemon). One that let go
+	 *  of its tool outputs while hidden gets them back from the snapshot
+	 *  (ChatState.armRefill). */
 	wake(id: string) {
 		const s = this.allSessions.find((x) => x.id === id);
 		const path = this.projectPathOf(id);
 		if (!s?.dormant || !path) return;
 		s.dormant = false;
+		s.chat.armRefill();
 		this.#spawn(s, path, undefined, this.#keepModel(s), s.chat.sessionId).catch((e) => this.#engineFailed(s.chat, e));
 	}
 
