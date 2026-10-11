@@ -434,7 +434,7 @@ describe('ChatState.handle', () => {
 	it('counts the whole request when context_usage breaks it down', () => {
 		const c = new ChatState();
 		c.handle({ type: 'context_usage', tokens: 9200 });
-		expect(c.contextBreakdown).toBeNull();
+		expect(c.requestParts).toBeNull();
 		expect(c.contextUsed).toBe(9200);
 		c.handle({
 			type: 'context_usage',
@@ -445,7 +445,7 @@ describe('ChatState.handle', () => {
 		expect(c.contextUsed).toBe(29_000);
 		// An engine that stops sending it falls back to the conversation.
 		c.handle({ type: 'context_usage', tokens: 500 });
-		expect(c.contextBreakdown).toBeNull();
+		expect(c.requestParts).toBeNull();
 		expect(c.contextUsed).toBe(500);
 	});
 

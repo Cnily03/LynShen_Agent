@@ -14,6 +14,7 @@
 	import CompactionCard from '$lib/CompactionCard.svelte';
 	import type { ApprovalMode } from '$lib/approval';
 	import { attemptGroups, SPAWN_TOOLS, spawnAgentRow, WAIT_TOOLS, type AgentRow } from '$lib/agentProgress';
+	import type { OpenHow } from '$lib/agents/subagentPages.svelte';
 	import DeliveryNotice from '$lib/DeliveryNotice.svelte';
 	import { parseDelivery } from '$lib/delivery';
 	import { sendCardProps, sendCardView, type SessionMessageView } from '$lib/sessions/sessionMessage';
@@ -112,7 +113,7 @@
 		 *  cards (absent: plain tool rows). */
 		agents?: AgentRow[];
 		/** Shows a subagent's own conversation. */
-		onOpenAgent?: (row: AgentRow) => void;
+		onOpenAgent?: (row: AgentRow, how: OpenHow) => void;
 		/** Shows a worktree subagent's changes. */
 		onAgentChanges?: (row: AgentRow) => void;
 		/** Merges a worktree subagent's changes into the project, or drops them. */
@@ -540,7 +541,7 @@
 				<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
 				<div class="ucol">
 					<!-- One line: the bubble is pre-wrap, so template whitespace would show. -->
-					<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs">{#each m.images as p (p)}<UserImage path={p} load={loadImage} />{/each}</div>{/if}{#each userBlocks(m.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>
+					<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs">{#each m.images as p (p)}<UserImage path={p} load={loadImage} group={m.images} />{/each}</div>{/if}{#each userBlocks(m.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>
 					{#if m.state}
 						{#key m.state}
 							<div class="sendstate {m.state}" in:fade={{ duration: 160 }}>
@@ -938,8 +939,9 @@
 	}
 	.foot {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 12px;
+		gap: 4px 12px;
 		margin-top: 8px;
 		font-size: var(--fs-2xs);
 		color: var(--dim2);
@@ -1000,8 +1002,10 @@
 	.tgroup:hover {
 		color: var(--text);
 	}
-	.tg-count {
+	.tg-count,
+	.tg-fail {
 		flex-shrink: 0;
+		white-space: nowrap;
 	}
 	/* The latest call, in the card's own format, trailing the count. */
 	.tg-latest {
@@ -1084,5 +1088,8 @@
 		font-size: var(--fs-sm);
 		line-height: 1.6;
 		word-break: break-word;
+	}
+	.foot .stat {
+		white-space: nowrap;
 	}
 </style>

@@ -18,7 +18,7 @@ import { t } from './i18n';
 import { costUsd } from './pricing';
 import { pendingCost, sumCosts, type BillingCost } from './sessionCost';
 import { CacheWatch } from './cacheMiss';
-import { breakdownTotal, parseBreakdown, type ContextBreakdown } from './composer/contextUsage';
+import { breakdownTotal, parseBreakdown, type RequestParts } from './composer/contextUsage';
 import { parseMcpServersEvent, type McpServerView } from './mcp';
 import { parseSubagentResult } from './agents/subagentResult';
 import { parseDelivery } from './delivery';
@@ -672,6 +672,19 @@ export const UNTITLED = 'New session';
  *  in the interface language. */
 export const shownTitle = (title: string) => (!title || title === UNTITLED ? t('shell.newChat') : title);
 
+/** The context by category (`context_breakdown`): `kind` is `used`,
+ *  `deferred` (tools loaded only when called), `buffer` (kept free for
+ *  auto-compaction) or `free`. */
+export type ContextBreakdown =
+	| {
+			total: number;
+			max: number;
+			categories: { name: string; tokens: number; kind: string }[];
+			memoryFiles: { path: string; tokens: number }[];
+			error?: undefined;
+	  }
+	| { error: string };
+
 export class ChatState {
 	/** Set by the page: invoked when the agent's `browser_open` tool succeeds,
 	 *  so the embedded browser panel navigates to the requested URL. Static —
@@ -743,12 +756,14 @@ export class ChatState {
 	contextTokens = $state(0);
 	/** The engine's next request by part (lynshen `context_usage.breakdown`);
 	 *  null when the engine reports the conversation only. */
-	contextBreakdown = $state<ContextBreakdown | null>(null);
+	requestParts = $state<RequestParts | null>(null);
 	/** Tokens the next request holds: the whole request when the engine
 	 *  breaks it down, else the conversation (`tokens`). */
 	get contextUsed() {
-		return this.contextBreakdown ? breakdownTotal(this.contextBreakdown) : this.contextTokens;
+		return this.requestParts ? breakdownTotal(this.requestParts) : this.contextTokens;
 	}
+	/** What the context holds, by category, as last asked (`context_usage`). */
+	contextBreakdown = $state<ContextBreakdown | null>(null);
 	contextWindow = $state(0);
 	contextLimit = $state(0);
 	cost = $state(0);
@@ -1268,6 +1283,9 @@ export class ChatState {
 	 *  notices) — kept out of the conversation bubble stream and shown in the
 	 *  collapsible status strip instead. Real conversation (user/assistant/
 	 *  reasoning/tool) and errors stay inline. */
+	/** How many of statusLog the user has seen (opened the notices since). */
+	statusSeen = $state(0);
+
 	get statusLog(): string[] {
 		const out: string[] = [];
 		for (const m of this.messages) if (m.kind === 'system') out.push(m.text);
@@ -1926,13 +1944,27 @@ export class ChatState {
 				}
 				break;
 			}
+			case 'context_breakdown':
+				this.contextBreakdown = ev.error
+					? { error: str(ev.error) }
+					: {
+							total: num(ev.total),
+							max: num(ev.max),
+							categories: arr<Record<string, unknown>>(ev.categories).map((c) => ({
+								name: str(c.name),
+								tokens: num(c.tokens),
+								kind: str(c.kind) || 'used'
+							})),
+							memoryFiles: arr<Record<string, unknown>>(ev.memory_files).map((f) => ({ path: str(f.path), tokens: num(f.tokens) }))
+						};
+				break;
 			case 'context_usage':
 				this.contextTokens = num(ev.tokens);
 				if (this.#compactedCard) {
 					this.#compactedCard.after = this.contextTokens;
 					this.#compactedCard = null;
 				}
-				this.contextBreakdown = parseBreakdown(ev.breakdown);
+				this.requestParts = parseBreakdown(ev.breakdown);
 				if (typeof ev.cost === 'number') {
 					this.cost = ev.cost;
 					this.#engineCost = true;
@@ -2486,8 +2518,9 @@ export class ChatState {
 				break;
 			case 'error': {
 				// An engine without the agent trace refuses its ops: nothing failed.
-				const refused = /^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent)$/.exec(str(ev.message));
+				const refused = /^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent|context_usage)$/.exec(str(ev.message));
 				if (refused) {
+					if (refused[1] === 'context_usage') this.contextBreakdown = { error: str(ev.message) };
 					if (refused[1] === 'subagent_transcript' && this.agentFocus && !this.subagentTranscripts[this.agentFocus])
 						this.subagentTranscripts[this.agentFocus] = { task: '', messages: [], error: t('dock.agents.noTranscript') };
 					// An engine before the agent team: the merges sent are not coming.

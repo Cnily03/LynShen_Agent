@@ -65,6 +65,8 @@ export type Op =
 	// MCP server management (engine config is global; any live session's engine
 	// can answer). Each op is acknowledged by an `mcp_servers` event.
 	| { op: 'mcp_list' }
+	// What the context holds, by category (caps.contextBreakdown): a `context_breakdown` event.
+	| { op: 'context_usage' }
 	| { op: 'mcp_set'; server: McpServerEntry }
 	| { op: 'mcp_remove'; name: string }
 	| { op: 'mcp_toggle'; name: string; enabled: boolean }
@@ -664,8 +666,10 @@ export interface FsEntry {
 export function listDir(path?: string, root?: string): Promise<FsEntry[]> {
 	return invoke('list_dir', { path, root });
 }
-export function readText(path: string): Promise<string> {
-	return invoke('read_text', { path });
+// The editor's file IO is confined to the project the file belongs to
+// (`root`; without it, the app's launch directory).
+export function readText(path: string, root?: string): Promise<string> {
+	return invoke('read_text', { path, root });
 }
 // Editor file IO (root-confined like read_text). `write_text` rejects with a
 // structured `conflict:<mtime_ms>` error when the file changed on disk since
@@ -674,11 +678,11 @@ export interface FileStat {
 	mtime_ms: number;
 	size: number;
 }
-export function statText(path: string): Promise<FileStat> {
-	return invoke('stat_text', { path });
+export function statText(path: string, root?: string): Promise<FileStat> {
+	return invoke('stat_text', { path, root });
 }
-export function writeText(path: string, content: string, expectedMtime?: number): Promise<FileStat> {
-	return invoke('write_text', { path, content, expectedMtime });
+export function writeText(path: string, content: string, expectedMtime?: number, root?: string): Promise<FileStat> {
+	return invoke('write_text', { path, content, expectedMtime, root });
 }
 export const isConflictError = (e: unknown) => String(e).startsWith('conflict:');
 // File content at git HEAD (diff gutter baseline); rejects paths outside the

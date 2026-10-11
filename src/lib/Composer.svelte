@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import { prefs } from '$lib/prefs.svelte';
+	import { costText } from '$lib/sessionCost';
 	import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUpIcon';
 	import ArrowUUpLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeftIcon';
 	import { engineAtLeast, UNQUEUE_SINCE } from '$lib/engineVersion.svelte';
@@ -38,6 +41,7 @@
 	import { effortLabel } from '$lib/composer/effort';
 	import { stripGroupSuffix, type ModelRow } from '$lib/composer/modelRows';
 	import type { ChatState } from '$lib/chat.svelte';
+	import { imageViewer } from '$lib/ui/imageViewer.svelte';
 	import { buildApproveOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import { caps, BACKEND_LABELS, type BackendId } from '$lib/backends';
 
@@ -73,8 +77,14 @@
 		onSwitch,
 		effortDisabled = false,
 		onApproval,
-		onRespond
+		onRespond,
+		foot,
+		onContextBreakdown
 	}: {
+		/** Extra controls on the strip under the card (right side). */
+		foot?: Snippet;
+		/** Asks the engine what its context holds, by category (engines that can say). */
+		onContextBreakdown?: () => void;
 		chat: ChatState;
 		input: string;
 		attachments: { path: string; image: boolean }[];
@@ -211,6 +221,16 @@
 				const thumb = document.createElement('img');
 				thumb.src = convertFileSrc(path);
 				thumb.alt = '';
+				thumb.title = t('common.image.open');
+				// Full size, with the message's other images a step away. The
+				// mousedown would otherwise move the caret around the chip.
+				thumb.addEventListener('mousedown', (e) => e.preventDefault());
+				thumb.addEventListener('click', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					const all = [...images].sort((a, b) => a.n - b.n).map((i) => ({ path: i.path }));
+					imageViewer.open(all, all.findIndex((i) => i.path === path));
+				});
 				span.appendChild(thumb);
 			}
 			span.appendChild(document.createTextNode(t('chat.imageToken', { n: img[1]! })));
@@ -651,7 +671,11 @@
 	const ctxAtThreshold = $derived(chat.contextLimit > 0);
 	const ctxLimit = $derived(chat.contextLimit || chat.contextWindow);
 	const ctxPct = $derived(ctxLimit > 0 ? Math.min(100, Math.round((chat.contextUsed / ctxLimit) * 100)) : 0);
-	const showCtx = $derived(bcaps.contextUsage && ctxLimit > 0);
+	// Context use shows when settings say so, and in any case once it gets
+	// close to the limit, when it becomes something to act on.
+	const CTX_SHOW_PCT = 70;
+	const showCtx = $derived(bcaps.contextUsage && ctxLimit > 0 && (prefs.footContext || ctxPct >= CTX_SHOW_PCT));
+	const showCost = $derived(prefs.footCost && (chat.cost > 0 || !!chat.billing));
 	const quota = $derived(planQuota(chat.planUsage));
 
 	function onKey(e: KeyboardEvent) {
@@ -1036,6 +1060,8 @@
 				{/if}
 			</span>
 		{/if}
+		{#if foot}{@render foot()}{/if}
+		{#if showCost}<span class="foot-cost" title={t('chat.cost')}>{costText(chat.cost, chat.billing)}</span>{/if}
 		{#if showCtx}
 			<ContextIndicator
 				used={chat.contextUsed}
@@ -1043,9 +1069,14 @@
 				limit={ctxLimit}
 				pct={ctxPct}
 				atThreshold={ctxAtThreshold}
+				parts={chat.requestParts}
 				breakdown={chat.contextBreakdown}
+				onBreakdown={bcaps.contextBreakdown ? onContextBreakdown : undefined}
 				cacheHitRate={chat.cacheHitRate}
 				{quota}
+				totalIn={chat.totalIn}
+				totalOut={chat.totalOut}
+				runMs={chat.runMs}
 				cost={chat.cost}
 				billing={chat.billing}
 				billingError={chat.billingError}
@@ -1057,7 +1088,7 @@
 <style>
 	/* Lines up with the conversation column (ChatPane's --chat-w). */
 	.composer-wrap {
-		padding: 0 var(--chat-pad, 32px) 18px;
+		padding: 0 var(--chat-pad, 32px) 12px;
 		max-width: calc(var(--chat-w, 844px) + 2 * var(--chat-pad, 32px));
 		width: 100%;
 		margin: 0 auto;
@@ -1144,6 +1175,7 @@
 		height: 18px;
 		border-radius: 3px;
 		object-fit: cover;
+		cursor: zoom-in;
 	}
 	/* A quoted passage: the opening words after a quote mark. */
 	.rich :global(.refchip.quotechip) {
@@ -1299,6 +1331,13 @@
 		max-width: 160px;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.foot-cost {
+		flex: none;
+		white-space: nowrap;
+		font-size: var(--fs-2xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--dim);
 	}
 	.branch-anchor {
 		flex-shrink: 1;

@@ -78,12 +78,14 @@
 	import RateLimitBanner from '$lib/RateLimitBanner.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
-	import ProgressCard from '$lib/agents/ProgressCard.svelte';
+	import ProgressTray from '$lib/agents/ProgressTray.svelte';
+	import NewSessionPicker from '$lib/NewSessionPicker.svelte';
+	import { placeFor, subagentPages, type OpenHow } from '$lib/agents/subagentPages.svelte';
 	import { agentRows, isLive, numstatTotals, porcelainFiles, type AgentRow } from '$lib/agentProgress';
 	import { agentChanges } from '$lib/agents/agentChanges.svelte';
 	import { confirmStop } from '$lib/agents/confirmStop';
 	import { parseToolOutput, toolTarget, toolVerb } from '$lib/toolSummary';
-	import { dirHints, isAbsolutePath, joinPath, parseFileHref, pathExt } from '$lib/fileRefs';
+	import { dirHints, joinPath, parseFileHref, pathExt } from '$lib/fileRefs';
 	import type { Msg, ModelOption } from '$lib/chat.svelte';
 	import type { SessionSwitch } from '$lib/composer/SessionSwitches.svelte';
 	import Modal from '$lib/ui/Modal.svelte';
@@ -530,8 +532,11 @@
 			since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER
 		})
 	);
-	function openAgent(row: AgentRow) {
-		openTrace(row.workflow ? null : row.id);
+	/** A subagent's conversation in a page of its own (see OpenHow); a
+	 *  Workflow opens the trace's run list. */
+	function openAgent(row: AgentRow, how: OpenHow = 'default') {
+		if (row.workflow) return openTrace(null);
+		subagentPages.open(session.id, row.id, placeFor(how, prefs.openElsewhere));
 	}
 	// The agent team: a worktree agent's changes open in the Changes panel at
 	// its workdir; merging or dropping them is the engine's (merge_agent).
@@ -1068,6 +1073,17 @@
 		}
 		if (chat.model && !pendingModel && !chat.switching) send({ op: 'command', input: `/model ${chat.model} ${effort}` });
 	}
+	// Thinking summaries follow settings: a running engine that reports the
+	// other way is switched (between turns; a start already gets the setting).
+	// Asked once per value: an engine that doesn't take it isn't asked again.
+	let thinkingAsked: boolean | null = null;
+	$effect(() => {
+		const want = prefs.thinkingSummaries;
+		if (chat.thinkingSummaries === null || chat.thinkingSummaries === want || thinkingAsked === want) return;
+		if (chat.busy || chat.restarting || chat.engineState === 'exited') return;
+		thinkingAsked = want;
+		untrack(() => send({ op: 'command', input: `/thinking ${want ? 'on' : 'off'}` }));
+	});
 	// Claude Code's session switches (SessionSwitches).
 	function setSwitch(name: SessionSwitch, on: boolean) {
 		const command = name === 'ultracode' ? '/effort ultracode' : `/${name}`;
@@ -1224,10 +1240,11 @@
 		const ref = parseFileHref(href);
 		const rel = ref.path;
 		if (!rel) return;
-		// A bare name (`index.html`) is looked for first in the folders the
-		// same reply named (`…/starcore/`).
+		// Absolute, from the home directory (`~/`) or relative to the project
+		// (or a repo inside it). A bare name (`index.html`) is looked for first
+		// in the folders the same reply named (`…/starcore/`).
 		const hints = context ? dirHints(context) : undefined;
-		const abs = isAbsolutePath(rel) ? rel : ((await resolveFileRef(cwd, rel, hints).catch(() => null)) ?? joinPath(cwd, rel));
+		const abs = (await resolveFileRef(cwd, rel, hints).catch(() => null)) ?? joinPath(cwd, rel);
 		const ext = pathExt(abs);
 		if ((ext === 'html' || ext === 'htm') && prefs.htmlOpenInBrowser) {
 			// The embedded browser loads http(s) only; a loopback URL also lets the
@@ -1354,14 +1371,6 @@
 	{/if}
 
 	<div class="mainwrap" bind:clientWidth={wrapW}>
-	<ProgressCard
-		{chat}
-		sessionId={session.id}
-		rows={turnAgents}
-		onOpen={traceable ? openAgent : undefined}
-		onStop={teamOps ? stopAgent : undefined}
-		onOpenTeam={teamPanel ? openTeam : undefined}
-	/>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
 			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
@@ -1377,7 +1386,7 @@
 			</div>
 		{:else if chat.messages.length === 0 && !chat.busy}
 			<div class="welcome">
-				<p class="welcome-tip">{t('shell.welcomeTip')}</p>
+				{#if session.draft && !project?.chats}<NewSessionPicker {store} {session} />{:else}<p class="welcome-tip">{t('shell.welcomeTip')}</p>{/if}
 				<div class="welcome-hints">
 					<span><kbd>/</kbd> {t('shell.hintCommand')}</span>
 					<span><kbd>@</kbd> {t('shell.hintRef')}</span>
@@ -1424,7 +1433,15 @@
 			<RateLimitBanner rateLimit={chat.rateLimit} onDismiss={() => (chat.rateLimit = null)} />
 		{/if}
 
-		<StatusStrip items={chat.statusLog} />
+		<ProgressTray
+			{chat}
+			sessionId={session.id}
+			rows={turnAgents}
+			onOpen={traceable ? openAgent : undefined}
+			onStop={(id) => send({ op: 'stop_task', task_id: id })}
+			onStopAgent={teamOps ? stopAgent : undefined}
+			onOpenTeam={teamPanel ? openTeam : undefined}
+		/>
 
 		{#if chat.planRevising}
 			<div class="approval-wrap">
@@ -1448,6 +1465,8 @@
 
 		<Composer
 			{chat}
+			foot={statusBell}
+			onContextBreakdown={session.draft || chat.engineState === 'exited' ? undefined : () => send({ op: 'context_usage' })}
 			bind:this={composerRef}
 			bind:input
 			bind:attachments
@@ -1544,6 +1563,8 @@
 	</Modal>
 {/if}
 
+{#snippet statusBell()}<StatusStrip {chat} />{/snippet}
+
 <style>
 	/* Whose session this is: a quiet line above the transcript. */
 	.owner {
@@ -1557,7 +1578,11 @@
 		color: var(--dim);
 	}
 	.owner-name {
-		flex: none;
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--text);
 		font-weight: 500;
 	}

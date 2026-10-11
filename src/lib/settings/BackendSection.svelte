@@ -342,6 +342,8 @@
 		font-weight: 500;
 	}
 	.bstate {
+		flex-shrink: 0;
+		white-space: nowrap;
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;

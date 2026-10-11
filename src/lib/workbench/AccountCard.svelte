@@ -462,4 +462,8 @@
 		color: var(--err);
 		font-size: var(--fs-xs);
 	}
+	.kv span:first-child {
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
 </style>

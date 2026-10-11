@@ -343,6 +343,8 @@
 		line-height: 1.55;
 	}
 	.later {
+		flex-shrink: 0;
+		white-space: nowrap;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleTextIcon';
+	import { APP_CAPS } from '$lib/appCaps';
 	// The remote control page for a phone's browser: pair once, then the desk,
 	// the agents and their sessions. Two ways to reach a computer:
 	// - LAN: the daemon served this page; pair with a code for a device token.
@@ -12,6 +14,7 @@
 	import QrCodeIcon from 'phosphor-svelte/lib/QrCodeIcon';
 	import DesktopIcon from 'phosphor-svelte/lib/DesktopIcon';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
+	import CaretUpDownIcon from 'phosphor-svelte/lib/CaretUpDownIcon';
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimpleIcon';
@@ -98,6 +101,9 @@
 	let mounted = $state(false);
 	/** The relay PWA, as opposed to a page served by a daemon on the LAN. */
 	let relayOrigin = $state(false);
+	/** The way back to the web app's chat (on the relay PWA, where the build
+	 *  has the web chat: APP_CAPS.webChat). */
+	const chatLink = $derived(relayOrigin && APP_CAPS.webChat);
 	// iPhone/iPad Safari: a home-screen app has its own storage, so pairing in
 	// the browser would not carry over. Offer to add it first; the code is only
 	// used if the user chooses to stay in the browser.
@@ -433,11 +439,12 @@
 
 <!-- The computer switcher: the shown computer and how its connection is
      doing; the menu switches, adds, renames and forgets computers. -->
-{#snippet switcher()}
+{#snippet switcher(foot = false)}
 	{#if active}
 		<div class="conn-wrap">
 			<button
 				class="conn {active.state.tone}"
+				class:foot
 				class:on={switchMenu}
 				onclick={() => (switchMenu = !switchMenu)}
 				aria-haspopup="menu"
@@ -445,12 +452,28 @@
 				title={t(active.state.text)}
 			>
 				<span class="dot" class:pulse={active.state.tone === 'wait'}></span>
-				<span class="conn-text">{nameOf(active)}</span>
-				<CaretDownIcon size={12} />
+				{#if foot}
+					<span class="conn-two">
+						<span class="conn-text">{nameOf(active)}</span>
+						<span class="conn-state">{t(active.state.short)}</span>
+					</span>
+					<CaretUpDownIcon size={14} />
+				{:else}
+					<span class="conn-text">{nameOf(active)}</span>
+					<CaretDownIcon size={12} />
+				{/if}
 			</button>
 			{#if switchMenu}
 				<button class="backdrop" aria-label={t('common.close')} tabindex="-1" onclick={() => (switchMenu = false)}></button>
-				<div class="pop switch-menu" class:left={wide} role="menu">
+				<div class="pop switch-menu" class:left={wide} class:up={foot} role="menu">
+					{#if chatLink && !foot}
+						<!-- app.lynshen.org: the remote computers are one part of the web app. -->
+						<a class="pop-row" role="menuitem" href="/chat">
+							<span class="pop-ico"><ChatCircleTextIcon size={18} /></span>
+							<span class="pop-txt"><span class="pop-label">{t('shell.remote.backToChat')}</span></span>
+						</a>
+						<div class="sep"></div>
+					{/if}
 					<div class="pop-head">{t('shell.remote.computers')}</div>
 					{#each conns as conn (conn)}
 						<button
@@ -570,6 +593,7 @@
 			<h1>{conns.length ? t('shell.remote.addComputer') : t('shell.remote.scanTitle')}</h1>
 			<p>{t('shell.remote.scanHint')}</p>
 			{@render linkEntry()}
+			{#if chatLink && !conns.length}<a class="licenses" href="/chat">{t('shell.remote.backToChat')}</a>{/if}
 			<a class="licenses" href={LICENSES_URL} target="_blank" rel="noopener">{t('shell.remote.licenses')}</a>
 		</div>
 	{:else if view === 'lan'}
@@ -605,6 +629,7 @@
 			{screens}
 			{switcher}
 			{resizer}
+			chatHref={chatLink ? '/chat' : undefined}
 			onAdd={startAdding}
 			onForget={(ask) => forget(conn, ask)}
 			onRepair={repair}
@@ -629,6 +654,10 @@
 	.remote.wide {
 		display: grid;
 		grid-template-columns: var(--side-w) 1fr;
+		/* One row the window's height: the list scrolls inside its column and
+		   the pane's pages fill the window, instead of the row growing with
+		   the list (which pushed the pane's middle off screen). */
+		grid-template-rows: minmax(0, 1fr);
 		height: 100dvh;
 		overflow: hidden;
 	}
@@ -856,6 +885,49 @@
 		right: auto;
 		left: 0;
 		transform-origin: top left;
+	}
+	.switch-menu.up {
+		top: auto;
+		bottom: calc(100% + 6px);
+		transform-origin: bottom left;
+	}
+	/* The wide sidebar's foot: a full row, as the chat's account. */
+	.conn.foot {
+		display: flex;
+		width: 100%;
+		height: auto;
+		gap: 10px;
+		padding: 8px 10px;
+		border: none;
+		border-radius: var(--r-md);
+		background: none;
+		color: var(--text);
+		font-size: var(--fs-sm);
+		text-align: left;
+	}
+	.conn.foot:hover,
+	.conn.foot.on {
+		background: var(--surface2);
+	}
+	.conn.foot:active {
+		transform: none;
+	}
+	.conn.foot.on :global(svg) {
+		transform: none;
+	}
+	.conn-two {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.conn.foot .conn-text {
+		max-width: none;
+		font-weight: 500;
+	}
+	.conn-state {
+		font-size: var(--fs-2xs);
+		color: var(--dim2);
 	}
 	.switch-menu .pop-ico {
 		justify-content: center;

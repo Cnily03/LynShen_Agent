@@ -15,6 +15,7 @@
 	import Elapsed from './Elapsed.svelte';
 	import StopAgent from './StopAgent.svelte';
 	import { teamNote } from './teamText';
+	import type { OpenHow } from './subagentPages.svelte';
 
 	let {
 		group,
@@ -31,7 +32,7 @@
 		rows: AgentRow[];
 		/** The attempt picked (its path; '' for none yet). */
 		picked?: string;
-		onOpen?: (row: AgentRow) => void;
+		onOpen?: (row: AgentRow, how: OpenHow) => void;
 		onViewChanges?: (row: AgentRow) => void;
 		/** Sends pick_attempt: merge `row`, discard the others. */
 		onPick?: (group: string, row: AgentRow) => void;
@@ -94,7 +95,7 @@
 			{@const line = stateLine(v)}
 			<div class="att" class:dropped={v.state === 'discarded'}>
 				<div class="ahead">
-					<button class="aname" disabled={!onOpen} onclick={() => onOpen?.(r)} title={r.label} aria-label={t('chat.progress.open', { name: r.label })}>
+					<button class="aname" disabled={!onOpen} onclick={(e) => onOpen?.(r, e.metaKey || e.ctrlKey ? 'other' : 'default')} title={r.label} aria-label={t('chat.progress.open', { name: r.label })}>
 						<StateIcon state={r.state} size={13} label={t(`dock.agents.state.${r.state}`)} />
 						<span>{t('chat.attempts.attempt', { n: v.n })}</span>
 					</button>

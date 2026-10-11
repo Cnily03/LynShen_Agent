@@ -7,14 +7,14 @@
 export const BREAKDOWN_KEYS = ['system_tools', 'skills', 'system_prompt', 'messages', 'mcp_tools'] as const;
 export type BreakdownKey = (typeof BREAKDOWN_KEYS)[number];
 /** Token count per request part; a part the engine left out is absent. */
-export type ContextBreakdown = Partial<Record<BreakdownKey, number>>;
+export type RequestParts = Partial<Record<BreakdownKey, number>>;
 
 /** `context_usage.breakdown` → known parts with a token count; null when
  *  the event has none (older engines, Claude Code, Codex). */
-export function parseBreakdown(v: unknown): ContextBreakdown | null {
+export function parseBreakdown(v: unknown): RequestParts | null {
 	if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
 	const src = v as Record<string, unknown>;
-	const out: ContextBreakdown = {};
+	const out: RequestParts = {};
 	let any = false;
 	for (const k of BREAKDOWN_KEYS) {
 		const n = src[k];
@@ -27,7 +27,7 @@ export function parseBreakdown(v: unknown): ContextBreakdown | null {
 }
 
 /** The whole request: the sum of its parts. */
-export function breakdownTotal(b: ContextBreakdown): number {
+export function breakdownTotal(b: RequestParts): number {
 	return BREAKDOWN_KEYS.reduce((sum, k) => sum + (b[k] ?? 0), 0);
 }
 

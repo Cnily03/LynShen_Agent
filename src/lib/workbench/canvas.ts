@@ -61,30 +61,6 @@ export function chatSessionsIn(layout: TileLayout): string[] {
 const isConversation = (panel: string) => chatSessionOf(panel) !== null || panel.startsWith(TUI_PANEL_PREFIX);
 
 /**
- * Open a tool panel (git, terminal, files, …) from the focused leaf `leafId`.
- * A tool does not cover a conversation: when the leaf shows a chat, the panel
- * joins the first leaf that holds no conversation, or splits the leaf to its
- * right. A leaf that already shows a tool takes the panel as another tab, and
- * so does a chat leaf when `split` is false (the canvas is too narrow).
- */
-export function openToolTab(
-	layout: TileLayout,
-	leafId: string | null,
-	tab: TileTab,
-	split = true
-): TileLayout {
-	const leaves = leavesOf(layout.root);
-	const focused = (leafId && findLeaf(layout.root, leafId)) || leaves[0];
-	if (!focused) return openTab(layout, null, tab);
-	const front = focused.tabs.find((t) => t.id === focused.active);
-	if (!front || !isConversation(front.panel)) return openTab(layout, focused.id, tab);
-	const tools = leaves.find((l) => l.tabs.every((t) => !isConversation(t.panel)));
-	if (tools) return openTab(layout, tools.id, tab);
-	if (!split) return openTab(layout, focused.id, tab);
-	return splitLeaf(layout, focused.id, 'right', tab, TOOL_SIDE_RATIO).layout;
-}
-
-/**
  * Open (or re-activate) the chat tile for `sessionId`, landing in `leafId`.
  * A leaf shows one conversation at a time (switching is the sidebar's, as in
  * ChatGPT or Claude, not a row of tabs): opening one in a leaf that already
@@ -132,4 +108,32 @@ export function reconcileLayout(
 	if (!seedSessionId || chatSessionsIn(layout).length) return layout;
 	if (!layout.root) return singleLeafLayout([chatTab(seedSessionId)]);
 	return wrapRoot(layout, 'left', chatTab(seedSessionId), CHAT_SEED_RATIO);
+}
+
+/** Where a subagent or tool window opens. `side`: as a tab of the one side
+ *  column (the tile whose own + was used, `leafId`, when it holds no
+ *  conversation, else the first tile holding none), split off to the right
+ *  of the conversation (TOOL_SIDE_RATIO) only while there is none, or
+ *  stacked on it when `split` is false (the canvas is too narrow for a split
+ *  chat). `tab`: next to the conversation. A native TUI tab counts as a
+ *  conversation. */
+export function openElsewhere(
+	layout: TileLayout,
+	tab: TileTab,
+	{
+		place,
+		chatLeaf,
+		leafId = null,
+		focused = null,
+		split = true
+	}: { place: 'side' | 'tab'; chatLeaf: string | null; leafId?: string | null; focused?: string | null; split?: boolean }
+): TileLayout {
+	if (place === 'tab') return openTab(layout, leafId ?? chatLeaf ?? focused, tab);
+	const hasChat = (leaf: { tabs: TileTab[] }) => leaf.tabs.some((x) => isConversation(x.panel));
+	const leaves = leavesOf(layout.root);
+	const side = leaves.find((l) => l.id === leafId && !hasChat(l)) ?? leaves.find((l) => !hasChat(l));
+	if (side) return openTab(layout, side.id, tab);
+	const anchor = [chatLeaf, leafId, focused, leaves[0]?.id].find((id) => id && findLeaf(layout.root, id));
+	if (!anchor) return openTab(layout, focused, tab);
+	return split ? splitLeaf(layout, anchor, 'right', tab, TOOL_SIDE_RATIO).layout : openTab(layout, anchor, tab);
 }

@@ -329,4 +329,9 @@
 		font-size: var(--fs-xs);
 		color: var(--dim);
 	}
+	.defbadge,
+	.tagx {
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
 </style>

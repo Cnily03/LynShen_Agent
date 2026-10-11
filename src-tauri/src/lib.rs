@@ -95,7 +95,6 @@ fn in_root_or_task_container(canon_path: &Path, canon_root: &Path) -> bool {
 /// canonical path on success. Without an explicit root, the launch root's
 /// parallel-task worktree container is accepted too (see in_root_or_task_container).
 fn confine_to_root(path: &Path, root: Option<&Path>) -> Result<PathBuf, String> {
-    let explicit = root.is_some();
     let base = root.map(PathBuf::from).unwrap_or_else(resolve_cwd);
     let canon_root = base
         .canonicalize()
@@ -106,12 +105,7 @@ fn confine_to_root(path: &Path, root: Option<&Path>) -> Result<PathBuf, String> 
     if is_protected(&canon_path) {
         return Err(format!("{} is protected", canon_path.display()));
     }
-    let ok = if explicit {
-        canon_path.starts_with(&canon_root)
-    } else {
-        in_root_or_task_container(&canon_path, &canon_root)
-    };
-    if ok {
+    if in_root_or_task_container(&canon_path, &canon_root) {
         Ok(canon_path)
     } else {
         Err("path is outside the project root".to_string())
@@ -2380,17 +2374,26 @@ fn walk_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// Resolves a relative file path a reply names. Agents write paths relative to
-/// the directory they worked in, which is often below the project root (a
-/// nested repo, the folder the reply just named): try `root/rel` first, then
-/// `hint/rel` for each directory the reply mentions (`hints`, in order), then
-/// `dir/rel` for every directory up to REF_DEPTH below the root. Of several
-/// matches the most recently modified wins: the file the agent just wrote,
-/// not an older one of the same name (`index.html` in two games).
+/// Resolves a file path a reply names: absolute, from the home directory
+/// (`~/`), or relative. Agents write relative paths from the directory they
+/// worked in, which is often below the project root (a nested repo, the
+/// folder the reply just named): try `root/rel` first, then `hint/rel` for
+/// each directory the reply mentions (`hints`, in order), then `dir/rel` for
+/// every directory up to REF_DEPTH below the root. Of several matches the
+/// most recently modified wins: the file the agent just wrote, not an older
+/// one of the same name (`index.html` in two games).
 #[tauri::command]
 fn resolve_file_ref(root: String, rel: String, hints: Option<Vec<String>>) -> Option<String> {
+    let home = rel.strip_prefix("~/").or_else(|| rel.strip_prefix("~\\"));
+    let rel = match home {
+        Some(rest) => backend::home_dir().join(rest),
+        None => PathBuf::from(&rel),
+    };
+    if rel.is_absolute() {
+        return rel.is_file().then(|| ui_path(&rel));
+    }
     let root = PathBuf::from(root).canonicalize().ok()?;
-    let rel = Path::new(&rel);
+    let rel = rel.as_path();
     let inside = |path: PathBuf| {
         path.canonicalize()
             .ok()
@@ -2454,30 +2457,16 @@ fn find_ref(dir: &Path, rel: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Writes pasted image bytes to a temp file and returns its path, so the composer
+/// Writes pasted image bytes to a file and returns its path, so the composer
 /// can attach it the same way as a dragged/picked file (the protocol only accepts
-/// local paths, not inline data).
+/// local paths, not inline data). It goes where the daemon keeps files sent
+/// from the remote page (`~/.lynshen/uploads`): the remote page may show images
+/// from there (and nowhere else outside the projects), and the daemon removes
+/// them after 30 days, so a conversation's images outlive a temp-dir cleanup.
 #[tauri::command]
 fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
-    let dir = std::env::temp_dir().join("lynshen-paste");
+    let dir = lynshen_dir().join("uploads").join("desktop");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // Best-effort: drop paste images older than a day so this temp dir doesn't
-    // grow without bound across sessions.
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        let now = std::time::SystemTime::now();
-        for entry in entries.flatten() {
-            let stale = entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| now.duration_since(t).ok())
-                .map(|age| age.as_secs() > 86_400)
-                .unwrap_or(false);
-            if stale {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
     let safe_ext = if !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
         ext.to_lowercase()
     } else {
@@ -2494,8 +2483,8 @@ fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
 
 /// Reads a UTF-8 text file (size-capped). Returns an error for binary/oversized files.
 #[tauri::command]
-fn read_text(path: String) -> Result<String, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+fn read_text(path: String, root: Option<String>) -> Result<String, String> {
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     let meta = std::fs::metadata(&safe).map_err(|e| e.to_string())?;
     if meta.len() > MAX_TEXT_READ {
         return Err(format!("file too large to view ({} bytes)", meta.len()));
@@ -2527,8 +2516,8 @@ fn file_stat(path: &Path) -> Result<FileStat, String> {
 /// mtime (ms) + size of a file in the project root — the editor's
 /// optimistic-concurrency baseline for `write_text`.
 #[tauri::command]
-fn stat_text(path: String) -> Result<FileStat, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+fn stat_text(path: String, root: Option<String>) -> Result<FileStat, String> {
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     file_stat(&safe)
 }
 
@@ -2549,8 +2538,9 @@ fn write_text(
     path: String,
     content: String,
     expected_mtime: Option<u64>,
+    root: Option<String>,
 ) -> Result<FileStat, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     let meta = std::fs::metadata(&safe).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err("not a regular file".to_string());
@@ -3894,6 +3884,10 @@ mod tests {
         assert_eq!(resolve_file_ref(r.clone(), "src/x.ts".into(), None), Some(ui_path(&canon.join("a/repo/src/x.ts"))));
         assert!(resolve_file_ref(r.clone(), "src/y.ts".into(), None).is_some());
         assert_eq!(resolve_file_ref(r.clone(), "src/z.ts".into(), None), None);
+        // An absolute path is taken as it is, wherever the project is.
+        let abs = canon.join("b/src/y.ts").display().to_string();
+        assert_eq!(resolve_file_ref("/nonexistent".into(), abs.clone(), None), Some(ui_path(Path::new(&abs))));
+        assert_eq!(resolve_file_ref(r.clone(), canon.join("b/src/none.ts").display().to_string(), None), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -4508,6 +4502,21 @@ mod tests {
         assert!(!is_valid_repo_relpath("a//b"));
         assert!(!is_valid_repo_relpath("a\\b"));
         assert!(!is_valid_repo_relpath("a\nb"));
+    }
+
+    #[test]
+    fn editor_reads_stay_inside_the_files_project() {
+        // Confined to the project the file was opened from, not the app's
+        // launch directory (a Finder or Windows launch puts it elsewhere).
+        let (root, repo) = tmp_repo("editor-root");
+        let inside = repo.join("使用说明.md");
+        let outside = root.join("other.md");
+        std::fs::write(&inside, "hi").unwrap();
+        std::fs::write(&outside, "no").unwrap();
+        let r = Some(repo.display().to_string());
+        assert_eq!(super::read_text(inside.display().to_string(), r.clone()).unwrap(), "hi");
+        assert!(super::read_text(outside.display().to_string(), r).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
