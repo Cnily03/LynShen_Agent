@@ -1,7 +1,7 @@
 import { AUTO_CONTINUE, ChatState, UNTITLED } from './chat.svelte';
 import { acpAgentsList, closeSession, createChatDir, daemon, hostSession, listDir, sessionMeta, sessionHistory, defaultWorkspaceDir, writeConfig, git, type FsEntry, type HistoryItem } from './protocol';
 import { chatFolderName } from './chatFolder';
-import type { EngineSpec } from './daemon';
+import { DaemonError, type EngineSpec } from './daemon';
 import { canHandOffToTui, isValidResumeSessionId } from './tuiHandoff';
 import { normalizeBackendId, type BackendId } from './backends';
 import { createLynShenAdapter } from './backends/lynshen';
@@ -9,6 +9,7 @@ import { clearDraft, dispatch, dropHeldOps, holdOps, ioFor, markDraft, peekHeldO
 import { buildBackendOpts, defaultBackendFor } from './backends/settings';
 import { toEngineMode } from './approval';
 import { getLocale, t } from '$lib/i18n';
+import { prefs } from './prefs.svelte';
 import { workMode } from './requirements.svelte';
 import { saveComposerText } from './composerText';
 import { toast } from './ui/toast.svelte';
@@ -167,8 +168,9 @@ export class SessionStore {
 		// The daemon can't be reached (restarting, being upgraded): keep trying
 		// for about 4.5 minutes, backing off, without spending the crash budget
 		// or stacking an error per attempt. Any other failure (the daemon
-		// answered: Codex not installed, a bad config) shows as it is.
-		if (s && s.surface !== 'tui' && daemonUnreachable(e) && chat.daemonRetries < DAEMON_RETRY_DELAYS.length) {
+		// answered: Codex not installed, the engine's program not found, a
+		// bad config) shows as it is.
+		if (s && s.surface !== 'tui' && !(e instanceof DaemonError) && daemonUnreachable(e) && chat.daemonRetries < DAEMON_RETRY_DELAYS.length) {
 			if (chat.daemonRetries === 0) chat.messages.push({ kind: 'system', text: t('shell.daemonReconnecting') });
 			const delay = DAEMON_RETRY_DELAYS[chat.daemonRetries++]!;
 			setTimeout(() => {
@@ -271,7 +273,7 @@ export class SessionStore {
 							...(s.chat.ultracode ? { ultracode: true } : {}),
 							...(s.chat.fast ? { fast: true } : {}),
 							...(s.chat.effort ? { effort: s.chat.effort } : {}),
-							...(s.chat.thinkingSummaries === false ? { thinking: false } : {})
+							...(!prefs.thinkingSummaries ? { thinking: false } : {})
 						}
 					})
 				: s.backendId === 'codex'
@@ -283,7 +285,7 @@ export class SessionStore {
 								...program,
 								// A restarted engine keeps the session's switches.
 								...(s.chat.fast ? { fast: true } : {}),
-								...(s.chat.thinkingSummaries === false ? { thinking: false } : {})
+								...(!prefs.thinkingSummaries ? { thinking: false } : {})
 							}
 						})
 					: s.backendId === 'acp'
@@ -573,6 +575,18 @@ export class SessionStore {
 		if (i < 0) return;
 		rest.splice(after ? i + 1 : i, 0, s);
 		p.sessions = rest;
+	}
+
+	/** A new conversation not started yet (a draft) moves to another
+	 *  project: it starts there, in that project's directory. */
+	moveDraft(id: string, projectId: string) {
+		const from = this.projects.find((p) => p.sessions.some((x) => x.id === id));
+		const to = this.userProjects.find((p) => p.id === projectId && !p.chats && !p.stale);
+		const s = from?.sessions.find((x) => x.id === id);
+		if (!from || !to || !s?.draft || from === to) return;
+		from.sessions = from.sessions.filter((x) => x !== s);
+		to.sessions.unshift(s);
+		to.lastBackend = s.backendId;
 	}
 
 	/** A session's title, archive state or removal goes to the daemon, which

@@ -4,7 +4,7 @@ import { describeError, stripEngineHint } from './errorInfo';
 describe('describeError', () => {
 	it('reads a gateway 401 as the session credential running out, not a codex login', () => {
 		const raw =
-			"unexpected status 401 Unauthorized: invalid token, url: https://api.lynshen.net/v1/responses, request id: 2e5d62a1-6dfa-4d1b-8ce2-ef42f25ee84a (Codex needs to sign in again: run `codex login` in a terminal.)";
+			"unexpected status 401 Unauthorized: invalid token, url: https://api.lynshen.org/v1/responses, request id: 2e5d62a1-6dfa-4d1b-8ce2-ef42f25ee84a (Codex needs to sign in again: run `codex login` in a terminal.)";
 		expect(describeError(raw, 'codex')).toEqual({
 			kind: 'lynshenAuth',
 			action: 'restart',

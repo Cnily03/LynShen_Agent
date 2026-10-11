@@ -139,6 +139,12 @@ const shell = {
 		findNext: '下一个',
 
 		// welcome / empty states
+		startPicker: {
+			lead: '在 {project} 用 {backend} 开始新对话',
+			project: '项目',
+			backend: '后端',
+			openFolder: '打开文件夹…'
+		},
 		welcomeTip: '给 LynShen 指派一个任务，开始新对话',
 		hintCommand: '命令',
 		hintRef: '引用文件',
@@ -313,6 +319,7 @@ const shell = {
 			relayPairInvalid: '配对码失效或已被使用。请在电脑上重新生成二维码，再扫码。',
 			relayRevoked: '这台设备已被电脑移除，或还没有配对。请重新扫码。',
 			forget: '忘记这台电脑',
+			backToChat: '返回对话',
 			licenses: '开源许可',
 			forgetConfirm: '忘记这台电脑？之后需要重新扫码配对。',
 			forgetHostConfirm: '忘记「{name}」？之后需要重新扫码配对。',
@@ -1069,6 +1076,12 @@ const shell = {
 		findNext: 'Next',
 
 		// welcome / empty states
+		startPicker: {
+			lead: 'Start a conversation in {project} with {backend}',
+			project: 'Project',
+			backend: 'Backend',
+			openFolder: 'Open a folder…'
+		},
 		welcomeTip: 'Assign LynShen a task to start a new conversation',
 		hintCommand: 'Commands',
 		hintRef: 'Reference files',
@@ -1243,6 +1256,7 @@ const shell = {
 			relayPairInvalid: 'The pairing code expired or was already used. Show a new QR code on your computer and scan it.',
 			relayRevoked: 'Your computer removed this device, or it was never paired. Scan the QR code again.',
 			forget: 'Forget this computer',
+			backToChat: 'Back to chats',
 			licenses: 'Open-source licenses',
 			forgetConfirm: 'Forget this computer? You will need to scan its QR code again.',
 			forgetHostConfirm: 'Forget “{name}”? You will need to scan its QR code again.',

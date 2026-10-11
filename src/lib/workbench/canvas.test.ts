@@ -5,7 +5,7 @@ import {
 	chatSessionsIn,
 	chatTab,
 	openChatTab,
-	openToolTab,
+	openElsewhere,
 	reconcileLayout,
 	CHAT_SEED_RATIO,
 	TOOL_SIDE_RATIO
@@ -78,11 +78,11 @@ describe('openChatTab', () => {
 	});
 });
 
-describe('openToolTab', () => {
+describe('openElsewhere beside the chat', () => {
 	it('opens a tool beside a lone chat instead of covering it', () => {
 		const layout = singleLeafLayout([chatTab('s1')]);
 		const chatLeaf = leavesOf(layout.root)[0];
-		const next = openToolTab(layout, chatLeaf.id, panelTab('t1', 'git'));
+		const next = openElsewhere(layout, panelTab('t1', 'git'), { place: 'side', chatLeaf: chatLeaf.id });
 		const root = next.root as SplitNode;
 		expect(root.dir).toBe('row');
 		expect(root.ratio).toBeCloseTo(1 - TOOL_SIDE_RATIO);
@@ -94,8 +94,8 @@ describe('openToolTab', () => {
 	it('stacks later tools in the existing tool leaf', () => {
 		const layout = singleLeafLayout([chatTab('s1')]);
 		const chatLeaf = leavesOf(layout.root)[0];
-		const once = openToolTab(layout, chatLeaf.id, panelTab('t1', 'git'));
-		const twice = openToolTab(once, chatLeaf.id, panelTab('t2', 'term'));
+		const once = openElsewhere(layout, panelTab('t1', 'git'), { place: 'side', chatLeaf: chatLeaf.id });
+		const twice = openElsewhere(once, panelTab('t2', 'term'), { place: 'side', chatLeaf: chatLeaf.id });
 		const leaves = leavesOf(twice.root);
 		expect(leaves).toHaveLength(2);
 		expect(leaves[1].tabs.map((t) => t.panel)).toEqual(['git', 'term']);
@@ -105,13 +105,13 @@ describe('openToolTab', () => {
 	it('adds the tab to a focused leaf that already shows a tool', () => {
 		const layout = dockOnlyLayout();
 		const target = leavesOf(layout.root)[1];
-		const next = openToolTab(layout, target.id, panelTab('t9', 'files'));
+		const next = openElsewhere(layout, panelTab('t9', 'files'), { place: 'side', chatLeaf: null, leafId: target.id });
 		expect(leavesOf(next.root)[1].tabs.map((t) => t.panel)).toEqual(['term', 'files']);
 	});
 
 	it('stacks the tool on the chat when splitting is not allowed', () => {
 		const layout = singleLeafLayout([chatTab('s1')]);
-		const next = openToolTab(layout, null, panelTab('t1', 'git'), false);
+		const next = openElsewhere(layout, panelTab('t1', 'git'), { place: 'side', chatLeaf: null, split: false });
 		const leaves = leavesOf(next.root);
 		expect(leaves).toHaveLength(1);
 		expect(leaves[0].tabs.map((t) => t.panel)).toEqual(['chat:s1', 'git']);
@@ -119,12 +119,12 @@ describe('openToolTab', () => {
 
 	it('treats a native TUI tab as a conversation', () => {
 		const layout = singleLeafLayout([panelTab('tui', 'tui:codex')]);
-		const next = openToolTab(layout, null, panelTab('t1', 'git'));
+		const next = openElsewhere(layout, panelTab('t1', 'git'), { place: 'side', chatLeaf: null });
 		expect(leavesOf(next.root)).toHaveLength(2);
 	});
 
 	it('creates a root leaf on an empty canvas', () => {
-		const next = openToolTab(singleLeafLayout([]), null, panelTab('t1', 'git'));
+		const next = openElsewhere(singleLeafLayout([]), panelTab('t1', 'git'), { place: 'side', chatLeaf: null });
 		expect(leavesOf(next.root).map((l) => l.tabs.map((t) => t.panel))).toEqual([['git']]);
 	});
 });
@@ -182,5 +182,23 @@ describe('reconcileLayout', () => {
 		const maxed = toggleMaximize(base, leavesOf(base.root)[0].id);
 		const next = reconcileLayout(JSON.parse(JSON.stringify(serializeLayout(maxed))), ['s1'], 's1');
 		expect(next).toEqual(maxed);
+	});
+});
+
+describe('openElsewhere', () => {
+	it('keeps one side column: windows become tabs of it', () => {
+		let layout = singleLeafLayout([chatTab('s1')]);
+		const chatLeaf = () => leavesOf(layout.root).find((l) => l.tabs.some((t) => t.id === chatPanel('s1')))!.id;
+		for (const id of ['files', 'agents', 'audit', 'subagent:s1:a', 'proposal:s1:p']) {
+			layout = openElsewhere(layout, panelTab(id), { place: 'side', chatLeaf: chatLeaf() });
+		}
+		const leaves = leavesOf(layout.root);
+		expect(leaves).toHaveLength(2);
+		expect(leaves[1].tabs.map((t) => t.id)).toEqual(['files', 'agents', 'audit', 'subagent:s1:a', 'proposal:s1:p']);
+	});
+
+	it('opens next to the conversation in tab mode', () => {
+		const layout = openElsewhere(singleLeafLayout([chatTab('s1')]), panelTab('git'), { place: 'tab', chatLeaf: null, focused: null });
+		expect(leavesOf(layout.root)).toHaveLength(1);
 	});
 });

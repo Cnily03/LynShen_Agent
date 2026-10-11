@@ -12,6 +12,8 @@ mod agent_import;
 mod app_cli;
 #[cfg(desktop)]
 mod app_update;
+#[cfg(desktop)]
+mod autostart;
 mod backend;
 mod browser;
 mod capture;
@@ -95,7 +97,6 @@ fn in_root_or_task_container(canon_path: &Path, canon_root: &Path) -> bool {
 /// canonical path on success. Without an explicit root, the launch root's
 /// parallel-task worktree container is accepted too (see in_root_or_task_container).
 fn confine_to_root(path: &Path, root: Option<&Path>) -> Result<PathBuf, String> {
-    let explicit = root.is_some();
     let base = root.map(PathBuf::from).unwrap_or_else(resolve_cwd);
     let canon_root = base
         .canonicalize()
@@ -106,12 +107,7 @@ fn confine_to_root(path: &Path, root: Option<&Path>) -> Result<PathBuf, String> 
     if is_protected(&canon_path) {
         return Err(format!("{} is protected", canon_path.display()));
     }
-    let ok = if explicit {
-        canon_path.starts_with(&canon_root)
-    } else {
-        in_root_or_task_container(&canon_path, &canon_root)
-    };
-    if ok {
+    if in_root_or_task_container(&canon_path, &canon_root) {
         Ok(canon_path)
     } else {
         Err("path is outside the project root".to_string())
@@ -223,7 +219,70 @@ fn daemon_listening() -> bool {
 /// otherwise both spawn one.
 static DAEMON_START: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn ensure_daemon(bin_override: Option<&str>, env: &[(String, String)]) -> Result<(), String> {
+/// The phone page (`/remote`) the daemon serves to a LAN or Tailscale
+/// address: this app's own frontend, written out to `~/.lynshen/web` for the
+/// daemon's `--web`. The daemon only ships its own page in a release archive,
+/// so without this a phone opening the computer's address got "no web page
+/// is installed". The copy is rewritten when the app's assets change. None
+/// when the build embeds no frontend (development) or the copy fails.
+fn remote_web_dir(app: &AppHandle) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let resolver = app.asset_resolver();
+    let mut files: Vec<(String, Vec<u8>)> = resolver
+        .iter()
+        .filter_map(|(key, _)| {
+            let key = key.trim_start_matches('/').to_string();
+            // Decompressed, with the CSP nonces filled in for HTML.
+            resolver.get(key.clone()).map(|asset| (key, asset.bytes))
+        })
+        .collect();
+    if !files.iter().any(|(key, _)| key == "index.html") {
+        return None;
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (key, bytes) in &files {
+        // HTML carries fresh nonces each read; its size stands in for it.
+        key.hash(&mut hasher);
+        if key.ends_with(".html") {
+            bytes.len().hash(&mut hasher);
+        } else {
+            bytes.hash(&mut hasher);
+        }
+    }
+    let stamp = format!("{:016x}", hasher.finish());
+    let dir = lynshen_dir().join("web");
+    let marker = dir.join(".stamp");
+    if std::fs::read_to_string(&marker).ok().as_deref() == Some(stamp.as_str()) {
+        return Some(dir);
+    }
+    let staging = lynshen_dir().join("web.new");
+    let _ = std::fs::remove_dir_all(&staging);
+    for (key, bytes) in &files {
+        let relative = std::path::Path::new(key);
+        if relative
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            continue;
+        }
+        let path = staging.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok()?;
+        }
+        std::fs::write(&path, bytes).ok()?;
+    }
+    std::fs::write(staging.join(".stamp"), &stamp).ok()?;
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::rename(&staging, &dir).ok()?;
+    Some(dir)
+}
+
+fn ensure_daemon(
+    bin_override: Option<&str>,
+    env: &[(String, String)],
+    web: Option<&std::path::Path>,
+) -> Result<(), String> {
     if daemon_listening() {
         return Ok(());
     }
@@ -243,8 +302,11 @@ fn ensure_daemon(bin_override: Option<&str>, env: &[(String, String)]) -> Result
         bin_override,
     ));
     no_window(&mut cmd);
-    cmd.args(["daemon", "--listen", DAEMON_ADDR])
-        .stdin(std::process::Stdio::null())
+    cmd.args(["daemon", "--listen", DAEMON_ADDR]);
+    if let Some(web) = web {
+        cmd.arg("--web").arg(web);
+    }
+    cmd.stdin(std::process::Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
     // The terminal's environment: a GUI launch has a bare PATH, so an
@@ -389,6 +451,7 @@ fn replace_stale_daemon() {
 /// has to be started.
 #[tauri::command(async)]
 fn daemon_endpoint(
+    app: AppHandle,
     bin_override: Option<String>,
     env: Option<serde_json::Value>,
 ) -> Result<DaemonEndpoint, String> {
@@ -401,7 +464,12 @@ fn daemon_endpoint(
     };
     #[cfg(unix)]
     replace_stale_daemon();
-    ensure_daemon(bin_override.as_deref(), &env)?;
+    let web = if daemon_listening() {
+        None
+    } else {
+        remote_web_dir(&app)
+    };
+    ensure_daemon(bin_override.as_deref(), &env, web.as_deref())?;
     let path = lynshen_dir().join("daemon").join("token");
     let token = std::fs::read_to_string(&path)
         .map(|token| token.trim().to_string())
@@ -2380,17 +2448,26 @@ fn walk_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// Resolves a relative file path a reply names. Agents write paths relative to
-/// the directory they worked in, which is often below the project root (a
-/// nested repo, the folder the reply just named): try `root/rel` first, then
-/// `hint/rel` for each directory the reply mentions (`hints`, in order), then
-/// `dir/rel` for every directory up to REF_DEPTH below the root. Of several
-/// matches the most recently modified wins: the file the agent just wrote,
-/// not an older one of the same name (`index.html` in two games).
+/// Resolves a file path a reply names: absolute, from the home directory
+/// (`~/`), or relative. Agents write relative paths from the directory they
+/// worked in, which is often below the project root (a nested repo, the
+/// folder the reply just named): try `root/rel` first, then `hint/rel` for
+/// each directory the reply mentions (`hints`, in order), then `dir/rel` for
+/// every directory up to REF_DEPTH below the root. Of several matches the
+/// most recently modified wins: the file the agent just wrote, not an older
+/// one of the same name (`index.html` in two games).
 #[tauri::command]
 fn resolve_file_ref(root: String, rel: String, hints: Option<Vec<String>>) -> Option<String> {
+    let home = rel.strip_prefix("~/").or_else(|| rel.strip_prefix("~\\"));
+    let rel = match home {
+        Some(rest) => backend::home_dir().join(rest),
+        None => PathBuf::from(&rel),
+    };
+    if rel.is_absolute() {
+        return rel.is_file().then(|| ui_path(&rel));
+    }
     let root = PathBuf::from(root).canonicalize().ok()?;
-    let rel = Path::new(&rel);
+    let rel = rel.as_path();
     let inside = |path: PathBuf| {
         path.canonicalize()
             .ok()
@@ -2454,30 +2531,16 @@ fn find_ref(dir: &Path, rel: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Writes pasted image bytes to a temp file and returns its path, so the composer
+/// Writes pasted image bytes to a file and returns its path, so the composer
 /// can attach it the same way as a dragged/picked file (the protocol only accepts
-/// local paths, not inline data).
+/// local paths, not inline data). It goes where the daemon keeps files sent
+/// from the remote page (`~/.lynshen/uploads`): the remote page may show images
+/// from there (and nowhere else outside the projects), and the daemon removes
+/// them after 30 days, so a conversation's images outlive a temp-dir cleanup.
 #[tauri::command]
 fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
-    let dir = std::env::temp_dir().join("lynshen-paste");
+    let dir = lynshen_dir().join("uploads").join("desktop");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // Best-effort: drop paste images older than a day so this temp dir doesn't
-    // grow without bound across sessions.
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        let now = std::time::SystemTime::now();
-        for entry in entries.flatten() {
-            let stale = entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| now.duration_since(t).ok())
-                .map(|age| age.as_secs() > 86_400)
-                .unwrap_or(false);
-            if stale {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
     let safe_ext = if !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
         ext.to_lowercase()
     } else {
@@ -2494,8 +2557,8 @@ fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
 
 /// Reads a UTF-8 text file (size-capped). Returns an error for binary/oversized files.
 #[tauri::command]
-fn read_text(path: String) -> Result<String, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+fn read_text(path: String, root: Option<String>) -> Result<String, String> {
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     let meta = std::fs::metadata(&safe).map_err(|e| e.to_string())?;
     if meta.len() > MAX_TEXT_READ {
         return Err(format!("file too large to view ({} bytes)", meta.len()));
@@ -2527,8 +2590,8 @@ fn file_stat(path: &Path) -> Result<FileStat, String> {
 /// mtime (ms) + size of a file in the project root — the editor's
 /// optimistic-concurrency baseline for `write_text`.
 #[tauri::command]
-fn stat_text(path: String) -> Result<FileStat, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+fn stat_text(path: String, root: Option<String>) -> Result<FileStat, String> {
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     file_stat(&safe)
 }
 
@@ -2549,8 +2612,9 @@ fn write_text(
     path: String,
     content: String,
     expected_mtime: Option<u64>,
+    root: Option<String>,
 ) -> Result<FileStat, String> {
-    let safe = confine_to_root(&PathBuf::from(&path), None)?;
+    let safe = confine_to_root(&PathBuf::from(&path), root.as_deref().map(Path::new))?;
     let meta = std::fs::metadata(&safe).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err("not a regular file".to_string());
@@ -3606,6 +3670,19 @@ fn set_dev_dock_icon() {
     }
 }
 
+/// What the window-state plugin restores. On a silent launch at login it
+/// leaves visibility alone: it shows and focuses the window once the window
+/// is ready, which runs after `setup` hides it.
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    let flags = StateFlags::all() - StateFlags::DECORATIONS;
+    #[cfg(desktop)]
+    if autostart::silent_launch() {
+        return flags - StateFlags::VISIBLE;
+    }
+    flags
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -3613,11 +3690,15 @@ pub fn run() {
     // argv 里的 lynshen:// 链接会自动转发给 deep-link 插件（Windows/Linux）。
     #[cfg(desktop)]
     let builder = builder
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 登录项又拉起一个实例时，已在运行的那个保持原样（静默时不弹窗）。
+            if !autostart::from_login_item(&argv) {
+                show_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(autostart::plugin())
         .manage(app_update::Pending::default());
     builder
         .plugin(tauri_plugin_deep_link::init())
@@ -3629,13 +3710,20 @@ pub fn run() {
         // native title bar (0.3.x) would otherwise bring it back over the drawn one.
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all()
-                        - tauri_plugin_window_state::StateFlags::DECORATIONS,
-                )
+                .with_state_flags(window_state_flags())
                 .build(),
         )
         .setup(|app| {
+            // 登录项以静默方式启动：主窗口只留在托盘。配置里的窗口创建时可见，
+            // 这里立刻藏起来；窗口状态插件这次不恢复可见性（window_state_flags），
+            // 否则它在窗口就绪时会再次显示并聚焦。托盘、Dock 图标、深链和二次
+            // 启动仍走 show_main_window。
+            #[cfg(desktop)]
+            if autostart::silent_launch() {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+            }
             #[cfg(all(debug_assertions, target_os = "macos"))]
             set_dev_dock_icon();
             // 异步捕获登录 shell 环境快照（不阻塞启动；见 shell_env.rs）。
@@ -3793,6 +3881,10 @@ pub fn run() {
             app_update::update_feeds,
             #[cfg(desktop)]
             app_update::feature_flags,
+            #[cfg(desktop)]
+            autostart::autostart_get,
+            #[cfg(desktop)]
+            autostart::autostart_set,
             native_import::import_native_session,
             agent_import::import_scan,
             agent_import::import_apply,
@@ -3894,6 +3986,10 @@ mod tests {
         assert_eq!(resolve_file_ref(r.clone(), "src/x.ts".into(), None), Some(ui_path(&canon.join("a/repo/src/x.ts"))));
         assert!(resolve_file_ref(r.clone(), "src/y.ts".into(), None).is_some());
         assert_eq!(resolve_file_ref(r.clone(), "src/z.ts".into(), None), None);
+        // An absolute path is taken as it is, wherever the project is.
+        let abs = canon.join("b/src/y.ts").display().to_string();
+        assert_eq!(resolve_file_ref("/nonexistent".into(), abs.clone(), None), Some(ui_path(Path::new(&abs))));
+        assert_eq!(resolve_file_ref(r.clone(), canon.join("b/src/none.ts").display().to_string(), None), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -4508,6 +4604,21 @@ mod tests {
         assert!(!is_valid_repo_relpath("a//b"));
         assert!(!is_valid_repo_relpath("a\\b"));
         assert!(!is_valid_repo_relpath("a\nb"));
+    }
+
+    #[test]
+    fn editor_reads_stay_inside_the_files_project() {
+        // Confined to the project the file was opened from, not the app's
+        // launch directory (a Finder or Windows launch puts it elsewhere).
+        let (root, repo) = tmp_repo("editor-root");
+        let inside = repo.join("使用说明.md");
+        let outside = root.join("other.md");
+        std::fs::write(&inside, "hi").unwrap();
+        std::fs::write(&outside, "no").unwrap();
+        let r = Some(repo.display().to_string());
+        assert_eq!(super::read_text(inside.display().to_string(), r.clone()).unwrap(), "hi");
+        assert!(super::read_text(outside.display().to_string(), r).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

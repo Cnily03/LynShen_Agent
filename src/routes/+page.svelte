@@ -81,7 +81,7 @@
 		chatSessionOf,
 		chatSessionsIn,
 		openChatTab,
-		openToolTab,
+		openElsewhere as placeElsewhere,
 		reconcileLayout,
 		TOOL_SIDE_RATIO,
 		TOOL_SPLIT_MIN_CHAT
@@ -122,6 +122,10 @@
 	import ProposalPane from '$lib/ProposalPane.svelte';
 	import { planPages, proposalOf, proposalPanel } from '$lib/planPages.svelte';
 	import { agentChanges, agentChangesOf, agentChangesPanel } from '$lib/agents/agentChanges.svelte';
+	import { subagentPages, subagentOf, subagentPanel, type SubagentPlace } from '$lib/agents/subagentPages.svelte';
+	import SubagentPane from '$lib/agents/SubagentPane.svelte';
+	import StateIcon from '$lib/agents/StateIcon.svelte';
+	import { runState } from '$lib/agentTrace';
 	import { shortPath } from '$lib/agentProgress';
 	import type { ApprovalMode } from '$lib/approval';
 	import GoalPanel from '$lib/GoalPanel.svelte';
@@ -530,6 +534,8 @@
 		if (proposal) return planOf(proposal.sessionId, proposal.planId)?.title || t('chat.planCard.label');
 		const changes = agentChangesOf(tab.panel);
 		if (changes) return t('chat.team.changesTab', { name: shortPath(changes.agent) });
+		const sub = subagentOf(tab.panel);
+		if (sub) return subagentInfo(sub.sessionId, sub.agentId).label;
 		return (ALL_PANELS as readonly string[]).includes(tab.panel) ? t(`dock.tabs.${tab.panel}`) : tab.panel;
 	}
 	function tuiReady(sid: string): boolean {
@@ -644,14 +650,6 @@
 		syncActiveFromFocus();
 	}
 
-	/** Opens a tool panel from `leafId` without covering the chat there,
-	 *  unless the leaf is too narrow to give a split chat a usable width. */
-	function openTool(leafId: string | null, kind: string) {
-		const el = leafId ? document.querySelector<HTMLElement>(`[data-leaf="${leafId}"]`) : null;
-		const split = !el || el.clientWidth * (1 - TOOL_SIDE_RATIO) >= TOOL_SPLIT_MIN_CHAT;
-		applyTiles(openToolTab(tiles, leafId, { id: newTabId(), panel: kind }, split));
-	}
-
 	/** Per-leaf “+” menu (and the empty-canvas buttons). */
 	function mosaicAdd(leafId: string | null, key: string) {
 		if (key === 'chat') {
@@ -671,7 +669,21 @@
 				return;
 			}
 		}
-		openTool(leafId ?? focusedLeaf, key);
+		applyTiles(openElsewhere({ id: newTabId(), panel: key }, { leafId }));
+	}
+
+	/** A subagent or tool window, where settings say (canvas.openElsewhere).
+	 *  A conversation is split for it only while the chat keeps a usable
+	 *  width; below that the window stacks on it. */
+	function openElsewhere(
+		tab: TileTab,
+		{ leafId = null, place = prefs.openElsewhere, sessionId = store.activeId }: { leafId?: string | null; place?: 'side' | 'tab'; sessionId?: string | null } = {}
+	): TileLayout {
+		const chatLeaf = sessionId ? (leafOfTab(tiles.root, chatPanel(sessionId))?.id ?? null) : null;
+		const at = chatLeaf ?? leafId ?? focusedLeaf;
+		const el = at ? document.querySelector<HTMLElement>(`[data-leaf="${at}"]`) : null;
+		const split = !el || el.clientWidth * (1 - TOOL_SIDE_RATIO) >= TOOL_SPLIT_MIN_CHAT;
+		return placeElsewhere(tiles, tab, { place, chatLeaf, leafId, focused: focusedLeaf, split });
 	}
 
 	/** Palette / signals: re-activate an existing tab of this panel kind (a
@@ -680,7 +692,7 @@
 	function openPanelTile(kind: string) {
 		const existing = findPanelTab(kind);
 		if (existing) applyTiles(activateTab(tiles, existing.id));
-		else openTool(focusedLeaf, kind);
+		else applyTiles(openElsewhere({ id: newTabId(), panel: kind }));
 	}
 
 	/** The approval mode a plan runs in once approved: the one before plan mode. */
@@ -693,13 +705,13 @@
 		const m = sessionMap.get(sessionId)?.chat.messages.find((x) => x.kind === 'plan' && x.id === planId);
 		return m?.kind === 'plan' ? m : undefined;
 	}
-	/** A plan's page beside its session's chat: shown again if open, else a
-	 *  new tab (one per plan, closed one by one). */
+	/** A plan's page in the side column beside its session's chat: shown
+	 *  again if open, else a new tab (one per plan, closed one by one). */
 	function openPlanPage(sessionId: string, planId: string) {
 		const panel = proposalPanel(sessionId, planId);
 		const existing = findPanelTab(panel);
 		if (existing) return applyTiles(activateTab(tiles, existing.id));
-		openTool(leafOfTab(tiles.root, chatPanel(sessionId))?.id ?? focusedLeaf, panel);
+		applyTiles(openElsewhere({ id: newTabId(), panel }, { place: 'side', sessionId }));
 	}
 	$effect(() => {
 		const request = planPages.request;
@@ -712,12 +724,39 @@
 		const panel = agentChangesPanel(sessionId, agent);
 		const existing = findPanelTab(panel);
 		if (existing) return applyTiles(activateTab(tiles, existing.id));
-		openTool(leafOfTab(tiles.root, chatPanel(sessionId))?.id ?? focusedLeaf, panel);
+		applyTiles(openElsewhere({ id: newTabId(), panel }, { place: 'side', sessionId }));
 	}
 	$effect(() => {
 		const request = agentChanges.request;
 		if (!request || !tilesReady) return;
 		untrack(() => openAgentChanges(request.sessionId, request.agent));
+	});
+
+	/** A subagent of a session, for its tab: its name and state. */
+	function subagentInfo(sessionId: string, agentId: string): { label: string; state: ReturnType<typeof runState> | 'unknown' } {
+		const chat = sessionMap.get(sessionId)?.chat;
+		const run =
+			chat?.agentRuns.agents.find((a) => a.id === agentId) ??
+			chat?.agentRuns.workflows.flatMap((w) => w.agents).find((a) => a.id === agentId);
+		const life = chat?.subagents[agentId];
+		const status = run?.state || life?.status;
+		return {
+			label: run?.label || shortPath(life?.label || agentId),
+			state: status ? runState(status) : 'unknown'
+		};
+	}
+	/** A subagent's page: shown again if open; else beside the chat (one
+	 *  column, a tab per subagent) or as a tab next to the chat. */
+	function openSubagentPage(sessionId: string, agentId: string, place: SubagentPlace) {
+		const panel = subagentPanel(sessionId, agentId);
+		const existing = findPanelTab(panel);
+		if (existing) return applyTiles(activateTab(tiles, existing.id));
+		applyTiles(openElsewhere({ id: newTabId(), panel }, { place, sessionId }));
+	}
+	$effect(() => {
+		const request = subagentPages.request;
+		if (!request || !tilesReady) return;
+		untrack(() => openSubagentPage(request.sessionId, request.agentId, request.place));
 	});
 
 	// The workbench-active session always has a chat tile: activating a session
@@ -745,6 +784,11 @@
 		untrack(() => {
 			let next = tiles;
 			for (const sid of shownTiles) if (!ids.has(sid)) next = closeTab(next, chatPanel(sid));
+			// A closed session's subagent pages go with it.
+			for (const tab of leavesOf(next.root).flatMap((l) => l.tabs)) {
+				const sub = subagentOf(tab.panel);
+				if (sub && !ids.has(sub.sessionId)) next = closeTab(next, tab.id);
+			}
 			applyTiles(next);
 			if (store.activeId && !store.allSessions.some((s) => s.id === store.activeId))
 				store.activeId = store.shownSessions.find((s) => !s.archived)?.id ?? '';
@@ -768,7 +812,7 @@
 		if (!tilesReady) return;
 		untrack(() => {
 			const existing = findPanelTab('audit');
-			if (want && !existing) openTool(focusedLeaf, 'audit');
+			if (want && !existing) applyTiles(openElsewhere({ id: newTabId(), panel: 'audit' }));
 			else if (want && existing) applyTiles(activateTab(tiles, existing.id));
 			else if (!want && existing) applyTiles(closeTab(tiles, existing.id));
 		});
@@ -1437,6 +1481,8 @@
 	{@const sid = chatSessionOf(tab.panel)}
 	{@const s = sid ? sessionMap.get(sid) : undefined}
 	{#if s}<SessionMark status={sessionStatus(s.chat)} compact />{/if}
+	{@const sub = subagentOf(tab.panel)}
+	{#if sub}<StateIcon state={subagentInfo(sub.sessionId, sub.agentId).state} size={12} />{/if}
 {/snippet}
 
 <Toaster />
@@ -1676,6 +1722,11 @@
 									{:else}
 										<p class="panel-gone">{t('chat.team.changesGone')}</p>
 									{/if}
+								{:else if subagentOf(tab.panel)}
+									{@const sub = subagentOf(tab.panel)!}
+									{#key tab.panel}
+										<SubagentPane chat={sessionMap.get(sub.sessionId)?.chat} agentId={sub.agentId} onOp={(op) => dispatch(sub.sessionId, op)} />
+									{/key}
 								{:else if tab.panel === 'goal'}<GoalPanel goal={chat?.goal ?? null} />
 								{:else if tab.panel === 'agents'}{#if chat && activeId}{#key activeId}<AgentRunsPanel {chat} onOp={(op) => activeId && dispatch(activeId, op)} />{/key}{/if}
 								{:else if tab.panel === 'team'}{#if chat && activeId}{#key activeId}<TeamPanel

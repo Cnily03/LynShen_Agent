@@ -49,8 +49,16 @@ type PrefsShape = {
 	/** This machine's switch for agent team v2 (Beta); the engine gets it
 	 *  together with LynShen's remote switch (agents/teamSwitch.svelte.ts). */
 	teamV2: boolean;
+	/** Where subagents and tool windows (agents, changes, files…) open: in a
+	 *  column beside the chat, or as a tab next to it. */
+	openElsewhere: 'side' | 'tab';
 	/** Sending a message scrolls the conversation to its end. */
 	scrollOnSend: boolean;
+	/** Under the composer: the context in use (else only once it nears the limit) and the session's cost. */
+	footContext: boolean;
+	footCost: boolean;
+	/** Engines that can summarize their thinking (Claude, Codex) do, before replying. */
+	thinkingSummaries: boolean;
 };
 
 export const BACKGROUND_STRENGTHS = ['faint', 'medium', 'strong'] as const;
@@ -75,7 +83,11 @@ const DEFAULTS: PrefsShape = {
 	backgroundStamp: 0,
 	glass: 40,
 	teamV2: true,
-	scrollOnSend: true
+	openElsewhere: 'side',
+	scrollOnSend: true,
+	footContext: true,
+	footCost: true,
+	thinkingSummaries: true
 };
 
 /** A glass level within 0–100 (whole numbers); anything else is the default. */
@@ -166,7 +178,11 @@ class PrefsStore {
 	backgroundStamp = $state(DEFAULTS.backgroundStamp);
 	glass = $state(DEFAULTS.glass);
 	teamV2 = $state(DEFAULTS.teamV2);
+	openElsewhere = $state(DEFAULTS.openElsewhere);
 	scrollOnSend = $state(DEFAULTS.scrollOnSend);
+	footContext = $state(DEFAULTS.footContext);
+	footCost = $state(DEFAULTS.footCost);
+	thinkingSummaries = $state(DEFAULTS.thinkingSummaries);
 
 	init() {
 		const p = load();
@@ -187,7 +203,11 @@ class PrefsStore {
 		this.backgroundStamp = Number.isFinite(p.backgroundStamp) ? p.backgroundStamp : 0;
 		this.glass = glassLevel(p.glass);
 		this.teamV2 = p.teamV2 !== false;
+		this.openElsewhere = p.openElsewhere === 'tab' ? 'tab' : 'side';
 		this.scrollOnSend = p.scrollOnSend !== false;
+		this.footContext = p.footContext !== false;
+		this.footCost = p.footCost !== false;
+		this.thinkingSummaries = p.thinkingSummaries !== false;
 		this.#applyVibrancy();
 		this.#applyBackground();
 		// Asking the system for less transparency turns the glass solid.
@@ -226,7 +246,11 @@ class PrefsStore {
 					backgroundStamp: this.backgroundStamp,
 					glass: this.glass,
 					teamV2: this.teamV2,
-					scrollOnSend: this.scrollOnSend
+					openElsewhere: this.openElsewhere,
+					scrollOnSend: this.scrollOnSend,
+					footContext: this.footContext,
+					footCost: this.footCost,
+					thinkingSummaries: this.thinkingSummaries
 				})
 			);
 		} catch {
@@ -383,6 +407,17 @@ class PrefsStore {
 
 	setDefaultSurface(v: 'gui' | 'tui') {
 		this.defaultSurface = v;
+		this.#save();
+	}
+
+	setOpenElsewhere(v: 'side' | 'tab') {
+		this.openElsewhere = v;
+		this.#save();
+	}
+
+	/** The switches without side effects of their own. */
+	setFlag(name: 'footContext' | 'footCost' | 'thinkingSummaries', v: boolean) {
+		this[name] = v;
 		this.#save();
 	}
 

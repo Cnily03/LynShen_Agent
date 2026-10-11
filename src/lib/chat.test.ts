@@ -431,10 +431,19 @@ describe('ChatState.handle', () => {
 		expect(c.busy).toBe(false);
 	});
 
+	it('takes a refused context_usage as no categories, not a failure', () => {
+		for (const message of ['unknown op: context_usage', 'Claude Code sessions do not support context_usage']) {
+			const c = new ChatState();
+			c.handle({ type: 'error', message });
+			expect(c.contextBreakdown).toEqual({ error: message });
+			expect(c.messages).toHaveLength(0);
+		}
+	});
+
 	it('counts the whole request when context_usage breaks it down', () => {
 		const c = new ChatState();
 		c.handle({ type: 'context_usage', tokens: 9200 });
-		expect(c.contextBreakdown).toBeNull();
+		expect(c.requestParts).toBeNull();
 		expect(c.contextUsed).toBe(9200);
 		c.handle({
 			type: 'context_usage',
@@ -445,7 +454,7 @@ describe('ChatState.handle', () => {
 		expect(c.contextUsed).toBe(29_000);
 		// An engine that stops sending it falls back to the conversation.
 		c.handle({ type: 'context_usage', tokens: 500 });
-		expect(c.contextBreakdown).toBeNull();
+		expect(c.requestParts).toBeNull();
 		expect(c.contextUsed).toBe(500);
 	});
 

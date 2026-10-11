@@ -51,6 +51,15 @@
 	import { buildSetApprovalModeOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import { t } from '$lib/i18n';
+	import { imageViewer } from '$lib/ui/imageViewer.svelte';
+	import ProgressTray from '$lib/agents/ProgressTray.svelte';
+	import StatusStrip from '$lib/composer/StatusStrip.svelte';
+	import ContextIndicator from '$lib/composer/ContextIndicator.svelte';
+	import { planQuota } from '$lib/composer/quota';
+	import { agentRows, type AgentRow } from '$lib/agentProgress';
+	import { parseToolOutput, toolTarget, toolVerb } from '$lib/toolSummary';
+	import { costText } from '$lib/sessionCost';
+	import { prefs } from '$lib/prefs.svelte';
 	import { followTop, shortOfEnd } from '$lib/chatFollow';
 
 	let {
@@ -87,7 +96,8 @@
 		onChanges?: () => void;
 		/** Routes daemon frames and exits for `id` here; returns an unregister. */
 		register: (id: string, onFrame: (raw: string) => void, onExit: () => void) => () => void;
-		onBack: () => void;
+		/** Absent: nothing to go back to (the first page of a wide pane). */
+		onBack?: () => void;
 	} = $props();
 	const host = useHost();
 	const { daemon, agents: agentDirectory } = host;
@@ -329,6 +339,14 @@
 				});
 		}
 	}
+	/** The picked images full size (still on this device: their own URLs). */
+	function viewAttached(key: number) {
+		const shown = attachments.filter((a) => a.url);
+		imageViewer.open(
+			shown.map((a) => ({ path: a.name, load: () => Promise.resolve(a.url!) })),
+			shown.findIndex((a) => a.key === key)
+		);
+	}
 	function detach(key: number) {
 		const a = attachments.find((x) => x.key === key);
 		if (a?.url) URL.revokeObjectURL(a.url);
@@ -543,6 +561,26 @@
 		if (chat.agentRuns.workflows.some((w) => w.toolUseId === m.callId)) return { label: t('dock.agents.open'), run: () => openTrace(null) };
 		return null;
 	}
+	// The subagents of this conversation, as Desktop's chat shows them: every
+	// run (the message list's cards) and the current turn's (the progress tray).
+	const lastTool = (label: string) => {
+		const m = chat.subagentLastTool[label];
+		return m ? `${toolVerb(m.name)} ${toolTarget(m.name, parseToolOutput(m.output))}`.trim() : '';
+	};
+	const allAgents = $derived(agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool }));
+	const turnAgents = $derived(
+		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER })
+	);
+	// A subagent opens in the trace sheet on its own conversation (one place
+	// on a phone, whatever Desktop's setting); a Workflow on the run list.
+	function openAgent(row: AgentRow) {
+		openTrace(row.workflow ? null : row.id);
+	}
+	// Under the composer, as on Desktop: notices, cost, context in use.
+	const ctxLimit = $derived(chat.contextLimit || chat.contextWindow);
+	const ctxPct = $derived(ctxLimit > 0 ? Math.min(100, Math.round((chat.contextUsed / ctxLimit) * 100)) : 0);
+	const showCtx = $derived(bcaps.contextUsage && ctxLimit > 0 && (prefs.footContext || ctxPct >= 70));
+	const showCost = $derived(prefs.footCost && (chat.cost > 0 || !!chat.billing));
 	function setEffort(effort: string) {
 		if (chat.model && !pendingModel) send({ op: 'command', input: `/model ${chat.model} ${effort}` });
 	}
@@ -567,7 +605,7 @@
 
 <div class="session">
 	<header>
-		<button class="back" onclick={onBack} aria-label={t('shell.remote.back')}><ArrowLeftIcon size={18} /></button>
+		{#if onBack}<button class="back" onclick={onBack} aria-label={t('shell.remote.back')}><ArrowLeftIcon size={18} /></button>{/if}
 		<span class="heading">
 			<span class="title">{title}</span>
 			{#if hostName}<span class="host"><DesktopIcon size={11} /><span>{hostName}</span></span>{/if}
@@ -583,6 +621,7 @@
 		onStop={(id) => send({ op: 'stop_task', task_id: id })}
 		onOutput={(id) => send({ op: 'task_output', task_id: id })}
 		onTrace={bcaps.agentTrace ? openTrace : undefined}
+		agents={false}
 	/>
 	{#if traceOpen}
 		<!-- The agent trace, full screen over the session. -->
@@ -611,6 +650,8 @@
 				call={chat.call}
 				compactionTokens={chat.compactionTokens}
 				traceOf={bcaps.agentTrace ? traceOf : undefined}
+				agents={allAgents}
+				onOpenAgent={bcaps.agentTrace ? openAgent : undefined}
 				{loadImage}
 				onFile={onFile ? openReplyFile : undefined}
 				{scroller}
@@ -662,6 +703,7 @@
 			</div>
 		{/if}
 
+		<ProgressTray {chat} sessionId={sid || 'draft'} rows={turnAgents} onOpen={bcaps.agentTrace ? openAgent : undefined} onStop={(id) => send({ op: 'stop_task', task_id: id })} />
 		<div class="composer-wrap">
 			{#if chat.approvalPending && chat.busy}
 				<div class="queued">
@@ -705,7 +747,7 @@
 					<div class="attachments">
 						{#each attachments as a (a.key)}
 							<span class="att" class:failed={!!a.error} title={a.error ?? a.name}>
-								{#if a.url}<img src={a.url} alt="" />{:else}<FileIcon size={16} />{/if}
+								{#if a.url}<button type="button" class="att-thumb" onclick={() => viewAttached(a.key)} aria-label={t('common.image.open')}><img src={a.url} alt="" /></button>{:else}<FileIcon size={16} />{/if}
 								<span class="att-name">{a.name}</span>
 								{#if a.error}<span class="att-state">{t('shell.upload.failed')}</span>
 								{:else if !a.done}<span class="att-state">{Math.round((a.sent / Math.max(a.total, 1)) * 100)}%</span>{/if}
@@ -795,6 +837,32 @@
 					{/if}
 				</div>
 			</form>
+			{#if chat.statusLog.length || showCost || showCtx}
+				<div class="composer-foot">
+					<StatusStrip {chat} />
+					{#if showCost}<span class="foot-cost">{costText(chat.cost, chat.billing)}</span>{/if}
+					{#if showCtx}
+						<ContextIndicator
+							used={chat.contextUsed}
+							window={chat.contextWindow}
+							limit={ctxLimit}
+							pct={ctxPct}
+							atThreshold={chat.contextLimit > 0}
+							parts={chat.requestParts}
+							breakdown={chat.contextBreakdown}
+							onBreakdown={bcaps.contextBreakdown && connected ? () => send({ op: 'context_usage' }) : undefined}
+							cacheHitRate={chat.cacheHitRate}
+							quota={planQuota(chat.planUsage)}
+							totalIn={chat.totalIn}
+							totalOut={chat.totalOut}
+							runMs={chat.runMs}
+							cost={chat.cost}
+							billing={chat.billing}
+							billingError={chat.billingError}
+						/>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -848,13 +916,13 @@
 		background: var(--bg);
 		z-index: 10;
 	}
+	/* As the web chat's: no bar, the title quiet above the conversation. */
 	header {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
-		border-bottom: 1px solid var(--hairline);
-		background: var(--panel);
+		min-height: 52px;
+		padding: calc(env(safe-area-inset-top) + 8px) 12px 8px 16px;
 	}
 	.back {
 		display: inline-flex;
@@ -881,8 +949,9 @@
 		flex-direction: column;
 	}
 	.title {
-		font-weight: 600;
-		font-size: var(--fs-lg);
+		font-weight: 500;
+		font-size: var(--fs-sm);
+		color: var(--dim);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -993,6 +1062,21 @@
 	}
 	/* The desktop composer: a floating card, the text on top, the model and
 	   send / stop in a row under it. */
+	.composer-foot {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+		min-height: 22px;
+		padding: 5px 8px 0;
+		color: var(--dim);
+	}
+	.foot-cost {
+		flex: none;
+		white-space: nowrap;
+		font-size: var(--fs-2xs);
+		font-variant-numeric: tabular-nums;
+	}
 	.composer-wrap {
 		max-width: 920px;
 		margin: 0 auto;
@@ -1182,6 +1266,14 @@
 	.att.failed {
 		border-color: color-mix(in oklab, var(--err) 50%, transparent);
 		color: var(--err);
+	}
+	.att .att-thumb {
+		display: inline-flex;
+		flex: none;
+		padding: 0;
+		border: none;
+		background: none;
+		cursor: zoom-in;
 	}
 	.att img {
 		width: 28px;

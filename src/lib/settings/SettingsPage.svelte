@@ -103,6 +103,7 @@
 	import PermissionRulesSection from './PermissionRulesSection.svelte';
 	import UpdateCard from './UpdateCard.svelte';
 	import ThirdPartyNotices from './ThirdPartyNotices.svelte';
+	import AutostartRows from './AutostartRows.svelte';
 	import ProviderAccountCard from './ProviderAccountCard.svelte';
 	import ProviderCatalogPicker from './ProviderCatalogPicker.svelte';
 	import CustomProviderForm from './CustomProviderForm.svelte';
@@ -177,6 +178,9 @@
 		model: 'claude-sonnet-5-5'
 	};
 	const previewParts = $derived(turnParts(SAMPLE_TURN, prefs.turnStats));
+
+	// Launch at login needs the desktop app (a browser has no login item).
+	const inApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 	// ---------- search ----------
 	let query = $state('');
@@ -920,6 +924,16 @@
 								onChange={(v) => prefs.setDefaultSurface(v === 'tui' ? 'tui' : 'gui')}
 							/>
 						</SettingsRow>
+						<SettingsRow id="open-elsewhere" title={t('settings.behavior.openElsewhere')} description={t('settings.behavior.openElsewhereHint')}>
+							<Segmented
+								value={prefs.openElsewhere}
+								options={[
+									{ value: 'side', label: t('settings.behavior.placeSide') },
+									{ value: 'tab', label: t('settings.behavior.placeTab') }
+								]}
+								onChange={(v) => prefs.setOpenElsewhere(v === 'tab' ? 'tab' : 'side')}
+							/>
+						</SettingsRow>
 						<SettingsRow id="terminal-font" title={t('settings.behavior.terminalFont')}>
 							<div class="w-md"><TextField mono placeholder="MesloLGS NF" bind:value={() => prefs.terminalFont, (v) => prefs.setTerminalFont(String(v ?? ''))} /></div>
 						</SettingsRow>
@@ -943,7 +957,7 @@
 									{:else}
 										<span class="sp-none">{t('settings.behavior.turnStatsNone')}</span>
 									{/each}
-									<span class="sp-copy"><CopyIcon size={13} /> {t('common.copy')}</span>
+									<span class="sp-copy" title={t('chat.copyTurn')}><CopyIcon size={13} /></span>
 								</div>
 							</div>
 							<div class="stat-picks">
@@ -956,6 +970,15 @@
 						</SettingsRow>
 						<SettingsRow id="scroll-on-send" title={t('settings.behavior.scrollOnSend')} description={t('settings.behavior.scrollOnSendHint')}>
 							<Switch checked={prefs.scrollOnSend} label={t('settings.behavior.scrollOnSend')} onChange={(on) => prefs.setScrollOnSend(on)} />
+						</SettingsRow>
+						<SettingsRow id="foot-context" title={t('settings.behavior.footContext')} description={t('settings.behavior.footContextHint')}>
+							<Switch checked={prefs.footContext} label={t('settings.behavior.footContext')} onChange={(on) => prefs.setFlag('footContext', on)} />
+						</SettingsRow>
+						<SettingsRow id="foot-cost" title={t('settings.behavior.footCost')} description={t('settings.behavior.footCostHint')}>
+							<Switch checked={prefs.footCost} label={t('settings.behavior.footCost')} onChange={(on) => prefs.setFlag('footCost', on)} />
+						</SettingsRow>
+						<SettingsRow id="thinking-summaries" title={t('settings.behavior.thinkingSummaries')} description={t('settings.behavior.thinkingSummariesHint')}>
+							<Switch checked={prefs.thinkingSummaries} label={t('settings.behavior.thinkingSummaries')} onChange={(on) => prefs.setFlag('thinkingSummaries', on)} />
 						</SettingsRow>
 						<SettingsRow id="cache-miss" title={t('settings.behavior.cacheMissAlert')} description={t('settings.behavior.cacheMissAlertHint')}>
 							<Switch checked={prefs.cacheMissAlert} label={t('settings.behavior.cacheMissAlert')} onChange={(on) => prefs.setCacheMissAlert(on)} />
@@ -971,6 +994,11 @@
 							/>
 						</SettingsRow>
 					</SettingsSection>
+					{#if inApp}
+						<SettingsSection title={t('settings.page.startup')}>
+							<AutostartRows />
+						</SettingsSection>
+					{/if}
 					<SettingsSection title={t('settings.page.help')}>
 						<SettingsRow id="feedback" title={t('settings.help.feedback')}>
 							<Button size="sm" disabled={!onFeedback} onclick={() => onFeedback?.()}>{t('settings.help.feedbackOpen')}</Button>
@@ -1331,8 +1359,7 @@
 	.sp-copy {
 		display: inline-flex;
 		align-items: center;
-		gap: 5px;
-		padding: 2px 6px;
+		padding: 2px 0;
 	}
 	.stat-picks {
 		display: grid;

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimpleIcon';
+	import CopyIcon from 'phosphor-svelte/lib/CopyIcon';
+	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwiseIcon';
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
@@ -14,6 +16,7 @@
 	import CompactionCard from '$lib/CompactionCard.svelte';
 	import type { ApprovalMode } from '$lib/approval';
 	import { attemptGroups, SPAWN_TOOLS, spawnAgentRow, WAIT_TOOLS, type AgentRow } from '$lib/agentProgress';
+	import type { OpenHow } from '$lib/agents/subagentPages.svelte';
 	import DeliveryNotice from '$lib/DeliveryNotice.svelte';
 	import { parseDelivery } from '$lib/delivery';
 	import { sendCardProps, sendCardView, type SessionMessageView } from '$lib/sessions/sessionMessage';
@@ -33,6 +36,10 @@
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import QuotesIcon from 'phosphor-svelte/lib/QuotesIcon';
 	import ListPlusIcon from 'phosphor-svelte/lib/ListPlusIcon';
+	import { copyText } from '$lib/clipboard';
+	import { lastTurnStart, turnEnds, turnText } from '$lib/turnText';
+	import { contextItems, type ContextItem } from '$lib/ui/contextMenu';
+	import { streamText } from '$lib/streamText';
 
 	let {
 		messages,
@@ -112,7 +119,7 @@
 		 *  cards (absent: plain tool rows). */
 		agents?: AgentRow[];
 		/** Shows a subagent's own conversation. */
-		onOpenAgent?: (row: AgentRow) => void;
+		onOpenAgent?: (row: AgentRow, how: OpenHow) => void;
 		/** Shows a worktree subagent's changes. */
 		onAgentChanges?: (row: AgentRow) => void;
 		/** Merges a worktree subagent's changes into the project, or drops them. */
@@ -294,16 +301,18 @@
 		return map;
 	});
 
-	// Selecting text inside one reply (or its reasoning) offers to quote it.
+	// Selecting text in the replies (or their reasoning) offers to quote it;
+	// a selection may run across several replies.
 	let cite = $state<{ text: string; x: number; top: number; bottom: number } | null>(null);
+	const replyOf = (node: Node) => (node instanceof Element ? node : node.parentElement)?.closest('.answer, .reason-body');
 	function offerCite() {
 		const sel = window.getSelection();
 		const text = sel?.toString().trim();
 		if (!onCite || !sel || sel.isCollapsed || !text) return;
 		const range = sel.getRangeAt(0);
-		const node = range.commonAncestorContainer;
-		const host = (node instanceof Element ? node : node.parentElement)?.closest('.answer, .reason-body');
-		if (!host || !listEl.contains(host)) return;
+		const from = replyOf(range.startContainer);
+		const to = replyOf(range.endContainer);
+		if (!from || !to || !listEl.contains(from) || !listEl.contains(to)) return;
 		const r = range.getBoundingClientRect();
 		cite = { text, x: r.left + r.width / 2, top: r.top, bottom: r.bottom };
 	}
@@ -312,6 +321,30 @@
 		to?.(cite.text);
 		window.getSelection()?.removeAllRanges();
 		cite = null;
+	}
+
+	// Copying: a user message's text, or a whole turn's replies (every
+	// assistant message since the user's, as Markdown) from the button on the
+	// turn's last reply or the reply's context menu. The turn still running
+	// offers neither.
+	const ends = $derived(turnEnds(messages));
+	const liveFrom = $derived(streamingMsg || streamingReasoning || phase ? lastTurnStart(messages) : messages.length);
+	let copied = $state<Msg | null>(null);
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+	async function copy(text: string, mark: Msg | undefined) {
+		if (!text || !(await copyText(text)) || !mark) return;
+		copied = mark;
+		clearTimeout(copiedTimer);
+		copiedTimer = setTimeout(() => (copied = null), 1400);
+	}
+	function copyTurn(i: number) {
+		let end: Msg | undefined;
+		for (let j = i; j < messages.length && messages[j]!.kind !== 'user'; j++) if (ends.has(messages[j]!)) end = messages[j];
+		return copy(turnText(messages, i), end);
+	}
+	function turnMenu(i: number): ContextItem[] {
+		if (i >= liveFrom || !turnText(messages, i)) return [];
+		return [{ key: 'copy-turn', label: t('chat.copyTurn'), run: () => copyTurn(i) }];
 	}
 
 	// A sent message's state shows on its bubble; the bottom indicator would
@@ -522,7 +555,7 @@
 
 <svelte:document onselectionchange={() => cite && window.getSelection()?.isCollapsed && (cite = null)} />
 
-<div class="list" bind:this={listEl} onmouseup={() => setTimeout(offerCite)} role="presentation" style:padding-top="{padTop}px" style:padding-bottom="{padBottom}px">
+<div class="list" bind:this={listEl} onmouseup={(e) => e.button === 0 && setTimeout(offerCite)} role="presentation" style:padding-top="{padTop}px" style:padding-bottom="{padBottom}px">
 	{#each windowRows as m, k (m)}
 		{@const i = range.first + k}
 		{#if shown(m)}
@@ -534,13 +567,16 @@
 				<DeliveryNotice {delivery} {onOpenSession} />
 			{:else}
 			<div class="row user">
+				<button class="uedit ucopy" class:done={copied === m} onclick={() => copy(m.text, m)} aria-label={t(copied === m ? 'common.copied' : 'common.copy')} title={t(copied === m ? 'common.copied' : 'common.copy')}>
+					{#if copied === m}<CheckIcon size={12} />{:else}<CopyIcon size={12} />{/if}
+				</button>
 				<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
 					<ArrowCounterClockwiseIcon size={12} />{#if drop > 1}<span class="rwn">{drop}</span>{/if}
 				</button>
 				<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
 				<div class="ucol">
 					<!-- One line: the bubble is pre-wrap, so template whitespace would show. -->
-					<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs">{#each m.images as p (p)}<UserImage path={p} load={loadImage} />{/each}</div>{/if}{#each userBlocks(m.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>
+					<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs">{#each m.images as p (p)}<UserImage path={p} load={loadImage} group={m.images} />{/each}</div>{/if}{#each userBlocks(m.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>
 					{#if m.state}
 						{#key m.state}
 							<div class="sendstate {m.state}" in:fade={{ duration: 160 }}>
@@ -554,25 +590,32 @@
 			</div>
 			{/if}
 		{:else if m.kind === 'assistant'}
-			<div class="answer">
+			<div class="answer" use:contextItems={() => turnMenu(i)}>
 				{#if m === streamingMsg}
 					{@const rt = revealed(m)}
 					{@const si = splitIdx(rt)}
 					{#each stableBlocks(rt.slice(0, si)) as block (block.key)}<Markdown text={block.text} />{/each}
-					<div class="stream">{rt.slice(si)}</div>
+					<div class="stream" use:streamText={{ text: rt.slice(si), from: si }}></div>
 				{:else}
+					{@const turnEnd = ends.has(m) && i < liveFrom}
 					<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
-					<!-- Only the turn's last reply carries the request's totals. -->
-					{#if m.turn}
+					<!-- Only the turn's last reply carries the request's totals
+					     and the copy button for the whole turn. -->
+					{#if m.turn || m.elapsed || turnEnd}
 						<div class="foot">
-							{#each turnParts(m.turn, prefs.turnStats) as part, j (j)}
-								<span class="stat" class:mono={part.mono} title={part.title}>{part.text}</span>
-							{/each}
-						</div>
-					{:else if m.elapsed}
-						<div class="foot">
-							<span class="mono">{fmtDur(m.elapsed)}</span>
-							{#if m.tokens}<span class="mono">{t('chat.tokens', { n: m.tokens })}</span>{/if}
+							{#if m.turn}
+								{#each turnParts(m.turn, prefs.turnStats) as part, j (j)}
+									<span class="stat" class:mono={part.mono} title={part.title}>{part.text}</span>
+								{/each}
+							{:else if m.elapsed}
+								<span class="mono">{fmtDur(m.elapsed)}</span>
+								{#if m.tokens}<span class="mono">{t('chat.tokens', { n: m.tokens })}</span>{/if}
+							{/if}
+							{#if turnEnd}
+								<button class="tcopy" class:done={copied === m} onclick={() => copyTurn(i)} aria-label={t(copied === m ? 'common.copied' : 'chat.copyTurn')} title={t('chat.copyTurn')}>
+									{#if copied === m}<CheckIcon size={13} /><span>{t('common.copied')}</span>{:else}<CopyIcon size={13} />{/if}
+								</button>
+							{/if}
 						</div>
 					{/if}
 				{/if}
@@ -608,7 +651,7 @@
 							     tail block re-parses as it grows. -->
 							<!-- While it streams: plain text (no per-frame Markdown);
 							     it renders as Markdown once finished. -->
-							<div class="stream">{revealed(m)}</div>
+							<div class="stream" use:streamText={{ text: revealed(m) }}></div>
 						{:else}
 							<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
 						{/if}
@@ -792,6 +835,12 @@
 		gap: 2px;
 		align-items: center;
 	}
+	.uedit.done,
+	.tcopy.done {
+		opacity: 1;
+		transform: none;
+		color: var(--ok);
+	}
 	.rwn {
 		font-size: var(--fs-2xs);
 		font-variant-numeric: tabular-nums;
@@ -936,10 +985,68 @@
 		word-break: break-word;
 		line-height: 1.65;
 	}
+	/* A reply reads as one document: a drag selects across its Markdown
+	   blocks, the tail still streaming and the replies around it, and the
+	   user's message likewise; buttons and stats stay out of the selection. */
+	.answer,
+	.stream,
+	.ucol {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+	.foot,
+	.sendstate,
+	.answer :global(button) {
+		-webkit-user-select: none;
+		user-select: none;
+	}
+	/* Copies the whole turn: quiet until the row is hovered. */
+	.tcopy {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 3px 5px;
+		margin: -3px 0;
+		border: none;
+		border-radius: var(--r-sm);
+		background: none;
+		color: var(--dim2);
+		font: inherit;
+		cursor: pointer;
+		opacity: 0;
+		transition:
+			opacity var(--t-med) var(--ease-out),
+			background var(--t-fast) var(--ease-out),
+			color var(--t-fast) var(--ease-out),
+			transform var(--t-fast) var(--ease-out);
+	}
+	.tcopy:first-child {
+		margin-left: -5px;
+	}
+	.mwrap:hover .tcopy,
+	.tcopy:focus-visible {
+		opacity: 1;
+	}
+	.tcopy:hover {
+		background: var(--surface2);
+		color: var(--text);
+	}
+	.tcopy:active {
+		transform: scale(0.94);
+	}
+	/* Touch screens (the phone page) have no hover: the copy buttons stay. */
+	@media (hover: none) {
+		.tcopy,
+		.uedit.ucopy {
+			opacity: 1;
+			transform: none;
+		}
+	}
 	.foot {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 12px;
+		gap: 4px 12px;
 		margin-top: 8px;
 		font-size: var(--fs-2xs);
 		color: var(--dim2);
@@ -1000,8 +1107,10 @@
 	.tgroup:hover {
 		color: var(--text);
 	}
-	.tg-count {
+	.tg-count,
+	.tg-fail {
 		flex-shrink: 0;
+		white-space: nowrap;
 	}
 	/* The latest call, in the card's own format, trailing the count. */
 	.tg-latest {
@@ -1084,5 +1193,8 @@
 		font-size: var(--fs-sm);
 		line-height: 1.6;
 		word-break: break-word;
+	}
+	.foot .stat {
+		white-space: nowrap;
 	}
 </style>

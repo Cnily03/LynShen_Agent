@@ -367,7 +367,7 @@
 						}
 					}}
 				>
-					<span class="edot" class:dirty={tab.dirty} class:conflict={tab.conflict}></span>
+					<span class="edot" class:dirty={tab.dirty} class:clash={tab.conflict}></span>
 					<span class="ename">{tab.name}</span>
 					<IconButton
 						size="sm"
@@ -506,7 +506,7 @@
 	.edot.dirty {
 		background: var(--warn);
 	}
-	.edot.conflict {
+	.edot.clash {
 		background: var(--err);
 	}
 	.ename {

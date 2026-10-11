@@ -8,7 +8,7 @@ interface LegalText {
 	sections: { heading: string; body: string[] }[];
 }
 
-const CONTACT = 'contact@lynshen.net';
+const CONTACT = 'contact@lynshen.org';
 
 export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
 	terms: {

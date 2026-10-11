@@ -2,11 +2,15 @@
 	// Replaces the WebView's native context menu. Components with their own
 	// menu (sessions, tabs, workspaces) call preventDefault first and are left
 	// alone; elsewhere the native menu is suppressed, and text fields or a text
-	// selection get Cut / Copy / Paste / Select all in the app's menu.
+	// selection get Cut / Copy / Paste / Select all in the app's menu. Outside
+	// text fields, the part clicked may add its own items (ui/contextMenu.ts),
+	// also with a selection: WebKit on macOS selects the word under the
+	// pointer before the menu opens.
 	// Dev builds: Shift+right-click still opens the native menu (Inspect).
 	// Outside the app nothing is replaced.
 	import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 	import PopMenu, { type PopMenuItem } from './PopMenu.svelte';
+	import { contextItemsAt, type ContextItem } from './contextMenu';
 	import { t } from '$lib/i18n';
 
 	const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
@@ -14,6 +18,7 @@
 
 	let menu = $state<{ x: number; y: number; items: PopMenuItem[] } | null>(null);
 	let target: HTMLElement | null = null;
+	let extras: ContextItem[] = [];
 	let wrap = $state<HTMLDivElement>();
 	let pos = $state({ x: 0, y: 0 });
 
@@ -50,6 +55,8 @@
 		if (field || sel) items.push({ key: 'copy', label: t('common.copy'), hint: `${mod}C`, disabled: !sel });
 		if (field) items.push({ key: 'paste', label: t('common.paste'), hint: `${mod}V` });
 		if (field) items.push({ key: 'selectAll', label: t('common.selectAll'), hint: `${mod}A` });
+		extras = field ? [] : contextItemsAt(e.target as Element);
+		for (const x of extras) items.push({ key: `extra:${x.key}`, label: x.label });
 		if (!items.length) {
 			menu = null;
 			return;
@@ -74,6 +81,8 @@
 		const field = target;
 		const sel = selectedText(field);
 		menu = null;
+		const extra = extras.find((x) => `extra:${x.key}` === key);
+		if (extra) return extra.run();
 		field?.focus();
 		if (key === 'copy' || key === 'cut') {
 			if (!sel) return;

@@ -220,7 +220,7 @@
 		</section>
 
 
-		<SessionSwitches {chat} {onSwitch} />
+		<SessionSwitches {chat} {onSwitch} thinking={false} />
 
 		{#if chat.backendId === 'lynshen' && chat.provider === 'lynshen' && chat.model}
 			{#key chat.model}<GroupPicker model={chat.model} />{/key}
@@ -373,6 +373,8 @@
 		   running over the composer. */
 		overflow-y: auto;
 		overscroll-behavior: contain;
+		/* It sits in the composer's bar, which keeps its own row on one line. */
+		white-space: normal;
 		gap: 0;
 		padding: 6px;
 		transform-origin: bottom right;
@@ -380,8 +382,8 @@
 	}
 	/* GroupPicker renders its own section, hence :global. */
 	.mm > :global(section + section) {
-		margin-top: 6px;
-		padding-top: 8px;
+		margin-top: 4px;
+		padding-top: 5px;
 		border-top: 1px solid var(--hairline);
 	}
 	.routes-n {
