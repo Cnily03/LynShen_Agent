@@ -914,10 +914,27 @@
 				store.activeId = back?.id ?? '';
 			});
 	});
-	// A session listed from the daemon opens when it is first shown.
+	// The sessions on screen: the active one, every chat tile (a tile behind
+	// another tab stays mounted) and the one the agent page shows.
+	function shownSessionIds(): string[] {
+		return [store.activeId, ...(tilesReady ? chatSessionsIn(tiles) : []), ...(showDesk && deskSession ? [deskSession] : [])];
+	}
+	// A session listed from the daemon, or let go of while hidden, opens
+	// when it is shown. One leaving the screen counts as shown until then.
 	$effect(() => {
-		const s = store.active;
-		if (s?.dormant) untrack(() => store.wake(s.id));
+		const ids = shownSessionIds();
+		untrack(() => store.noteShown(ids));
+		for (const id of ids) {
+			const s = sessionMap.get(id);
+			if (s?.dormant) untrack(() => store.wake(id));
+		}
+	});
+	// Conversations out of view for a while let go of what the engine can
+	// send again (SessionStore.releaseHidden).
+	$effect(() => {
+		if (!store.loaded) return;
+		const timer = setInterval(() => store.releaseHidden(shownSessionIds()), 60_000);
+		return () => clearInterval(timer);
 	});
 
 	const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
@@ -1217,7 +1234,7 @@
 			const wsEntry = await workspaces.load(t('shell.workspace.default'));
 			// One engine frame from the daemon into its session's adapter and
 			// ChatState.
-			const deliver = (sessionId: string, data: string) => {
+			const deliver = (sessionId: string, data: string, parsed: unknown) => {
 				const s = sessionMap.get(sessionId);
 				if (!s) return;
 				const wasBusy = s.chat.busy;
@@ -1226,19 +1243,14 @@
 				const lastPlan = s.chat.messages.findLast((m) => m.kind === 'plan');
 				// Capture the raw frame for the diagnostics trace so a mis-parsed or
 				// dropped tool frame is inspectable after the fact.
-				s.chat.captureFrame(data);
-				// Route the raw line through the session's adapter (the daemon already
-				// speaks the lynshen dialect for every engine). Parse, translate and
-				// each handle() are isolated so one bad frame or event
+				s.chat.captureFrame(data, parsed);
+				// Route the frame through the session's adapter (the daemon already
+				// speaks the lynshen dialect for every engine); the client parsed it
+				// to route it, so a long transcript is not parsed again. Translate
+				// and each handle() are isolated so one bad frame or event
 				// can't silently drop the sibling events that follow it (e.g. a tool's
 				// completion riding in the same frame as something that threw).
-				let frame: unknown;
-				try {
-					frame = JSON.parse(data);
-				} catch (err) {
-					console.error('[agent-event] JSON parse failed', err, data.slice(0, 300));
-					return;
-				}
+				const frame = parsed;
 				let translated: ReturnType<typeof s.adapter.translate>;
 				try {
 					translated = s.adapter.translate(frame);
@@ -1254,6 +1266,8 @@
 					}
 				}
 				flushModeSync(s.chat, s.id);
+				// Let go of while hidden and starting something: watched again.
+				store.rouse(s);
 				const miss = s.chat.cacheMiss;
 				if (miss) {
 					s.chat.cacheMiss = null;

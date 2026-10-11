@@ -108,6 +108,22 @@ describe('DaemonClient', () => {
 		});
 	});
 
+	it('hands over the frame it parsed, and unwatches a session it keeps hosting', async () => {
+		const env = setup();
+		const parsed: unknown[] = [];
+		env.client.onFrame = (_id, raw, frame) => parsed.push([JSON.parse(raw), frame]);
+		const socket = await openCreated(env, 'desk-1', 'sess-1');
+		socket.push({ type: 'assistant_delta', session: 'sess-1', delta: 'hi' });
+		expect(parsed).toEqual([[{ type: 'assistant_delta', session: 'sess-1', delta: 'hi' }, { type: 'assistant_delta', session: 'sess-1', delta: 'hi' }]]);
+		env.client.unwatch('desk-1');
+		expect(socket.sent.at(-1)).toEqual({ op: 'unwatch', session: 'sess-1' });
+		expect(env.client.sessionOf('desk-1')).toBe('sess-1');
+		// Closed by the daemon meanwhile: it still exits here.
+		socket.push({ type: 'session_closed', session: 'sess-1' });
+		expect(env.exits).toEqual(['desk-1']);
+		expect(env.client.sessionOf('desk-1')).toBeUndefined();
+	});
+
 	it('rejects a daemon speaking another protocol', async () => {
 		const env = setup(3);
 		await expect(env.client.open('desk-1', '/work')).rejects.toThrow(/protocol 3/);

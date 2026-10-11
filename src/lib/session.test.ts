@@ -5,7 +5,7 @@ vi.mock('./protocol', () => ({
 	hostSession: vi.fn(() => Promise.resolve()),
 	acpAgentsList: vi.fn(() => Promise.resolve([{ id: 'gemini', name: 'Gemini', command: 'gemini', args: ['--experimental-acp'], env: {} }])),
 	// The daemon names a new session after its desktop id.
-	daemon: { sessionOf: vi.fn((id: string) => `conv-${id}`), request: vi.fn(() => Promise.resolve({})) },
+	daemon: { sessionOf: vi.fn((id: string) => `conv-${id}`), request: vi.fn(() => Promise.resolve({})), unwatch: vi.fn() },
 	closeSession: vi.fn(() => Promise.resolve()),
 	sendOp: vi.fn(() => Promise.resolve()),
 	sendLine: vi.fn(() => Promise.resolve()),
@@ -25,13 +25,13 @@ vi.mock('./protocol', () => ({
 	)
 }));
 
-import { SessionStore, listedSessions } from './session.svelte';
+import { RELEASE_AFTER_MS, SessionStore, listedSessions } from './session.svelte';
 import { UNTITLED } from './chat.svelte';
 import { dispatch, startDraft } from './backends/router';
 import { daemon, hostSession, closeSession, sendLine, git, writeConfig, sessionHistory, sessionMeta } from './protocol';
 import type { EngineSpec } from './daemon';
 import { setLocale } from './i18n';
-import type { Project, WorktreeMeta } from './types';
+import type { Project, Session, WorktreeMeta } from './types';
 
 const proj = (id = 'p1'): Project => ({ id, name: id, path: `/tmp/${id}`, sessions: [] });
 /** A new session is a draft; its first message starts the engine. */
@@ -1356,5 +1356,143 @@ describe('SessionStore: a session started on a requirement', () => {
 		);
 		expect(s.requirement).toBeUndefined();
 		expect(s.requirementStart).toBeUndefined();
+	});
+});
+
+describe('letting go of hidden conversations', () => {
+	/** A started LynShen session with one tool call, idle. */
+	const started = async (store: SessionStore, p: Project) => {
+		const id = store.addSession(p);
+		begin(id);
+		await flush();
+		const s = p.sessions.find((x) => x.id === id)!;
+		s.chat.handle({ type: 'tool_start', call_id: 'c1', name: 'read_file' });
+		s.chat.handle({ type: 'tool_output', call_id: 'c1', name: 'read_file', output: 'body' });
+		s.chat.handle({ type: 'model_status', state: 'ready' });
+		return store.allSessions.find((x) => x.id === id)!;
+	};
+	const output = (s: Session) => {
+		const m = s.chat.messages.find((x) => x.kind === 'tool');
+		return m?.kind === 'tool' ? m.output : undefined;
+	};
+
+	it('lets go of a settled conversation not shown for a while, and opens it again when shown', async () => {
+		const store = new SessionStore();
+		store.projects.push(proj());
+		const p = store.projects[0];
+		const s = await started(store, p);
+		store.releaseHidden([], 0);
+		store.releaseHidden([], RELEASE_AFTER_MS - 1);
+		expect(s.dormant).toBeFalsy();
+		store.releaseHidden([], RELEASE_AFTER_MS);
+		expect(s.dormant).toBe(true);
+		expect(daemon.unwatch).toHaveBeenCalledWith(s.id);
+		expect(output(s)).toBe('');
+		// The daemon may close it once idle: no restart follows.
+		store.handleExit(s.id);
+		expect(s.chat.messages.some((m) => m.kind === 'system')).toBe(false);
+		vi.mocked(hostSession).mockClear();
+		store.wake(s.id);
+		await flush();
+		expect(vi.mocked(hostSession).mock.calls[0]?.[2]).toBe(s.chat.sessionId);
+		s.chat.handle({ type: 'transcript', items: [{ role: 'user', content: 'hi' }, { role: 'tool', name: 'read_file', output: 'body' }] });
+		expect(output(s)).toBe('body');
+	});
+
+	it('keeps what is shown, busy or not LynShen', async () => {
+		const store = new SessionStore();
+		store.projects.push(proj());
+		const p = store.projects[0];
+		const shown = await started(store, p);
+		const busy = await started(store, p);
+		busy.chat.handle({ type: 'connecting' });
+		const claude = await started(store, p);
+		claude.backendId = 'claude';
+		store.releaseHidden([shown.id], 0);
+		store.releaseHidden([shown.id], RELEASE_AFTER_MS);
+		expect([shown.dormant, busy.dormant, claude.dormant]).toEqual([undefined, undefined, undefined]);
+		expect(daemon.unwatch).not.toHaveBeenCalled();
+	});
+
+	/** A started session let go of while hidden. */
+	const released = async (store: SessionStore) => {
+		store.projects.push(proj());
+		const s = await started(store, store.projects[0]);
+		store.releaseHidden([], 0);
+		store.releaseHidden([], RELEASE_AFTER_MS);
+		expect(s.dormant).toBe(true);
+		vi.mocked(hostSession).mockClear();
+		return s;
+	};
+
+	it('watches a conversation let go of again once it starts something, so it asks here', async () => {
+		const store = new SessionStore();
+		const s = await released(store);
+		// Events that change nothing leave it as it is.
+		s.chat.handle({ type: 'context_usage', tokens: 10 });
+		store.rouse(s);
+		expect(s.dormant).toBe(true);
+		expect(hostSession).not.toHaveBeenCalled();
+		// Another session's message starts a turn in it.
+		s.chat.handle({ type: 'user_message', content: 'from elsewhere' });
+		s.chat.handle({ type: 'connecting' });
+		store.rouse(s);
+		expect(s.dormant).toBe(false);
+		await flush();
+		expect(vi.mocked(hostSession).mock.calls[0]?.[2]).toBe(s.chat.sessionId);
+		// Not let go of while it runs, however long it is hidden.
+		store.releaseHidden([], Date.now() + RELEASE_AFTER_MS * 2);
+		expect(s.dormant).toBe(false);
+		expect(daemon.unwatch).toHaveBeenCalledTimes(1);
+	});
+
+	it('counts a session as shown until it leaves the screen, and from when it is shown again', async () => {
+		const store = new SessionStore();
+		store.projects.push(proj());
+		const s = await started(store, store.projects[0]);
+		store.releaseHidden([], 0);
+		// Shown for 30 s between two checks: hidden only since then.
+		store.noteShown([s.id], RELEASE_AFTER_MS - 60_000);
+		store.noteShown([], RELEASE_AFTER_MS - 30_000);
+		store.releaseHidden([], RELEASE_AFTER_MS);
+		expect(s.dormant).toBeFalsy();
+		store.releaseHidden([], RELEASE_AFTER_MS * 2 - 30_000);
+		expect(s.dormant).toBe(true);
+		// Woken: its clock starts again.
+		const woken = Date.now();
+		store.wake(s.id);
+		await flush();
+		expect(s.shownAt).toBeGreaterThanOrEqual(woken);
+	});
+
+	it('ignores the idle close the daemon sends as a conversation opens again', async () => {
+		const store = new SessionStore();
+		const s = await released(store);
+		let opened = () => {};
+		vi.mocked(hostSession).mockImplementationOnce(() => new Promise<void>((resolve) => (opened = resolve)));
+		store.wake(s.id);
+		await flush();
+		// The daemon closed the idle engine just before the open reached it.
+		store.handleExit(s.id);
+		expect(s.chat.messages.some((m) => m.kind === 'system')).toBe(false);
+		expect(hostSession).toHaveBeenCalledTimes(1);
+		opened();
+		await flush();
+		// Once open, an exit is a crash again.
+		store.handleExit(s.id);
+		expect(s.chat.messages.some((m) => m.kind === 'system')).toBe(true);
+		await flush();
+		expect(hostSession).toHaveBeenCalledTimes(2);
+	});
+
+	it('closes a conversation it let go of when its tab is closed', async () => {
+		const store = new SessionStore();
+		store.projects.push(proj());
+		const s = await started(store, store.projects[0]);
+		store.releaseHidden([], 0);
+		store.releaseHidden([], RELEASE_AFTER_MS);
+		expect(s.dormant).toBe(true);
+		store.removeSession(s.id);
+		expect(closeSession).toHaveBeenCalledWith(s.id);
 	});
 });

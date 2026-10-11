@@ -149,7 +149,8 @@
 	const GAP = 16; // px, matches .list gap
 	const OVERSCAN = 800; // px rendered beyond the viewport on each side
 
-	const heights = new Map<Msg, number>();
+	// Weak: a replaced transcript's messages are not kept alive by their heights.
+	const heights = new WeakMap<Msg, number>();
 	let measureVersion = $state(0);
 	let scrollTop = $state(0);
 	let viewH = $state(0);

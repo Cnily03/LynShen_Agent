@@ -102,6 +102,13 @@ export type Msg =
 			 *  output replaced them (the agent's name and task; send_to_session:
 			 *  the conversation and the message). */
 			args?: string;
+			/** The turn stopped before the call's output came: the engine kept
+			 *  none for it. */
+			cut?: boolean;
+			/** The output was let go of while the chat was hidden
+			 *  (`releaseOutputs`): what the card showed, hashed, so only the
+			 *  same output fills it in again. */
+			released?: string;
 	  }
 	| { kind: 'system'; text: string }
 	| { kind: 'error'; text: string }
@@ -369,6 +376,9 @@ const FINAL_AGENT = [
 	'budget_exhausted'
 ];
 
+/** Subagent transcripts a chat keeps besides the one shown. */
+const SUBAGENT_TRANSCRIPTS_KEPT = 3;
+
 /** Calls that start a subagent: their arguments name it. */
 const SUBAGENT_CALLS = new Set(['spawn_agent', 'Task', 'Agent']);
 
@@ -433,6 +443,167 @@ function agentRun(raw: Record<string, unknown>): AgentRun {
 		activity: str(raw.activity),
 		effort: str(raw.effort)
 	};
+}
+
+type ToolMsg = Extract<Msg, { kind: 'tool' }>;
+
+/** An output as the JSON object most tools return, else null. */
+function outputObject(output: string): Record<string, unknown> | null {
+	if (!output.startsWith('{')) return null;
+	try {
+		const value = JSON.parse(output) as unknown;
+		return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Whether `text` is over `max` bytes in UTF-8, as the engine measures. */
+function utf8Over(text: string, max: number): boolean {
+	// A UTF-16 unit is one to three bytes, a surrogate pair four.
+	if (text.length > max) return true;
+	if (text.length * 3 <= max) return false;
+	let bytes = 0;
+	for (let i = 0; i < text.length && bytes <= max; i++) {
+		const c = text.charCodeAt(i);
+		bytes += c < 0x80 ? 1 : c < 0x800 || (c >= 0xd800 && c < 0xe000) ? 2 : 3;
+	}
+	return bytes > max;
+}
+
+/** The engine keeps a call's output as the model saw it (agent-core
+ *  `project_model_output`), and its replay sends that one: an output over
+ *  16 KB comes back as 4 KB excerpts, a diff over 8 KB as a 4 KB one, and a
+ *  read without its text. Whether the replay shows what the card shows: a
+ *  read card shows only the file it read (and an error), and the engine
+ *  keeps those. */
+export function replayShows(name: string, output: string): boolean {
+	const o = outputObject(output);
+	const text = (v: unknown) => typeof v === 'string' && v !== '';
+	if (name === 'read' && o && ((o.kind === 'image' && text(o.base64)) || (text(o.content) && text(o.hashlines)))) return true;
+	if (utf8Over(output, 16 * 1024)) return false;
+	return !(typeof o?.diff === 'string' && utf8Over(o.diff, 8 * 1024));
+}
+
+/** What a tool card shows of `output`, hashed with its length, to tell the
+ *  same output again: a read card shows the file it read and an error, any
+ *  other card the whole output. */
+function shownPrint(name: string, output: string): string {
+	const o = name === 'read' ? outputObject(output) : null;
+	const shown = o ? JSON.stringify([o.path ?? null, o.error ?? null]) : output;
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < shown.length; i++) hash = Math.imul(hash ^ shown.charCodeAt(i), 0x01000193);
+	return `${shown.length}:${hash >>> 0}`;
+}
+
+/** A tool card the engine recorded: not a Task subagent's call, and not one
+ *  the turn stopped before its output came (`cut`). */
+const recorded = (m: Msg): m is ToolMsg => m.kind === 'tool' && !m.subagent && !m.cut && !m.running;
+
+/** The messages of a `transcript` replay. */
+function replayMessages(items: Record<string, unknown>[]): Msg[] {
+	return items
+		.map((it): Msg | null => {
+			const role = str(it.role);
+			if (role === 'user' && str(it.content) === AUTO_CONTINUE) return { kind: 'system', text: t('chat.autoRetry.resumed') };
+			if (role === 'user') {
+				const images = arr<string>(it.images).filter((p) => typeof p === 'string');
+				return { kind: 'user', text: str(it.content), ...(images.length ? { images } : {}) };
+			}
+			if (role === 'assistant') return { kind: 'assistant', text: str(it.content) };
+			if (role === 'tool')
+				return {
+					kind: 'tool',
+					callId: '',
+					name: str(it.name),
+					output: boundedOutput(str(it.output)),
+					running: false,
+					isError: false
+				};
+			if (role === 'branch') return { kind: 'system', text: `branch: ${str(it.label)}` };
+			if (role === 'compaction') return { kind: 'compaction', state: 'done', before: 0, written: 0, since: 0, summary: str(it.summary) };
+			if (role === 'plan') return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
+			if (role === 'agent_message' && (str(it.summary) || str(it.content)))
+				return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
+			return null;
+		})
+		.filter((m): m is Msg => m !== null);
+}
+
+/** Whether every one of `want` is in `have`, in order. */
+function inOrder<A, B>(want: A[], have: B[], same: (have: B, want: A) => boolean): boolean {
+	let j = 0;
+	for (const w of want) {
+		while (j < have.length && !same(have[j]!, w)) j++;
+		if (j++ >= have.length) return false;
+	}
+	return true;
+}
+
+/** `shown` (what a chat shows) with the outputs it let go of filled in from
+ *  `replayed` (the engine's replay of it), when the two are the same
+ *  conversation: the same tool calls, each output let go of the same again,
+ *  and every message and reply of the replay shown, in order. What the
+ *  engine does not keep (reasoning, notices, a reply or a call cut short, a
+ *  blank segment, a message its hook refused) or keeps otherwise (a
+ *  command's expanded text, a message with images) does not count. Each
+ *  message stays where it is. Null when they differ. */
+export function refilled(shown: Msg[], replayed: Msg[]): Msg[] | null {
+	const tools = replayed.filter((m): m is ToolMsg => m.kind === 'tool');
+	if (shown.filter(recorded).length !== tools.length) return null;
+	const users = (list: Msg[]) => list.filter((m) => m.kind === 'user') as Extract<Msg, { kind: 'user' }>[];
+	const sameUser = (have: Extract<Msg, { kind: 'user' }>, want: Extract<Msg, { kind: 'user' }>) =>
+		have.text.trim() === want.text.trim() || have.text.trimStart().startsWith('/') || !!have.images?.length;
+	if (!inOrder(users(replayed), users(shown), sameUser)) return null;
+	// A provider may keep a reasoning block as reply text.
+	const replies = (list: Msg[], reasoning: boolean) =>
+		list.filter((m) => m.kind === 'assistant' || (reasoning && m.kind === 'reasoning')) as { text: string }[];
+	const sameText = (have: { text: string }, want: { text: string }) => have.text.trim() === want.text.trim();
+	if (!inOrder(replies(replayed, false), replies(shown, true), sameText)) return null;
+	let i = 0;
+	const out: Msg[] = [];
+	for (const m of shown) {
+		if (!recorded(m)) {
+			out.push(m);
+			continue;
+		}
+		const r = tools[i++]!;
+		if (r.name !== m.name || (m.released !== undefined && shownPrint(m.name, r.output) !== m.released)) return null;
+		if (m.released === undefined) out.push(m);
+		else {
+			const card: ToolMsg = { ...m, output: r.output };
+			delete card.released;
+			out.push(card);
+		}
+	}
+	return out;
+}
+
+/** Messages by user turn: each starts at a user message, the first holds
+ *  what comes before any. */
+function byTurn(messages: Msg[]): Msg[][] {
+	const turns: Msg[][] = [[]];
+	for (const m of messages) {
+		if (m.kind === 'user') turns.push([m]);
+		else turns[turns.length - 1]!.push(m);
+	}
+	return turns;
+}
+
+/** The replay of a conversation that moved on, or was rewound, while a chat
+ *  that let go of its outputs missed its events: the turns both have stay
+ *  as shown (`refilled`), and the replay's own turns follow. */
+export function merged(shown: Msg[], replayed: Msg[]): Msg[] {
+	const mine = byTurn(shown);
+	const theirs = byTurn(replayed);
+	const out: Msg[] = [];
+	let n = 0;
+	for (; n < mine.length && n < theirs.length; n++) {
+		const turn = refilled(mine[n]!, theirs[n]!);
+		if (!turn) break;
+		out.push(...turn);
+	}
+	return [...out, ...theirs.slice(n).flat()];
 }
 
 export function countDiffLines(diff: string): { added: number; removed: number } {
@@ -815,6 +986,11 @@ export class ChatState {
 	 *  they stay listed through the next turn. */
 	#woke = new Set<string>();
 	#endedIdle = new Set<string>();
+	/** Tool outputs were let go of (see `releaseOutputs`). */
+	#released = false;
+	/** The next transcript is the snapshot of a chat shown again after
+	 *  letting go of its outputs (see `armRefill`). */
+	#refillNext = false;
 
 	constructor() {
 		try {
@@ -1048,6 +1224,46 @@ export class ChatState {
 		return ['streaming', 'connecting', 'compacting', 'steering'].includes(this.engineState);
 	}
 
+	/** Nothing is under way here and nothing waits on the user: no turn, no
+	 *  message being sent or queued, no question, retry or background work,
+	 *  and the conversation is not open in a TUI (whose snapshot carries no
+	 *  transcript). Only such a chat lets go of its tool outputs
+	 *  (`releaseOutputs`). */
+	get settled(): boolean {
+		if (this.engineState !== 'ready' || this.booting || this.restarting || this.switching || this.inTerminal) return false;
+		if (this.pendingApproval || this.trustPrompt || this.pendingRewind || this.pendingMessages.length) return false;
+		if (this.#sending || this.#pendingUserEcho !== null || this.autoRetry || this.retry) return false;
+		if (this.bgTasks.length || Object.values(this.subagents).some((a) => !FINAL_AGENT.includes(a.status))) return false;
+		return !this.messages.some((m) => m.kind === 'tool' && m.running);
+	}
+
+	/** Lets go of what a hidden, settled chat can get back from its engine:
+	 *  the outputs of the tool cards whose replay shows the same again
+	 *  (`replayShows`; a long log or diff stays, as the engine keeps only an
+	 *  excerpt of it), the subagent transcripts and background task output it
+	 *  fetched. The rest (turn stats, reasoning, notices) stays. The snapshot
+	 *  the engine sends when the chat is shown again fills the outputs back
+	 *  in (`armRefill`). */
+	releaseOutputs() {
+		// New message objects: a deep state proxy keeps the value an object
+		// was created with, so emptying `output` through it frees nothing.
+		this.messages = this.messages.map((m) =>
+			recorded(m) && m.output && replayShows(m.name, m.output) ? { ...m, output: '', released: shownPrint(m.name, m.output) } : m
+		);
+		this.#toolsByCallId.clear();
+		this.subagentTranscripts = {};
+		this.taskOutputs = {};
+		this.#released = true;
+	}
+
+	/** The chat is shown again after letting go of its outputs: the next
+	 *  transcript (the snapshot of its session) fills them back in, and what
+	 *  only this chat knew stays. A transcript sent meanwhile while hidden (a
+	 *  rewind, a fork, the TUI's exit) shows as it would in any chat. */
+	armRefill() {
+		if (this.#released) this.#refillNext = true;
+	}
+
 	/** Meta/status notices (retrying, compaction, stderr, engine warnings, restart
 	 *  notices) — kept out of the conversation bubble stream and shown in the
 	 *  collapsible status strip instead. Real conversation (user/assistant/
@@ -1212,20 +1428,25 @@ export class ChatState {
 
 	/** Clear the running flag on any tool card still marked running once a turn
 	 *  ends — guards against a permanent spinner when a tool_output is never
-	 *  delivered (see the `status` handler). */
+	 *  delivered (see the `status` handler). Such a call was cut short: the
+	 *  engine kept no output for it. */
 	#finishStuckTools() {
 		for (const m of this.messages) {
-			if (m.kind === 'tool' && m.running) m.running = false;
+			if (m.kind === 'tool' && m.running) {
+				m.running = false;
+				m.cut = true;
+			}
 		}
 	}
 
 	/** Summarize a raw engine frame into one trace line and keep the last 200.
 	 *  Deliberately compact (type + the few fields that matter for tool tracking)
-	 *  so the diagnostics trace stays readable and cheap. */
-	captureFrame(raw: string) {
+	 *  so the diagnostics trace stays readable and cheap. `parsed`: the frame
+	 *  already parsed (a long transcript is not parsed twice). */
+	captureFrame(raw: string, parsed?: unknown) {
 		let summary: string;
 		try {
-			const o = JSON.parse(raw) as Record<string, unknown>;
+			const o = (parsed ?? JSON.parse(raw)) as Record<string, unknown>;
 			const type = typeof o.type === 'string' ? o.type : '?';
 			if (type === 'stream_event') {
 				const ev = (o.event ?? {}) as Record<string, unknown>;
@@ -1617,6 +1838,8 @@ export class ChatState {
 					t.output = boundedOutput(str(ev.output));
 					t.running = false;
 					t.isError = ev.is_error === true;
+					// Its output came after all: the engine kept it.
+					if (t.cut) delete t.cut;
 				}
 				if (str(ev.name) === 'spawn_agent' && ev.is_error !== true) this.#spawned(str(ev.call_id), str(ev.output), t?.args ?? '');
 				if (str(ev.name) === 'list_agents' && ev.is_error !== true) this.#listed(str(ev.output));
@@ -1773,51 +1996,36 @@ export class ChatState {
 					this.#resetCurrent();
 					break;
 				}
-				const items = arr<Record<string, unknown>>(ev.items);
-				// The message array is reassigned wholesale below and restored tool
-				// entries carry no call_id, so the fast-lookup map is now stale — clear
-				// it and let #tool() fall back to scanning.
+				const replay = replayMessages(arr<Record<string, unknown>>(ev.items));
+				// The message array is reassigned below and restored tool entries
+				// carry no call_id, so the fast-lookup map is now stale — clear it
+				// and let #tool() fall back to scanning.
 				this.#toolsByCallId.clear();
+				// Shown again after letting go of its tool outputs (armRefill): the
+				// same conversation fills them back in where they are, and what only
+				// this chat knew (reasoning, notices, turn stats, errors, call ids,
+				// the reply streaming now) stays.
+				const refill = this.#refillNext;
+				this.#refillNext = false;
+				const same = refill ? refilled(this.messages, replay) : null;
+				if (same) {
+					this.messages = same;
+					break;
+				}
 				// A message sent just before the snapshot arrived (a session that
 				// opens with its first message) is not in it yet: keep its bubble.
 				// If the snapshot already has it, its echo came with it.
 				const pending = this.#pendingUserEcho;
 				const sent = pending === null ? undefined : this.messages.findLast((m) => m.kind === 'user' && m.text === pending);
-				this.messages = items
-					.map((it): Msg | null => {
-						const role = str(it.role);
-						if (role === 'user' && str(it.content) === AUTO_CONTINUE)
-							return { kind: 'system', text: t('chat.autoRetry.resumed') };
-						if (role === 'user') {
-							const images = arr<string>(it.images).filter((p) => typeof p === 'string');
-							return { kind: 'user', text: str(it.content), ...(images.length ? { images } : {}) };
-						}
-						if (role === 'assistant') return { kind: 'assistant', text: str(it.content) };
-						if (role === 'tool')
-							return {
-								kind: 'tool',
-								callId: '',
-								name: str(it.name),
-								output: str(it.output),
-								running: false,
-								isError: false
-							};
-						if (role === 'branch') return { kind: 'system', text: `branch: ${str(it.label)}` };
-						if (role === 'compaction')
-							return { kind: 'compaction', state: 'done', before: 0, written: 0, since: 0, summary: str(it.summary) };
-						if (role === 'plan')
-							return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
-						if (role === 'agent_message' && (str(it.summary) || str(it.content)))
-							return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
-						return null;
-					})
-					.filter((m): m is Msg => m !== null);
+				// One that moved on or was rewound elsewhere while its events were
+				// missed keeps the turns both have and shows the replay's own.
+				this.messages = refill ? merged(this.messages, replay) : replay;
 				// The team's messages, as the panel and the agent's view list them.
 				this.agentMessages = this.messages.flatMap((m) => (m.kind === 'agent_message' ? [{ from: m.from, to: m.to, summary: m.summary, at: 0 }] : []));
 				if (pending !== null) {
 					const last = this.messages.findLast((m) => m.kind === 'user');
 					if (last?.kind === 'user' && last.text === pending) this.#pendingUserEcho = null;
-					else if (sent) this.messages.push(sent);
+					else if (sent && !this.messages.includes(sent)) this.messages.push(sent);
 				}
 				this.#resetCurrent();
 				break;
@@ -2161,14 +2369,20 @@ export class ChatState {
 								callId: str(it.call_id),
 								name: str(it.name),
 								// The call's arguments name what it acted on until its output does.
-								output: str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input)),
+								output: boundedOutput(str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input))),
 								running: it.running === true,
 								isError: it.is_error === true
 							};
 						return null;
 					})
 					.filter((m): m is Msg => m !== null);
-				this.subagentTranscripts[str(ev.agent_id)] = { task, messages, error: str(ev.error) };
+				// The panel shows one at a time and asks again when it opens one:
+				// only the latest few are kept.
+				const id = str(ev.agent_id);
+				const kept = Object.keys(this.subagentTranscripts).filter((k) => k !== id && k !== this.agentFocus);
+				for (const old of kept.slice(0, Math.max(0, kept.length - SUBAGENT_TRANSCRIPTS_KEPT + 1)))
+					delete this.subagentTranscripts[old];
+				this.subagentTranscripts[id] = { task, messages, error: str(ev.error) };
 				break;
 			}
 			case 'permission_rules':

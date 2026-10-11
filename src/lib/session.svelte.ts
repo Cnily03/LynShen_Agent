@@ -72,6 +72,9 @@ function daemonUnreachable(e: unknown): boolean {
 	return /cannot reach lynshen daemon|refused the connection|not connected to lynshen daemon|connection to lynshen daemon lost|could not start lynshen daemon|did not start|wrote no token/i.test(message);
 }
 
+/** How long a conversation stays loaded once it is no longer shown, ms. */
+export const RELEASE_AFTER_MS = 10 * 60_000;
+
 /** Waits between attempts to reach an unreachable daemon, ms (~4.5 min). */
 const DAEMON_RETRY_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000, 30000, 30000];
 
@@ -627,20 +630,79 @@ export class SessionStore {
 		return id;
 	}
 
-	/** Opens a dormant session's engine (through the daemon). */
+	/** Opens a dormant session's engine (through the daemon). One that let go
+	 *  of its tool outputs while hidden gets them back from the snapshot
+	 *  (ChatState.armRefill). */
 	wake(id: string) {
 		const s = this.allSessions.find((x) => x.id === id);
 		const path = this.projectPathOf(id);
 		if (!s?.dormant || !path) return;
 		s.dormant = false;
-		this.#spawn(s, path, undefined, this.#keepModel(s), s.chat.sessionId).catch((e) => this.#engineFailed(s.chat, e));
+		s.shownAt = Date.now();
+		s.chat.armRefill();
+		this.#waking.add(id);
+		this.#spawn(s, path, undefined, this.#keepModel(s), s.chat.sessionId)
+			.catch((e) => this.#engineFailed(s.chat, e))
+			.finally(() => this.#waking.delete(id));
+	}
+
+	/** Sessions being opened again by `wake`: the daemon may still report the
+	 *  close of the engine it let go of while idle (see handleExit). */
+	#waking = new Set<string>();
+
+	/** A conversation let go of while hidden whose engine starts something
+	 *  (a turn another session or a schedule started, a question): the
+	 *  daemon still sends its events, but nobody watches it, so its engine
+	 *  would turn approvals into deferred actions. Watching it again makes
+	 *  them prompt here, as before it was let go of. */
+	rouse(s: Session) {
+		if (s.dormant && daemon.sessionOf(s.id) !== undefined && !s.chat.settled) this.wake(s.id);
+	}
+
+	/** The sessions shown last (see noteShown). */
+	#shown = new Set<string>();
+
+	/** Notes the sessions shown now (`shown`: the chat tiles and the page's
+	 *  own): each, and each that has just left the screen, counts as shown
+	 *  until `now` (see releaseHidden). */
+	noteShown(shown: Iterable<string>, now = Date.now()) {
+		const seen = new Set(shown);
+		for (const s of this.allSessions) if (seen.has(s.id) || this.#shown.has(s.id) || s.shownAt === undefined) s.shownAt = now;
+		this.#shown = seen;
+	}
+
+	/** Lets go of the conversations not shown for RELEASE_AFTER_MS: the page
+	 *  calls it every minute with the sessions shown now. A long conversation
+	 *  holds megabytes of tool output the engine can send again; the session
+	 *  stays listed and opens again when it is next shown (`wake`). */
+	releaseHidden(shown: Iterable<string>, now = Date.now()) {
+		this.noteShown(shown, now);
+		for (const s of this.allSessions) if (!this.#shown.has(s.id) && now - (s.shownAt ?? now) >= RELEASE_AFTER_MS) this.#release(s);
+	}
+
+	/** Only a LynShen conversation the daemon hosts for this window, with
+	 *  nothing under way (ChatState.settled), is let go of: its replay is
+	 *  the whole conversation, which fills the outputs back in. Agents'
+	 *  sessions show on their own page and stay. */
+	#release(s: Session) {
+		if (s.dormant || s.draft || s.surface === 'tui' || s.backendId !== 'lynshen' || s.chat.agent) return;
+		if (!daemon.sessionOf(s.id) || peekHeldOps(s.id).length || !s.chat.settled) return;
+		daemon.unwatch(s.id);
+		s.chat.releaseOutputs();
+		s.dormant = true;
+	}
+
+	/** The daemon hosts the session for this window: it is started, or let
+	 *  go of while hidden (dormant, still hosted). */
+	#hosted(s: Session): boolean {
+		return !s.draft && (!s.dormant || daemon.sessionOf(s.id) !== undefined);
 	}
 
 	/** Drops a session another client removed, without telling the daemon. */
 	forget(id: string) {
 		const s = this.allSessions.find((x) => x.id === id);
 		if (!s) return;
-		if (!s.dormant && !s.draft) closeSession(id).catch(() => {});
+		if (this.#hosted(s)) closeSession(id).catch(() => {});
 		unregisterAdapter(id);
 		clearDraft(id);
 		saveComposerText(id, '');
@@ -899,7 +961,10 @@ export class SessionStore {
 	 *  the budget again; a run of crashes without recovery exhausts it. */
 	handleExit(id: string, reason = '') {
 		const s = this.allSessions.find((x) => x.id === id);
-		if (!s) return;
+		// A session let go of while hidden (see `releaseHidden`) may be closed
+		// by the daemon once idle: it opens again when shown. That close can
+		// also arrive as it opens again (`wake`).
+		if (!s || s.dormant || this.#waking.has(id)) return;
 		// An intentional GUI close can be observed after openInTui has already
 		// flipped the surface. Never auto-restart underneath the native TUI.
 		if (s.surface === 'tui') {
@@ -1136,7 +1201,7 @@ export class SessionStore {
 		const s = this.allSessions.find((x) => x.id === id);
 		// Closing a session's tab removes it from every client's list.
 		if (s) this.#share(s, { hidden: true });
-		if (!s?.dormant && !s?.draft) closeSession(id).catch(() => {});
+		if (!s || this.#hosted(s)) closeSession(id).catch(() => {});
 		unregisterAdapter(id);
 		clearDraft(id);
 		dropHeldOps(id);
@@ -1184,7 +1249,7 @@ export class SessionStore {
 	/** Tear down a project and all its sessions (the page handles confirmation). */
 	removeProject(p: Project) {
 		for (const s of p.sessions) {
-			if (!s.dormant && !s.draft) closeSession(s.id).catch(() => {});
+			if (this.#hosted(s)) closeSession(s.id).catch(() => {});
 			unregisterAdapter(s.id);
 			clearDraft(s.id);
 			dropHeldOps(s.id);

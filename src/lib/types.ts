@@ -32,8 +32,11 @@ export interface Session {
 	 *  store to flip back. */
 	surface?: 'gui' | 'tui';
 	/** A session listed from the daemon without an engine open here
-	 *  yet; it opens when it is first shown (`SessionStore.wake`). */
+	 *  yet, or one let go of while hidden (`SessionStore.releaseHidden`); it
+	 *  opens when it is next shown (`SessionStore.wake`). */
 	dormant?: boolean;
+	/** When this run last showed the session, ms (see `releaseHidden`). */
+	shownAt?: number;
 	/** A new session with no engine yet: its backend, model and effort are
 	 *  only choices until the first message starts it (`markDraft`). */
 	draft?: boolean;

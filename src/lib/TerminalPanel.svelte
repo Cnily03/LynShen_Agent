@@ -50,7 +50,11 @@
 			if (host) ro.observe(host);
 			cleanups.push(() => ro.disconnect());
 
-			if (disposed) cleanups.forEach((f) => f());
+			if (disposed) {
+				// Closed while opening: onDestroy ran before the pty existed.
+				cleanups.forEach((f) => f());
+				ptyClose(id).catch(() => {});
+			}
 		})();
 		return () => {
 			disposed = true;

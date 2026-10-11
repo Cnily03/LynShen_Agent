@@ -58,8 +58,9 @@ const DAEMON_EVENTS = new Set([
 const CLOSE_TIMEOUT_MS = 10_000;
 
 export class DaemonClient {
-	/** Called with the desktop session id and one raw frame (JSON text). */
-	onFrame: (desktopId: string, raw: string) => void = () => {};
+	/** Called with the desktop session id and one raw frame (JSON text), and
+	 *  the frame as the client parsed it to route it. */
+	onFrame: (desktopId: string, raw: string, frame: Frame) => void = () => {};
 	/** Called when a hosted session stops or the connection is lost. */
 	onExit: (desktopId: string) => void = () => {};
 	/** Daemon-wide frames: agents, sessions, deliveries, questions, pending
@@ -145,6 +146,14 @@ export class DaemonClient {
 		this.#toDaemon.delete(desktopId);
 		this.#toDesktop.delete(session);
 		if (this.#socket?.readyState === OPEN) this.#write({ op: 'unwatch', session });
+	}
+
+	/** Stops watching a session it keeps hosting here: the daemon may then
+	 *  close it once it is idle. Opening it again (`open`) watches it and
+	 *  sends its snapshot. */
+	unwatch(desktopId: string) {
+		const session = this.#toDaemon.get(desktopId);
+		if (session && this.#socket?.readyState === OPEN) this.#write({ op: 'unwatch', session });
 	}
 
 	/** Writes one op line (as composed by the lynshen adapter) to the
@@ -272,7 +281,7 @@ export class DaemonClient {
 		}
 		// `watching` answers our own watch op; everything else is engine output.
 		if (desktopId && frame.type !== 'watching') {
-			this.onFrame(desktopId, raw);
+			this.onFrame(desktopId, raw, frame);
 			if (frame.type === 'transcript' || frame.type === 'usage' || (frame.type === 'status' && frame.message === 'ready'))
 				this.#refreshUsage(session);
 		}
@@ -311,7 +320,7 @@ export class DaemonClient {
 			const desktopId = this.#toDesktop.get(session);
 			if (!desktopId) return;
 			// Usage arrived after the snapshot began: keep pending figures until the fresh lookup.
-			if (!state.dirty || reply.billing_error) this.onFrame(desktopId, JSON.stringify(reply));
+			if (!state.dirty || reply.billing_error) this.onFrame(desktopId, JSON.stringify(reply), reply);
 			const pending = Number((reply.totals as Frame | undefined)?.pending_requests ?? 0);
 			if (state.dirty) this.#refreshUsage(session);
 			else if (pending && !reply.billing_error) this.#refreshUsage(session, 30_000);
