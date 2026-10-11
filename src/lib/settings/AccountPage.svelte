@@ -11,6 +11,8 @@
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
 	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
+	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
+	import DesktopTowerIcon from 'phosphor-svelte/lib/DesktopTowerIcon';
 	import Button from '$lib/ui/Button.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import { t } from '$lib/i18n';
@@ -28,7 +30,9 @@
 		onLogout,
 		onSquare,
 		onApiKey,
-		onUsage
+		onUsage,
+		onInvite,
+		onDevices
 	}: {
 		user: MonoizeUser;
 		/** The first `balance_infos` entry of /user/balance; null while loading. */
@@ -39,6 +43,10 @@
 		onSquare: () => void;
 		onApiKey: () => void;
 		onUsage: () => void;
+		/** Settings → 邀请好友. */
+		onInvite: () => void;
+		/** Settings → 授权设备. */
+		onDevices: () => void;
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
@@ -72,6 +80,8 @@
 		{ icon: SquaresFourIcon, title: t('settings.monoize.square'), sub: t('settings.accountPage.squareSub'), run: onSquare, external: false },
 		{ icon: KeyIcon, title: t('settings.page.apiKey'), sub: t('settings.monoize.managedKey'), run: onApiKey, external: false },
 		{ icon: ChartLineIcon, title: t('settings.accountPage.usage'), sub: t('settings.accountPage.usageSub'), run: onUsage, external: false },
+		{ icon: GiftIcon, title: t('settings.accountPage.invite'), sub: t('settings.accountPage.inviteSub'), run: onInvite, external: false },
+		{ icon: DesktopTowerIcon, title: t('settings.accountPage.devices'), sub: t('settings.accountPage.devicesSub'), run: onDevices, external: false },
 		{ icon: ArrowSquareOutIcon, title: t('settings.accountPage.console'), sub: web.replace(/^https?:\/\//, ''), run: () => openExternal(`${web}/dashboard`), external: true }
 	]);
 </script>

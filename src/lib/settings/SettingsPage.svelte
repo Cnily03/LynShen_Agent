@@ -16,6 +16,8 @@
 	import GearSixIcon from 'phosphor-svelte/lib/GearSixIcon';
 	import KeyboardIcon from 'phosphor-svelte/lib/KeyboardIcon';
 	import UserCircleIcon from 'phosphor-svelte/lib/UserCircleIcon';
+	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
+	import DesktopTowerIcon from 'phosphor-svelte/lib/DesktopTowerIcon';
 	import ChartBarIcon from 'phosphor-svelte/lib/ChartBarIcon';
 	import MicrophoneIcon from 'phosphor-svelte/lib/MicrophoneIcon';
 	import PlugsIcon from 'phosphor-svelte/lib/PlugsIcon';
@@ -85,6 +87,8 @@
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import { shownBalanceText } from '$lib/money';
 	import AccountPage from './AccountPage.svelte';
+	import InviteSection from './InviteSection.svelte';
+	import DevicesSection from './DevicesSection.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import SettingsSection from './SettingsSection.svelte';
@@ -140,6 +144,8 @@
 		general: GearSixIcon,
 		shortcuts: KeyboardIcon,
 		account: UserCircleIcon,
+		invite: GiftIcon,
+		devices: DesktopTowerIcon,
 		usage: ChartBarIcon,
 		voice: MicrophoneIcon,
 		providers: PlugsIcon,
@@ -989,6 +995,8 @@
 							onSquare={openMonoizeSquare}
 							onApiKey={() => openProviderCard('monoize')}
 							onUsage={() => (section = 'usage')}
+							onInvite={() => (section = 'invite')}
+							onDevices={() => (section = 'devices')}
 						/>
 					{:else}
 						<SettingsSection>
@@ -997,6 +1005,10 @@
 							</SettingsRow>
 						</SettingsSection>
 					{/if}
+				{:else if current === 'invite'}
+					<div id="set-invite"><InviteSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} /></div>
+				{:else if current === 'devices'}
+					<div id="set-devices"><DevicesSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} /></div>
 				{:else if current === 'usage'}
 					<OverviewPanel />
 				{:else if current === 'voice'}

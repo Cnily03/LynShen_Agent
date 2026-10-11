@@ -1137,6 +1137,41 @@ fn fetch_monoize_live_usage() -> Result<serde_json::Value, String> {
     monoize_auth::gateway_key_get("/api/desktop/oauth/live-usage")
 }
 
+/// The invite program for the account card's 邀请好友 page (DA-9): the code,
+/// the link, the rules, who invited the user and the people they invited.
+#[tauri::command(async)]
+fn monoize_referrals() -> Result<serde_json::Value, String> {
+    monoize_auth::gateway_key_call("GET", "/api/desktop/oauth/referrals", None)
+}
+
+/// Records the inviter's code for this account (RF-B1, once, within 7 days of
+/// signing up); answers the refreshed invite page.
+#[tauri::command(async)]
+fn monoize_bind_referral(code: String) -> Result<serde_json::Value, String> {
+    monoize_auth::gateway_key_call(
+        "POST",
+        "/api/desktop/oauth/referrals/bind",
+        Some(serde_json::json!({ "code": code })),
+    )
+}
+
+/// The account's authorized devices, IP addresses and seats (DA-10).
+#[tauri::command(async)]
+fn monoize_devices() -> Result<serde_json::Value, String> {
+    monoize_auth::gateway_key_call("GET", "/api/desktop/oauth/devices", None)
+}
+
+/// Buys a device or IP seat from the balance (AD-P1..AD-P3); `request_id`
+/// makes a retry safe.
+#[tauri::command(async)]
+fn monoize_buy_seat(kind: String, days: u32, request_id: String) -> Result<serde_json::Value, String> {
+    monoize_auth::gateway_key_call(
+        "POST",
+        "/api/desktop/oauth/devices/seats",
+        Some(serde_json::json!({ "kind": kind, "days": days, "request_id": request_id })),
+    )
+}
+
 /// Monoize 网关当前可调用的模型（GET /v1/models），用于在设置里刷新模型列表。
 #[tauri::command(async)]
 fn fetch_monoize_models() -> Result<serde_json::Value, String> {
@@ -3706,6 +3741,10 @@ pub fn run() {
             fetch_deepseek_balance,
             fetch_monoize_balance,
             fetch_monoize_live_usage,
+            monoize_referrals,
+            monoize_bind_referral,
+            monoize_devices,
+            monoize_buy_seat,
             fetch_monoize_models,
             monoize_auth::monoize_oauth_start,
             monoize_auth::monoize_oauth_poll,

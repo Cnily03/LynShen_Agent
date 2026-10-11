@@ -59,7 +59,15 @@ fn api_call(
     bearer: Option<&str>,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    api_call_status(method, path, bearer, body).map_err(|(_, message)| message)
+    api_call_status(method, path, bearer, body).map_err(|failure| failure.message)
+}
+
+/// A gateway call that failed: the HTTP status when the gateway answered, its
+/// readable reason, and its error code (`{"error":{"code"}}`) when it sent one.
+struct CallFailure {
+    status: Option<u16>,
+    message: String,
+    code: Option<String>,
 }
 
 /// [`api_call`] that also returns the HTTP status of a gateway error.
@@ -68,7 +76,7 @@ fn api_call_status(
     path: &str,
     bearer: Option<&str>,
     body: Option<Value>,
-) -> Result<Value, (Option<u16>, String)> {
+) -> Result<Value, CallFailure> {
     let mut last_network_err = String::new();
     for index in base_order() {
         let mut req = http().request(method, &format!("{}{}", BASES[index], path));
@@ -82,26 +90,38 @@ fn api_call_status(
         match result {
             Ok(resp) => {
                 BASE_INDEX.store(index, Ordering::Relaxed);
-                return resp.into_json::<Value>().map_err(|e| (None, e.to_string()));
+                return resp.into_json::<Value>().map_err(|e| CallFailure {
+                    status: None,
+                    message: e.to_string(),
+                    code: None,
+                });
             }
             Err(ureq::Error::Status(status, resp)) => {
                 // 网关有应答（含 401/409 等业务错误）：透出错误信息，不切换域名。
                 BASE_INDEX.store(index, Ordering::Relaxed);
                 let parsed = resp.into_json::<Value>().ok();
-                return Err((
-                    Some(status),
-                    match &parsed {
+                return Err(CallFailure {
+                    status: Some(status),
+                    message: match &parsed {
                         Some(v) => gateway_error_message(v),
                         None => format!("gateway error {status} via {}", BASES[index]),
                     },
-                ));
+                    code: parsed
+                        .as_ref()
+                        .and_then(|v| v["error"]["code"].as_str().or_else(|| v["code"].as_str()))
+                        .map(String::from),
+                });
             }
             Err(e) => {
                 last_network_err = format!("{}: {e}", BASES[index]);
             }
         }
     }
-    Err((None, format!("all gateways unreachable ({last_network_err})")))
+    Err(CallFailure {
+        status: None,
+        message: format!("all gateways unreachable ({last_network_err})"),
+        code: None,
+    })
 }
 
 /// The readable reason of a gateway error body: `{"message"}` (dashboard
@@ -133,9 +153,20 @@ pub(crate) fn gateway_key_get(path: &str) -> Result<Value, String> {
 /// A request with the desktop's device key (the one this app's sign-in
 /// stored); a 401 reads `401 unauthorized: …` so the caller can ask to sign in.
 pub(crate) fn gateway_key_send(method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
-    api_call_status(method, path, Some(&gateway_key()?), body).map_err(|(status, message)| match status {
-        Some(401) => format!("401 unauthorized: {message}"),
-        _ => message,
+    api_call_status(method, path, Some(&gateway_key()?), body).map_err(|failure| match failure.status {
+        Some(401) => format!("401 unauthorized: {}", failure.message),
+        _ => failure.message,
+    })
+}
+
+/// [`gateway_key_send`] whose error is JSON `{"status", "code", "message"}`,
+/// so a page can tell the gateway's reasons apart (`insufficient_balance`,
+/// `email_unverified`, `invite_code_invalid`…). Without a device key the
+/// code is `not_signed_in`.
+pub(crate) fn gateway_key_call(method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+    let key = gateway_key().map_err(|message| json!({ "status": null, "code": "not_signed_in", "message": message }).to_string())?;
+    api_call_status(method, path, Some(&key), body).map_err(|failure| {
+        json!({ "status": failure.status, "code": failure.code, "message": failure.message }).to_string()
     })
 }
 

@@ -9,6 +9,8 @@ export type SectionKey =
 	| 'general'
 	| 'shortcuts'
 	| 'account'
+	| 'invite'
+	| 'devices'
 	| 'usage'
 	| 'voice'
 	| 'providers'
@@ -24,7 +26,7 @@ export type SectionKey =
 	| 'updates';
 
 export const GROUPS: { key: string; sections: SectionKey[] }[] = [
-	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'usage', 'voice'] },
+	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'invite', 'devices', 'usage', 'voice'] },
 	{ key: 'models', sections: ['providers', 'models', 'network'] },
 	{ key: 'agents', sections: ['agents', 'team', 'acp', 'mcp', 'market', 'import'] },
 	{ key: 'system', sections: ['daemon', 'updates'] }
@@ -68,6 +70,8 @@ export const ROWS: SearchRow[] = [
 	{ section: 'account', id: 'account-balance', titleKey: 'settings.usage.balance' },
 	{ section: 'account', id: 'account-models', titleKey: 'settings.monoize.square' },
 	{ section: 'account', id: 'account-provider', titleKey: 'settings.page.apiKey', descKey: 'settings.monoize.managedKey' },
+	{ section: 'invite', id: 'invite', titleKey: 'settings.section.invite', descKey: 'settings.accountPage.inviteSub' },
+	{ section: 'devices', id: 'devices', titleKey: 'settings.section.devices', descKey: 'settings.accountPage.devicesSub' },
 	{ section: 'usage', id: 'usage-daily', titleKey: 'settings.section.usage' },
 	{ section: 'usage', id: 'usage-detail', titleKey: 'settings.overview.breakdownTitle' },
 	{ section: 'voice', id: 'voice-provider', titleKey: 'settings.voice.provider' },

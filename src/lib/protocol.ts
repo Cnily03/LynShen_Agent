@@ -506,6 +506,74 @@ export interface LiveUsage {
 	/** cache_read / input tokens, 0–1; null when the window had no input. */
 	cache_hit_rate: number | null;
 }
+/** A refusal from the gateway with its error code (`insufficient_balance`,
+ *  `email_unverified`, `invite_code_invalid`, `not_signed_in`…). */
+export class GatewayError extends Error {
+	constructor(
+		message: string,
+		readonly code: string | null,
+		readonly status: number | null
+	) {
+		super(message);
+	}
+}
+
+/** A device-key call whose failure keeps the gateway's code (monoize_auth `gateway_key_call`). */
+async function gatewayCall<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+	try {
+		return await invoke<T>(cmd, args);
+	} catch (error) {
+		const raw = String(error);
+		let parsed: { message?: unknown; code?: unknown; status?: unknown } | null = null;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			parsed = null;
+		}
+		if (parsed && typeof parsed === 'object') {
+			throw new GatewayError(
+				String(parsed.message ?? raw),
+				typeof parsed.code === 'string' ? parsed.code : null,
+				typeof parsed.status === 'number' ? parsed.status : null
+			);
+		}
+		throw new GatewayError(raw, null, null);
+	}
+}
+
+/** The invite program (gateway DA-9, RF-API-1): amounts in CNY fen, times in Unix ms. */
+export interface ReferralOverview {
+	code: string;
+	invite_url?: string;
+	enabled: boolean;
+	/** Masked username of the inviter, or null. */
+	invited_by: string | null;
+	/** An inviter's code can still be added (within 7 days of signing up). */
+	can_bind: boolean;
+	bind_until: number;
+	rules: { bonus_fen: number; share_bp: number; window_days: number; min_usage_hours: number; min_consumption_fen: number };
+	stats: { invited: number; qualified: number; pending: number; earned_fen: number };
+	invitees: { username: string; registered_at: number; status: 'pending' | 'qualified' | 'reviewing' | 'rejected'; earned_fen: number; window_ends_at: number | null }[];
+}
+export const fetchReferrals = () => gatewayCall<ReferralOverview>('monoize_referrals');
+export const bindReferral = (code: string) => gatewayCall<ReferralOverview>('monoize_bind_referral', { code });
+
+/** The account's authorized devices (gateway DA-10, AD-API-1); times in Unix ms. */
+export interface DeviceOverview {
+	devices: { id: string; name: string; api_key_id: string; created_at: number; last_used_at: string | null; expires_at: string | null; active: boolean; revokes_at: number }[];
+	ips: { ip: string; first_seen_at: number; last_seen_at: number; active: boolean; expires_at: number }[];
+	seats: { id: string; kind: 'device' | 'ip'; starts_at: number; expires_at: number; price_nano_usd: string; source: string; active: boolean }[];
+	limits: { device: { used: number; limit: number }; ip: { used: number; limit: number } };
+	prices: { days: number; ip_cny_fen: number; device_cny_fen: number }[];
+	device_idle_days: number;
+	ip_idle_days: number;
+	/** This app's own key: its row is "this device". */
+	current_api_key_id: string;
+}
+export const fetchDevices = () => gatewayCall<DeviceOverview>('monoize_devices');
+export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) =>
+	gatewayCall<{ balance_nano_usd: string }>('monoize_buy_seat', { kind, days, requestId });
+
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with
  *  the device key); null when unavailable (signed out, an older gateway), and
