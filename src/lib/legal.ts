@@ -8,6 +8,9 @@ interface LegalText {
 	sections: { heading: string; body: string[] }[];
 }
 
+// TODO(contact): LynShen has no contact address on lynshen.org yet (none in
+// any LynShen repo). This one is a leftover of the upstream rename on a domain
+// LynShen does not own: replace it with LynShen's real address.
 const CONTACT = 'contact@lynshen.net';
 
 export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
