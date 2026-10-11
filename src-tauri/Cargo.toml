@@ -3,7 +3,7 @@
 
 [package]
 name = "desktop"
-version = "0.4.38"
+version = "0.4.39"
 description = "LynShen desktop GUI"
 authors = ["LynShen Innovations INC."]
 license = "Apache-2.0"
