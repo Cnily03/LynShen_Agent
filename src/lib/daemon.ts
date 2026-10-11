@@ -50,9 +50,7 @@ const DAEMON_EVENTS = new Set([
 	'questions',
 	'actions',
 	'report_posted',
-	'report_read',
 	'schedules',
-	'tasks',
 	'workspaces',
 	'dispatches',
 	'requirements'

@@ -79,20 +79,6 @@ describe('AgentDirectory', () => {
 		dir.stop();
 		expect(dir.status).toBe('off');
 	});
-
-	it('stays connected to a daemon from before tasks', async () => {
-		const usual = vi.mocked(daemon.request).getMockImplementation()!;
-		vi.mocked(daemon.request).mockImplementation((op) =>
-			op.op === 'task_list' ? Promise.reject(new Error('task_list requires session')) : Promise.resolve({ type: 'reports', reports: [] })
-		);
-		const dir = new AgentDirectory();
-		dir.start();
-		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(dir.status).toBe('on');
-		expect(dir.tasks).toEqual([]);
-		dir.stop();
-		vi.mocked(daemon.request).mockImplementation(usual);
-	});
 });
 
 describe('desk state', () => {
@@ -128,14 +114,6 @@ describe('desk state', () => {
 		expect(dir.actions).toEqual([]);
 	});
 
-	it('replaces one agent\'s tasks from its broadcast, keeping the others', () => {
-		const dir = new AgentDirectory();
-		const task = (id: string, agent: string, updated_at: number) => ({ id, agent, updated_at, state: 'done' });
-		dir.handle({ type: 'tasks', agent: null, tasks: [task('a1', 'a', 1), task('b1', 'b', 2)] });
-		dir.handle({ type: 'tasks', agent: 'a', tasks: [task('a1', 'a', 5), task('a2', 'a', 3)] });
-		expect(dir.tasks.map((t) => t.id)).toEqual(['a1', 'a2', 'b1']);
-	});
-
 	it('puts a new report first and marks it read once', async () => {
 		const dir = new AgentDirectory();
 		dir.handle({ type: 'report_posted', report: { id: 'r1', title: 'old', read: false } });
@@ -147,9 +125,6 @@ describe('desk state', () => {
 		expect(
 			vi.mocked(daemon.request).mock.calls.filter(([op]) => op.op === 'report_read')
 		).toHaveLength(1);
-		// Read on another device.
-		dir.handle({ type: 'report_read', report: 'r1' });
-		expect(dir.reports[1].read).toBe(true);
 	});
 
 	it('finds the agent a daemon session belongs to', () => {

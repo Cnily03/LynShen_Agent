@@ -1,6 +1,7 @@
 <script lang="ts">
 	// A new conversation not started yet, as one sentence: "in <project>
-	// with <agent>", both words menus. The choices are only recorded until the
+	// with <backend>" (LynShen, Codex or Claude Code; not a daemon agent),
+	// both words menus. The choices are only recorded until the
 	// first message starts the engine there (SessionStore.moveDraft /
 	// switchBackend).
 	import { open } from '@tauri-apps/plugin-dialog';

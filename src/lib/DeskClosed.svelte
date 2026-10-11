@@ -1,15 +1,12 @@
 <script lang="ts">
 	// Questions and actions closed lately, each with who closed it and why,
-	// and a button that reopens it. Below the pending items on the desk
-	// (DeskContent), at the foot of an agent's tasks and on the remote page's
-	// desk list. Approvals that lapsed with their run (`superseded`) are left
-	// out: there is nothing left to approve them for.
+	// and an undo that reopens it. Below the pending items on the desk
+	// (DeskContent) and the remote page's desk list.
 	import QuestionIcon from 'phosphor-svelte/lib/QuestionIcon';
 	import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheckIcon';
 	import { useAgents } from '$lib/agentScope';
 	import type { ItemKind } from '$lib/agents.svelte';
 	import { t } from '$lib/i18n';
-	import { when } from '$lib/time';
 
 	let {
 		inScope = () => true
@@ -29,7 +26,7 @@
 				.map((q) => ({ kind: 'question' as ItemKind, id: q.id, agent: q.agent, title: q.title, by: q.closed_by, reason: q.closed_reason, at: q.closed_at })),
 			...agentDirectory.closedActions
 				.map((a) => ({ a, agent: agentDirectory.agentOfSession(a.session_id)?.id }))
-				.filter(({ a, agent }) => inScope(agent) && a.closed_by !== 'superseded')
+				.filter(({ agent }) => inScope(agent))
 				.map(({ a, agent }) => ({ kind: 'action' as ItemKind, id: a.id, agent, title: `${a.name} ${a.summary}`, by: a.closed_by, reason: a.closed_reason, at: a.closed_at }))
 		].sort((x, y) => y.at - x.at)
 	);
@@ -44,6 +41,9 @@
 		return t('shell.desk.closedByAgent', { agent: agentDirectory.agentName(agent) });
 	}
 
+	function when(ms: number): string {
+		return new Date(ms).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	}
 
 	async function reopen(kind: ItemKind, id: string) {
 		error = '';

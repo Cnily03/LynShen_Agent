@@ -1786,6 +1786,10 @@
 					navWidth={sidebarWidth}
 					onClose={() => (showDesk = false)}
 					onOpenSession={openDaemonSession}
+					onNewSession={(agent) => {
+						deskSession = store.openAgentSession(agent);
+						deskAgent = agent.id;
+					}}
 				>
 					{#snippet chatView(id)}
 						{@const sess = sessionMap.get(id)}

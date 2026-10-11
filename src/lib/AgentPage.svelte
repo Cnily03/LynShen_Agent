@@ -31,14 +31,14 @@
 		type AgentView
 	} from '$lib/agents.svelte';
 	import { t } from '$lib/i18n';
-	import { when } from '$lib/time';
 
 	let {
 		agentId,
 		projects = [],
 		onDeleted,
 		onOpenSession,
-		onOpenAgent
+		onOpenAgent,
+		onNewSession
 	}: {
 		agentId: string;
 		/** The open workspace's projects, for 所属项目. */
@@ -46,6 +46,7 @@
 		onDeleted: () => void;
 		onOpenSession: (session: string) => void;
 		onOpenAgent: (agent: string) => void;
+		onNewSession: () => void;
 	} = $props();
 
 	type Tab = 'activity' | 'brief' | 'settings';
@@ -150,6 +151,14 @@
 		picker = { x: r.left, y: r.bottom + 6 };
 	}
 
+	function when(ms: number): string {
+		return new Date(ms).toLocaleString(undefined, {
+			month: 'numeric',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+	}
 
 	function rename(e: Event & { currentTarget: HTMLInputElement }) {
 		const name = e.currentTarget.value.trim();
@@ -191,9 +200,6 @@
 	let detached = $state(false);
 	const followUp = $derived(detached ? undefined : working[0]);
 	let sending = $state(false);
-	/** The box is one line until it is used. */
-	let focused = $state(false);
-	const composing = $derived(focused || !!taskText.trim() || sending || !!followUp);
 	let taskError = $state('');
 	async function assign() {
 		const body = taskText.trim();
@@ -301,29 +307,19 @@
 					</div>
 				{/if}
 				<textarea
-					rows={composing ? 3 : 1}
+					rows="3"
 					bind:value={taskText}
 					placeholder={followUp ? t('shell.agentPage.followUpPlaceholder') : t('shell.agentPage.taskPlaceholder')}
-					onfocus={() => (focused = true)}
-					onblur={() => (focused = false)}
 					onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing && (e.preventDefault(), assign())}
 				></textarea>
-				{#if composing}
-					<div class="task-foot">
-						<span class="grow"></span>
-						<Button
-							variant="primary"
-							size="sm"
-							disabled={!taskText.trim() || sending}
-							title={t('shell.agentPage.taskSendKey')}
-							onmousedown={(e: MouseEvent) => e.preventDefault()}
-							onclick={assign}
-						>
-							{#if sending}<CircleNotchIcon size={13} class="spin" />{:else}<PaperPlaneRightIcon size={13} />{/if}
-							{t('shell.agentPage.taskSend')}
-						</Button>
-					</div>
-				{/if}
+				<div class="task-foot">
+					<span class="hint-inline">{followUp ? '' : t('shell.agentPage.taskNewHint')}</span>
+					<span class="grow"></span>
+					<Button variant="primary" size="sm" disabled={!taskText.trim() || sending} onclick={assign}>
+						{#if sending}<CircleNotchIcon size={13} class="spin" />{:else}<PaperPlaneRightIcon size={13} />{/if}
+						{t('shell.agentPage.taskSend')}
+					</Button>
+				</div>
 				{#if taskError}<Notice>{taskError}</Notice>{/if}
 			</div>
 		{/if}
@@ -338,7 +334,7 @@
 
 		<div class="tab-body">
 			{#if tab === 'activity'}
-				<AgentActivity {agent} {onOpenSession} {onOpenAgent} />
+				<AgentActivity {agent} {onOpenSession} {onOpenAgent} {onNewSession} />
 			{:else if tab === 'brief'}
 				<section>
 					<h3>{t('shell.agentPage.brief')}</h3>
@@ -662,6 +658,10 @@
 	.follow button:hover {
 		background: var(--surface2);
 		color: var(--text);
+	}
+	.hint-inline {
+		font-size: var(--fs-xs);
+		color: var(--dim2);
 	}
 	.task-foot {
 		display: flex;
