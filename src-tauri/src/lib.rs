@@ -12,6 +12,8 @@ mod agent_import;
 mod app_cli;
 #[cfg(desktop)]
 mod app_update;
+#[cfg(desktop)]
+mod autostart;
 mod backend;
 mod browser;
 mod capture;
@@ -3675,11 +3677,15 @@ pub fn run() {
     // argv 里的 lynshen:// 链接会自动转发给 deep-link 插件（Windows/Linux）。
     #[cfg(desktop)]
     let builder = builder
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 登录项又拉起一个实例时，已在运行的那个保持原样（静默时不弹窗）。
+            if !autostart::from_login_item(&argv) {
+                show_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(autostart::plugin())
         .manage(app_update::Pending::default());
     builder
         .plugin(tauri_plugin_deep_link::init())
@@ -3698,6 +3704,15 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // 登录项以静默方式启动：主窗口只留在托盘。窗口状态插件在窗口创建时
+            // 已恢复并显示过它（同一个主线程回调里，尚未绘制），这里立刻藏起来；
+            // 托盘、Dock 图标、深链和二次启动仍走 show_main_window。
+            #[cfg(desktop)]
+            if autostart::silent_launch() {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+            }
             #[cfg(all(debug_assertions, target_os = "macos"))]
             set_dev_dock_icon();
             // 异步捕获登录 shell 环境快照（不阻塞启动；见 shell_env.rs）。
@@ -3855,6 +3870,10 @@ pub fn run() {
             app_update::update_feeds,
             #[cfg(desktop)]
             app_update::feature_flags,
+            #[cfg(desktop)]
+            autostart::autostart_get,
+            #[cfg(desktop)]
+            autostart::autostart_set,
             native_import::import_native_session,
             agent_import::import_scan,
             agent_import::import_apply,

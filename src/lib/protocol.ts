@@ -633,6 +633,17 @@ export function setBackgroundImage(path: string): Promise<string> {
 export function clearBackgroundImage(): Promise<void> {
 	return invoke('clear_background_image');
 }
+/** Launch at login (src-tauri/src/autostart.rs): whether the login item is
+ *  registered, and whether it starts the app in the tray without a window. */
+export type Autostart = { enabled: boolean; silent: boolean };
+export function autostartGet(): Promise<Autostart> {
+	return invoke('autostart_get');
+}
+/** Registers or removes the login item and saves the start mode; resolves to
+ *  the state the system reports afterwards. */
+export function autostartSet(enabled: boolean, silent: boolean): Promise<Autostart> {
+	return invoke('autostart_set', { enabled, silent });
+}
 export type CloudSettings = Record<string, { value: unknown; updated_at: number }>;
 export async function fetchCloudSettings(): Promise<CloudSettings> {
 	const v = await invoke<{ settings?: CloudSettings }>('fetch_cloud_settings');

@@ -103,6 +103,7 @@
 	import PermissionRulesSection from './PermissionRulesSection.svelte';
 	import UpdateCard from './UpdateCard.svelte';
 	import ThirdPartyNotices from './ThirdPartyNotices.svelte';
+	import AutostartRows from './AutostartRows.svelte';
 	import ProviderAccountCard from './ProviderAccountCard.svelte';
 	import ProviderCatalogPicker from './ProviderCatalogPicker.svelte';
 	import CustomProviderForm from './CustomProviderForm.svelte';
@@ -177,6 +178,9 @@
 		model: 'claude-sonnet-5-5'
 	};
 	const previewParts = $derived(turnParts(SAMPLE_TURN, prefs.turnStats));
+
+	// Launch at login needs the desktop app (a browser has no login item).
+	const inApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 	// ---------- search ----------
 	let query = $state('');
@@ -990,6 +994,11 @@
 							/>
 						</SettingsRow>
 					</SettingsSection>
+					{#if inApp}
+						<SettingsSection title={t('settings.page.startup')}>
+							<AutostartRows />
+						</SettingsSection>
+					{/if}
 					<SettingsSection title={t('settings.page.help')}>
 						<SettingsRow id="feedback" title={t('settings.help.feedback')}>
 							<Button size="sm" disabled={!onFeedback} onclick={() => onFeedback?.()}>{t('settings.help.feedbackOpen')}</Button>

@@ -65,6 +65,8 @@ export const ROWS: SearchRow[] = [
 	{ section: 'general', id: 'thinking-summaries', titleKey: 'settings.behavior.thinkingSummaries', descKey: 'settings.behavior.thinkingSummariesHint' },
 	{ section: 'general', id: 'cache-miss', titleKey: 'settings.behavior.cacheMissAlert', descKey: 'settings.behavior.cacheMissAlertHint' },
 	{ section: 'general', id: 'html-open', titleKey: 'settings.behavior.htmlOpen' },
+	{ section: 'general', id: 'autostart', titleKey: 'settings.autostart.title', descKey: 'settings.autostart.hint' },
+	{ section: 'general', id: 'autostart-mode', titleKey: 'settings.autostart.mode', descKey: 'settings.autostart.modeHint' },
 	{ section: 'general', id: 'feedback', titleKey: 'settings.help.feedback' },
 	{ section: 'general', id: 'telemetry', titleKey: 'settings.help.telemetry', descKey: 'settings.help.telemetryHint' },
 	{ section: 'shortcuts', id: 'shortcuts-reset', titleKey: 'settings.shortcuts.customize', descKey: 'settings.shortcuts.hint' },

@@ -52,11 +52,12 @@ tauri-plugin-clipboard-manager = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 toml = "0.8"
 
-# 仅桌面端的插件（updater / 单实例 / 进程重启）
+# 仅桌面端的插件（updater / 单实例 / 进程重启 / 开机自启）
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-autostart = "2"
 
 # macOS 侧栏磨砂（NSVisualEffectView）。macOSPrivateApi 在 tauri.conf.json 里对所有平台开启
 # （非 macOS 上不起作用），和共用依赖里的 macos-private-api feature 保持一致：tauri dev 会按

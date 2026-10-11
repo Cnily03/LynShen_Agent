@@ -169,6 +169,7 @@ const settings = {
 			saveFailed: '保存设置失败：{msg}',
 			appearance: '外观',
 			conversation: '对话',
+			startup: '启动',
 			help: '帮助与反馈',
 			lynshenAccount: 'LynShen 账户',
 			manage: '管理',
@@ -183,6 +184,16 @@ const settings = {
 			selectProvider: '选择 Provider',
 			defaults: '新会话默认',
 			requests: '请求',
+		},
+		autostart: {
+			title: '开机自动启动',
+			hint: '登录电脑后自动打开 LynShen',
+			mode: '启动方式',
+			modeHint: '静默启动时不打开窗口，点托盘图标再打开',
+			window: '显示窗口',
+			silent: '静默启动（只在托盘）',
+			failed: '无法更改开机自动启动：{msg}',
+			readFailed: '无法读取开机自动启动的状态：{msg}'
 		},
 		account: {
 			keyPlaceholder: '请输入 API Key',
@@ -824,6 +835,7 @@ const settings = {
 			saveFailed: 'Could not save settings: {msg}',
 			appearance: 'Appearance',
 			conversation: 'Conversation',
+			startup: 'Startup',
 			help: 'Help and feedback',
 			lynshenAccount: 'LynShen account',
 			manage: 'Manage',
@@ -838,6 +850,16 @@ const settings = {
 			selectProvider: 'Select a provider',
 			defaults: 'New session defaults',
 			requests: 'Requests',
+		},
+		autostart: {
+			title: 'Launch at login',
+			hint: 'Open LynShen when you log in to your computer',
+			mode: 'Start as',
+			modeHint: 'A silent start opens no window; click the tray icon to open it',
+			window: 'Show the window',
+			silent: 'Silent (tray only)',
+			failed: 'Could not change launch at login: {msg}',
+			readFailed: 'Could not read the launch at login state: {msg}'
 		},
 		account: {
 			keyPlaceholder: 'Enter API Key',
