@@ -129,7 +129,10 @@
 		display: flex;
 		flex-direction: column;
 		max-height: 84vh;
+		/* clip, not hidden: a hidden overflow can still be scrolled by focus
+		   or scrollIntoView, which slides the head out of view. */
 		overflow: hidden;
+		overflow: clip;
 		position: relative;
 		isolation: isolate;
 		border-radius: var(--r-xl);
