@@ -953,7 +953,7 @@
 									{:else}
 										<span class="sp-none">{t('settings.behavior.turnStatsNone')}</span>
 									{/each}
-									<span class="sp-copy"><CopyIcon size={13} /> {t('common.copy')}</span>
+									<span class="sp-copy" title={t('chat.copyTurn')}><CopyIcon size={13} /></span>
 								</div>
 							</div>
 							<div class="stat-picks">
@@ -1350,8 +1350,7 @@
 	.sp-copy {
 		display: inline-flex;
 		align-items: center;
-		gap: 5px;
-		padding: 2px 6px;
+		padding: 2px 0;
 	}
 	.stat-picks {
 		display: grid;

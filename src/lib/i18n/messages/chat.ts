@@ -11,6 +11,7 @@ const chat = {
 		rewindTitle: '回退到此轮并重写（会还原文件改动）',
 		rewindTitleN: '回退到此轮并重写（还原文件改动，丢弃后面 {n} 轮）',
 		quoteTitle: '引用到输入框',
+		copyTurn: '复制整段回复',
 		tokens: '{n} tokens',
 		// Composer
 		approvalAsk: '谨慎',
@@ -453,6 +454,7 @@ const chat = {
 		rewindTitle: 'Rewind to this turn and rewrite (reverts file changes)',
 		rewindTitleN: 'Rewind to this turn and rewrite (reverts file changes, drops the {n} turns after it)',
 		quoteTitle: 'Quote into the composer',
+		copyTurn: 'Copy the whole reply',
 		tokens: '{n} tokens',
 		// Composer
 		approvalAsk: 'Cautious',
