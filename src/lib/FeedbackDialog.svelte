@@ -110,6 +110,9 @@
 			});
 			telemetry.track('feedback_send');
 			body = '';
+			// The dialog closes before the saving effect runs again, so clear
+			// the stored draft here or it comes back next time.
+			saveComposerText('feedback', '');
 			toast.success(t('shell.feedback.sent', { no: ticket.ticket_no ? `#${ticket.ticket_no}` : '' }), { duration: 8000 });
 			onClose();
 		} catch (e) {
