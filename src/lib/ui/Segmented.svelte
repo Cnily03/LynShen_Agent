@@ -54,4 +54,22 @@
 		color: var(--text);
 		box-shadow: var(--shadow-sm);
 	}
+	/* On a phone the labels can be wider than the control's row (the remote
+	   page's new-session dialog: LynShen | Claude Code | Codex in ~300px).
+	   The control then keeps to its row: each option sizes from its label
+	   and gives way by wrapping between words, never inside one. Without
+	   this, the last option ran past the control and the dialog body grew a
+	   horizontal scrollbar, which showed as a line above the buttons. Wider
+	   windows keep equal-width options (the desktop window is never this
+	   narrow). */
+	@media (max-width: 640px) {
+		.seg {
+			max-width: 100%;
+		}
+		.opt {
+			flex: 1 1 auto;
+			padding-inline: 8px;
+			white-space: normal;
+		}
+	}
 </style>
