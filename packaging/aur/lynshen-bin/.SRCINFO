@@ -1,6 +1,6 @@
 pkgbase = lynshen-bin
 	pkgdesc = LynShen Desktop: a coding agent workspace for LynShen, Claude Code and Codex
-	pkgver = 0.4.36
+	pkgver = 0.4.37
 	pkgrel = 1
 	url = https://www.lynshen.org
 	arch = x86_64
@@ -25,10 +25,10 @@ pkgbase = lynshen-bin
 	optdepends = xdg-utils: open lynshen:// links in the app
 	provides = lynshen-desktop
 	conflicts = lynshen-desktop
-	noextract = LynShen_0.4.36_amd64.deb
+	noextract = LynShen_0.4.37_amd64.deb
 	options = !strip
 	options = !debug
-	source = LynShen_0.4.36_amd64.deb::https://github.com/Libra1337/LynShen_Agent/releases/download/v0.4.36/LynShen_0.4.36_amd64.deb
-	sha256sums = fb5f7b3e8673c17f1f2aea19ee5a003ebcde45af58494d2b7ff30b8eda74bf51
+	source = LynShen_0.4.37_amd64.deb::https://github.com/Libra1337/LynShen_Agent/releases/download/v0.4.37/LynShen_0.4.37_amd64.deb
+	sha256sums = 8cdc7bc4c87402bc6f6ea6bdd77a55b97ac3220302efcce7380070c57e0a14a9
 
 pkgname = lynshen-bin

@@ -1,7 +1,7 @@
 # Maintainer: Libra1337 <https://github.com/Libra1337>
 # LynShen Desktop for Arch Linux, from the release's Debian package.
 pkgname=lynshen-bin
-pkgver=0.4.36
+pkgver=0.4.37
 pkgrel=1
 pkgdesc='LynShen Desktop: a coding agent workspace for LynShen, Claude Code and Codex'
 arch=('x86_64')
@@ -35,7 +35,7 @@ conflicts=('lynshen-desktop')
 options=('!strip' '!debug')
 source=("LynShen_${pkgver}_amd64.deb::https://github.com/Libra1337/LynShen_Agent/releases/download/v${pkgver}/LynShen_${pkgver}_amd64.deb")
 noextract=("LynShen_${pkgver}_amd64.deb")
-sha256sums=('fb5f7b3e8673c17f1f2aea19ee5a003ebcde45af58494d2b7ff30b8eda74bf51')
+sha256sums=('8cdc7bc4c87402bc6f6ea6bdd77a55b97ac3220302efcce7380070c57e0a14a9')
 
 package() {
   bsdtar -xOf "LynShen_${pkgver}_amd64.deb" data.tar.gz | bsdtar -xf - -C "${pkgdir}"
