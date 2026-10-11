@@ -53,7 +53,7 @@
 			if (disposed) {
 				// Closed while opening: onDestroy ran before the pty existed.
 				cleanups.forEach((f) => f());
-				ptyClose(id);
+				ptyClose(id).catch(() => {});
 			}
 		})();
 		return () => {
