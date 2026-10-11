@@ -2518,7 +2518,11 @@ export class ChatState {
 				break;
 			case 'error': {
 				// An engine without the agent trace refuses its ops: nothing failed.
-				const refused = /^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent|context_usage)$/.exec(str(ev.message));
+				// A daemon from before context categories answers a Claude Code
+				// session's context_usage in its own words.
+				const refused =
+					/^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent|context_usage)$/.exec(str(ev.message)) ??
+					/^Claude Code sessions do not support (context_usage)$/.exec(str(ev.message));
 				if (refused) {
 					if (refused[1] === 'context_usage') this.contextBreakdown = { error: str(ev.message) };
 					if (refused[1] === 'subagent_transcript' && this.agentFocus && !this.subagentTranscripts[this.agentFocus])

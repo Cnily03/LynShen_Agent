@@ -79,6 +79,20 @@ describe('AgentDirectory', () => {
 		dir.stop();
 		expect(dir.status).toBe('off');
 	});
+
+	it('stays connected to a daemon from before tasks', async () => {
+		const usual = vi.mocked(daemon.request).getMockImplementation()!;
+		vi.mocked(daemon.request).mockImplementation((op) =>
+			op.op === 'task_list' ? Promise.reject(new Error('task_list requires session')) : Promise.resolve({ type: 'reports', reports: [] })
+		);
+		const dir = new AgentDirectory();
+		dir.start();
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(dir.status).toBe('on');
+		expect(dir.tasks).toEqual([]);
+		dir.stop();
+		vi.mocked(daemon.request).mockImplementation(usual);
+	});
 });
 
 describe('desk state', () => {

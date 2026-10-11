@@ -582,9 +582,10 @@ export class AgentDirectory {
 			this.#delay = RETRY_MIN_MS;
 			this.#nextAttempt = 0;
 			await this.loadReports();
-			// An older daemon has no schedules.
+			// An older daemon has no schedules, nor tasks (LynShen CLI before
+			// tasks and runs): the agent page then lists its sessions only.
 			this.loadSchedules().catch(() => {});
-			await this.loadTasks();
+			this.loadTasks().catch(() => {});
 		} catch (e) {
 			// Stopped while connecting: stay off.
 			if (!this.#retry) return;
