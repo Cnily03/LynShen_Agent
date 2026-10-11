@@ -3670,6 +3670,19 @@ fn set_dev_dock_icon() {
     }
 }
 
+/// What the window-state plugin restores. On a silent launch at login it
+/// leaves visibility alone: it shows and focuses the window once the window
+/// is ready, which runs after `setup` hides it.
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    let flags = StateFlags::all() - StateFlags::DECORATIONS;
+    #[cfg(desktop)]
+    if autostart::silent_launch() {
+        return flags - StateFlags::VISIBLE;
+    }
+    flags
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -3697,16 +3710,14 @@ pub fn run() {
         // native title bar (0.3.x) would otherwise bring it back over the drawn one.
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all()
-                        - tauri_plugin_window_state::StateFlags::DECORATIONS,
-                )
+                .with_state_flags(window_state_flags())
                 .build(),
         )
         .setup(|app| {
-            // 登录项以静默方式启动：主窗口只留在托盘。窗口状态插件在窗口创建时
-            // 已恢复并显示过它（同一个主线程回调里，尚未绘制），这里立刻藏起来；
-            // 托盘、Dock 图标、深链和二次启动仍走 show_main_window。
+            // 登录项以静默方式启动：主窗口只留在托盘。配置里的窗口创建时可见，
+            // 这里立刻藏起来；窗口状态插件这次不恢复可见性（window_state_flags），
+            // 否则它在窗口就绪时会再次显示并聚焦。托盘、Dock 图标、深链和二次
+            // 启动仍走 show_main_window。
             #[cfg(desktop)]
             if autostart::silent_launch() {
                 if let Some(win) = app.get_webview_window("main") {
