@@ -920,9 +920,11 @@
 		return [store.activeId, ...(tilesReady ? chatSessionsIn(tiles) : []), ...(showDesk && deskSession ? [deskSession] : [])];
 	}
 	// A session listed from the daemon, or let go of while hidden, opens
-	// when it is shown.
+	// when it is shown. One leaving the screen counts as shown until then.
 	$effect(() => {
-		for (const id of shownSessionIds()) {
+		const ids = shownSessionIds();
+		untrack(() => store.noteShown(ids));
+		for (const id of ids) {
 			const s = sessionMap.get(id);
 			if (s?.dormant) untrack(() => store.wake(id));
 		}
@@ -1264,6 +1266,8 @@
 					}
 				}
 				flushModeSync(s.chat, s.id);
+				// Let go of while hidden and starting something: watched again.
+				store.rouse(s);
 				const miss = s.chat.cacheMiss;
 				if (miss) {
 					s.chat.cacheMiss = null;
