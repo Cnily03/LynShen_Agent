@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.4.36"
+version = "0.4.37"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
