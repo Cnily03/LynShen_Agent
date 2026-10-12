@@ -1506,6 +1506,7 @@
 			bind:attachments
 			{images}
 			onImage={addImage}
+			onAttach={addAttachment}
 			bind:videos
 			bind:el={composerEl}
 			onSubmit={submit}
