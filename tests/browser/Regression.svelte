@@ -11,6 +11,7 @@
   import ChatPane from '../../src/lib/ChatPane.svelte';
   import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
   import type { DaemonClient } from '../../src/lib/daemon';
+  import { prefs } from '../../src/lib/prefs.svelte';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
@@ -39,10 +40,12 @@
     return chat.busy && last?.kind === 'assistant' && !last.interrupted ? last : null;
   });
   // A conversation pane on a new conversation (?chat), fed by the test
-  // (window.__paneChat()).
+  // (window.__paneChat()). &glass turns glass on the way the app does at
+  // its start.
   if (mode.has('chat')) {
     provideRequirements(new Requirements({} as DaemonClient));
     sessions.createProject('/tmp/regression-project');
+    if (mode.has('glass')) prefs.init();
   }
   const paneSession = $derived(sessionMap.get(sessions.activeId));
   (window as unknown as { __paneChat: () => ChatState | undefined }).__paneChat = () => paneSession?.chat;

@@ -42,12 +42,24 @@
 	} = $props();
 
 	const hasIcons = $derived(items.some((i) => i.icon));
+
+	let menu = $state<HTMLDivElement>();
+	// The backdrop takes the click wherever it is on top. An ancestor that
+	// stacks or clips it leaves other things over it: under glass the composer
+	// is painted over the backdrop of a menu in the masked transcript or in an
+	// approval card, and Chromium gives a masked element's backdrop no click
+	// outside the mask. A press outside the menu's anchor (its parent: the
+	// menu, its button, the backdrop) closes the menu there too.
+	function onPress(e: PointerEvent) {
+		const anchor = menu?.parentElement;
+		if (anchor && !anchor.contains(e.target as Node)) onClose();
+	}
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} onpointerdowncapture={onPress} />
 
 <button class="pm-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={onClose}></button>
-<div class="pop pm {placement}" role="menu" out:popOut|global>
+<div class="pop pm {placement}" role="menu" bind:this={menu} out:popOut|global>
 	{#if title}<div class="pop-head">{title}</div>{/if}
 	{#each items as it, i (it.key)}
 		{#if it.group && it.group !== items[i - 1]?.group}
