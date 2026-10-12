@@ -771,6 +771,24 @@ export function saveTempImage(data: Uint8Array, ext: string): Promise<string> {
 	return invoke('save_temp_image', { data: Array.from(data), ext });
 }
 
+// Pasted file bytes (a file copied in another app, with no path on disk the
+// clipboard names) to a file under its own name; returns the path to attach.
+// The bytes go as the request body, not as a JSON array of numbers.
+export function saveTempFile(data: Uint8Array, name: string): Promise<string> {
+	return invoke('save_temp_file', data, { headers: { 'x-file-name': encodeURIComponent(name) } });
+}
+
+// The files copied in Explorer, Finder or a Linux file manager: their paths
+// from the system clipboard (empty when it holds no files).
+export function clipboardFilePaths(): Promise<string[]> {
+	return invoke<string[]>('clipboard_file_paths').then((paths) => paths ?? []);
+}
+
+// Whether a file or folder is still at `path`.
+export function pathExists(path: string): Promise<boolean> {
+	return invoke<boolean>('path_exists', { path });
+}
+
 // First-run environment check + best-effort dependency install (setup wizard).
 export interface DepStatus {
 	present: boolean;

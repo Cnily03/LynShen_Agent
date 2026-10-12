@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { copyableText, fileName, folderOf, sentLabel, splitAttachments, withFiles, withVideo } from './attachments';
+import { copyableText, fileKind, fileName, folderOf, isInside, sentLabel, splitAttachments, withFiles, withVideo } from './attachments';
 
 const VIDEO = (name: string, s: string, n: number) =>
 	`[视频附件] ${name}（时长 ${s} 秒）：已按时间等间隔抽取 ${n} 个关键帧，随消息以图片附上（按时间先后排序），请结合这些关键帧理解视频内容。`;
@@ -109,5 +109,30 @@ describe('labels and copy', () => {
 		expect(fileName('/tmp/dir/')).toBe('dir');
 		expect(folderOf('/a.txt')).toBe('/');
 		expect(folderOf('a.txt')).toBe('');
+	});
+});
+
+describe('fileKind', () => {
+	it('picks a kind by extension', () => {
+		expect(fileKind('/a/私聊_墨竹.jsonl')).toBe('text');
+		expect(fileKind('C:\\x\\Report.PDF')).toBe('pdf');
+		expect(fileKind('/src/app.svelte')).toBe('code');
+		expect(fileKind('/d/sheet.xlsx')).toBe('table');
+		expect(fileKind('/d/shot.png')).toBe('image');
+		expect(fileKind('/d/Makefile')).toBe('file');
+		expect(fileKind('/d/.env')).toBe('file');
+		expect(fileKind('/d/folder/')).toBe('folder');
+		expect(fileKind('/d/a.unknown')).toBe('file');
+	});
+});
+
+describe('isInside', () => {
+	it('tells files in a folder from files beside it', () => {
+		expect(isInside('/p/app/src/a.ts', '/p/app')).toBe(true);
+		expect(isInside('/p/app/src/a.ts', '/p/app/')).toBe(true);
+		expect(isInside('/p/app-two/a.ts', '/p/app')).toBe(false);
+		expect(isInside('/p/app', '/p/app')).toBe(false);
+		expect(isInside('C:\\p\\app\\a.ts', 'C:/p/app')).toBe(true);
+		expect(isInside('/a.ts', '')).toBe(false);
 	});
 });

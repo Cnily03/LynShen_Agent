@@ -125,3 +125,35 @@ export function copyableText(message: string): string {
 	if (!listed.length) return message;
 	return [text, listed.join('\n')].filter(Boolean).join('\n\n');
 }
+
+/** What kind of file a path names, by its extension: picks the chip's icon. */
+export type FileKind = 'folder' | 'code' | 'text' | 'pdf' | 'image' | 'table' | 'doc' | 'slides' | 'archive' | 'audio' | 'video' | 'file';
+
+const KINDS: [FileKind, RegExp][] = [
+	['code', /^(?:[cm]?[jt]sx?|svelte|vue|py|rs|go|java|kt|swift|c|h|cc|cpp|hpp|cs|rb|php|sh|zsh|bash|ps1|sql|html?|css|scss|less|lua|dart|scala|zig)$/],
+	['text', /^(?:txt|md|markdown|mdx|rst|log|json|jsonl|ndjson|ya?ml|toml|ini|cfg|conf|env|xml|srt|tex)$/],
+	['pdf', /^pdf$/],
+	['image', /^(?:png|jpe?g|gif|webp|bmp|svg|heic|ico|tiff?)$/],
+	['table', /^(?:csv|tsv|xlsx?|numbers|parquet)$/],
+	['doc', /^(?:docx?|pages|rtf|odt|epub)$/],
+	['slides', /^(?:pptx?|key|odp)$/],
+	['archive', /^(?:zip|tar|gz|tgz|bz2|xz|7z|rar|zst)$/],
+	['audio', /^(?:mp3|wav|m4a|flac|aac|ogg|opus)$/],
+	['video', /^(?:mp4|mov|webm|mkv|avi|m4v)$/]
+];
+
+export function fileKind(path: string): FileKind {
+	if (/[\\/]$/.test(path)) return 'folder';
+	const name = fileName(path);
+	const dot = name.lastIndexOf('.');
+	if (dot <= 0) return 'file';
+	const ext = name.slice(dot + 1).toLowerCase();
+	return KINDS.find(([, re]) => re.test(ext))?.[0] ?? 'file';
+}
+
+/** Whether `path` is inside the folder `dir` (`/` or `\` separated). */
+export function isInside(path: string, dir: string): boolean {
+	const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+	const root = norm(dir);
+	return !!root && norm(path).startsWith(`${root}/`);
+}

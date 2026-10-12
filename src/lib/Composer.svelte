@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { prefs } from '$lib/prefs.svelte';
 	import { costText } from '$lib/sessionCost';
+	import { sentLabel } from '$lib/attachments';
 	import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUpIcon';
 	import ArrowUUpLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeftIcon';
 	import { engineAtLeast, UNQUEUE_SINCE } from '$lib/engineVersion.svelte';
@@ -853,15 +854,15 @@
 		     conversation once the engine reads it, after a running tool. -->
 		<div class="queued">
 			<span class="queued-label">{t(chat.phase === 'tool' ? 'chat.steeringWait' : 'chat.steeringNow')}</span>
-			<span class="qchip" title={chat.steering}><span class="qtext">{chat.steering}</span></span>
+			<span class="qchip" title={sentLabel(chat.steering)}><span class="qtext">{sentLabel(chat.steering)}</span></span>
 		</div>
 	{/if}
 	{#if chat.pendingMessages.length}
 		<div class="queued">
 			<span class="queued-label">{t('chat.queuedLabel', { n: chat.pendingMessages.length })}</span>
 			{#each chat.pendingMessages as q, i (i)}
-				<span class="qchip" title={q}
-					><span class="qtext">{q}</span
+				<span class="qchip" title={sentLabel(q)}
+					><span class="qtext">{sentLabel(q)}</span
 					>{#if bcaps.unqueue && onUnqueue && engineAtLeast(UNQUEUE_SINCE)}<button
 							class="qtake"
 							onclick={() => onUnqueue(i, q)}
