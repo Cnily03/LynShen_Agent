@@ -13,6 +13,7 @@ import { fetchAccountInfo, fetchCloudSettings, putCloudSettings, readConfig, wri
 import { getLocale, LOCALES, setLocale, type Locale } from './i18n/core.svelte';
 import { setTheme, themeState, type ThemePref } from './theme.svelte';
 import { prefs, TURN_STAT_KEYS, type TurnStatKey } from './prefs.svelte';
+import { isChatWidthMode } from './chatWidth';
 import { loadBackendSettings, saveBackendSettings } from './backends/settings';
 import { isBackendId } from './backends';
 
@@ -67,6 +68,11 @@ const SPECS: Spec[] = [
 		key: 'ui.vibrancy',
 		read: () => prefs.sidebarVibrancy,
 		apply: (v) => (typeof v === 'boolean' ? (prefs.setSidebarVibrancy(v), true) : false)
+	},
+	{
+		key: 'ui.chatWidth',
+		read: () => prefs.chatWidth,
+		apply: (v) => (isChatWidthMode(v) ? (prefs.setChatWidth(v), true) : false)
 	},
 	{
 		key: 'ui.turnStats',

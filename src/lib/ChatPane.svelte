@@ -64,6 +64,7 @@
 	import { dispatch } from '$lib/backends/router';
 	import { browser } from '$lib/browser.svelte';
 	import { prefs } from '$lib/prefs.svelte';
+	import { CHAT_PAD, CHAT_PAD_RAIL, CHAT_W_STANDARD, chatColumnPad, chatColumnWidth } from '$lib/chatWidth';
 	import { followTop, shortOfEnd } from '$lib/chatFollow';
 	import { t } from '$lib/i18n';
 	import { shortcutLabel } from '$lib/shortcuts';
@@ -224,15 +225,16 @@
 	let mark = $state(-1);
 	const marks = $derived(chat.messages.flatMap((m) => (m.kind === 'user' && !parseDelivery(m.text) ? [m.text] : [])));
 
-	// The conversation column has one fixed width (as in ChatGPT and Claude):
-	// narrow enough to read, wide enough for the composer's bar on one line.
-	const CHAT_W = 768;
+	// The conversation column follows the pane and the 对话宽度 setting
+	// (chatWidth.ts): the messages, the composer and the trays share it.
+	// `wrapW` is the pane's width; until it is measured the column is the
+	// standard one, which the styles shrink to a narrow pane.
 	let wrapW = $state(0);
-	const chatW = CHAT_W;
-	// The least room beside the column (more with the rail at the left edge),
-	// and the room it has: main's padding-inline.
-	const chatPad = $derived(marks.length > 1 ? 56 : 32);
-	const pad = $derived(Math.max(chatPad, (wrapW - chatW) / 2));
+	// The room the pane wants beside the column (more with the rail at the
+	// left edge), and what the column leaves of it.
+	const sidePad = $derived(marks.length > 1 ? CHAT_PAD_RAIL : CHAT_PAD);
+	const chatW = $derived(wrapW > 0 ? chatColumnWidth(wrapW, prefs.chatWidth, sidePad) : CHAT_W_STANDARD);
+	const chatPad = $derived(wrapW > 0 ? chatColumnPad(wrapW, chatW, sidePad) : sidePad);
 
 	// In-conversation find (⌘F). The raw input updates per keystroke; the actual
 	// scan (findHits) keys off the debounced `findQuery` so the O(n) message scan

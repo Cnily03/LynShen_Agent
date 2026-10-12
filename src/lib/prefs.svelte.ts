@@ -2,6 +2,7 @@
 // from engine/backend settings — these are pure UI choices.
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { leastVeil, parseColor, sampleImage, softImage, SECONDARY_CONTRAST, TEXT_CONTRAST, type RGB } from './readability';
+import { isChatWidthMode, type ChatWidthMode } from './chatWidth';
 
 const KEY = 'lynshen-prefs';
 
@@ -17,9 +18,8 @@ type PrefsShape = {
 	sidebarVibrancy: boolean;
 	/** Which per-turn figures the reply footer shows (see TurnStats). */
 	turnStats: TurnStatKey[];
-	/** Width in px of the conversation column (messages and composer), set by
-	 *  dragging its edge. */
-	chatWidth: number;
+	/** 对话宽度: how the conversation column follows its pane (chatWidth.ts). */
+	chatWidth: ChatWidthMode;
 	/** Offer to stop a running turn when one of its requests misses the
 	 *  prompt cache (see cacheMiss.ts). */
 	cacheMissAlert: boolean;
@@ -71,7 +71,7 @@ const DEFAULTS: PrefsShape = {
 	htmlOpenInBrowser: true,
 	sidebarVibrancy: true,
 	turnStats: ['elapsed', 'tokens', 'files'],
-	chatWidth: 844,
+	chatWidth: 'auto',
 	cacheMissAlert: true,
 	telemetry: true,
 	terminalFont: '',
@@ -191,7 +191,8 @@ class PrefsStore {
 		this.turnStats = Array.isArray(p.turnStats)
 			? p.turnStats.filter((k): k is TurnStatKey => (TURN_STAT_KEYS as readonly string[]).includes(k))
 			: DEFAULTS.turnStats;
-		this.chatWidth = Number.isFinite(p.chatWidth) ? p.chatWidth : DEFAULTS.chatWidth;
+		// (An older version kept a number of pixels here.)
+		this.chatWidth = isChatWidthMode(p.chatWidth) ? p.chatWidth : DEFAULTS.chatWidth;
 		this.cacheMissAlert = p.cacheMissAlert !== false;
 		this.telemetry = p.telemetry !== false;
 		this.terminalFont = typeof p.terminalFont === 'string' ? p.terminalFont : DEFAULTS.terminalFont;
@@ -373,8 +374,8 @@ class PrefsStore {
 		this.#save();
 	}
 
-	setChatWidth(v: number) {
-		this.chatWidth = Math.round(v);
+	setChatWidth(v: ChatWidthMode) {
+		this.chatWidth = v;
 		this.#save();
 	}
 
