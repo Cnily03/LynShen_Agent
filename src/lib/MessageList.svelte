@@ -40,6 +40,7 @@
 	import { lastTurnStart, turnEnds, turnText } from '$lib/turnText';
 	import { contextItems, type ContextItem } from '$lib/ui/contextMenu';
 	import { streamText } from '$lib/streamText';
+	import { streamPlain, type PlainSource } from '$lib/streamPlain';
 
 	let {
 		messages,
@@ -415,6 +416,12 @@
 		return m === active ? textOf(m).slice(0, Math.floor(shownChars)) : textOf(m);
 	}
 
+	/** The same as a length and a reader for part of it. */
+	function shownText(m: Msg): PlainSource {
+		const text = textOf(m);
+		return { length: m === active ? Math.min(text.length, Math.floor(shownChars)) : text.length, read: (from, to) => text.slice(from, to) };
+	}
+
 	// Incremental streaming markdown: render completed blocks as markdown (memoized
 	// by the slice, so it only re-parses when a block finalizes) and the in-progress
 	// tail block as plain text. Per-token cost tracks the current block, not the
@@ -646,12 +653,10 @@
 				<Collapse open={!m.collapsed}>
 					<div class="reason-body">
 						{#if m === streamingReasoning}
-							<!-- Reasoning summaries are markdown (OpenAI's open with a
-							     **bold** title): completed blocks parse once, the short
-							     tail block re-parses as it grows. -->
-							<!-- While it streams: plain text (no per-frame Markdown);
-							     it renders as Markdown once finished. -->
-							<div class="stream" use:streamText={{ text: revealed(m) }}></div>
+							<!-- While it streams: plain text (no per-frame Markdown),
+							     in blocks written once (streamPlain); it renders as
+							     Markdown once finished. -->
+							<div class="stream" use:streamPlain={shownText(m)}></div>
 						{:else}
 							<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
 						{/if}

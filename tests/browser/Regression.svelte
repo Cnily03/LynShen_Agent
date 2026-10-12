@@ -6,6 +6,8 @@
   import HomePage from '../../src/lib/HomePage.svelte';
   import TitleBar from '../../src/lib/shell/TitleBar.svelte';
   import Probe from './Probe.svelte';
+  import MessageList from '../../src/lib/MessageList.svelte';
+  import { ChatState } from '../../src/lib/chat.svelte';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
@@ -21,6 +23,14 @@
   let section = $state('account');
   let sequence = 0;
   const projectMode = new URL(location.href).searchParams.has('projects');
+  // A reply thinking at length, fed by the test (window.__chat).
+  const chat = new ChatState();
+  (window as unknown as { __chat: ChatState }).__chat = chat;
+  let scroller = $state<HTMLElement | null>(null);
+  const thinking = $derived.by(() => {
+    const last = chat.messages.at(-1);
+    return chat.busy && last?.kind === 'reasoning' && last.live ? last : null;
+  });
 </script>
 {#if mode.has('mosaic')}
   <button onclick={() => (tiles = splitLeaf(tiles, leavesOf(tiles.root)[0].id, 'right', { id: 't1', panel: 'b' }).layout)}>拆分</button>
@@ -31,6 +41,10 @@
       {#snippet panel(tab)}<Probe id={tab.id} />{/snippet}
     </Mosaic>
   </div>
+{:else if mode.has('reasoning')}
+  <main bind:this={scroller} style="height:600px;width:720px;overflow:auto">
+    <MessageList messages={chat.messages} streamingMsg={null} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} />
+  </main>
 {:else if mode.has('home')}
   <p data-testid="started">{started}</p>
   <div style="height:600px;position:relative">

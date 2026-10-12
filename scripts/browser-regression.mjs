@@ -63,6 +63,52 @@ try {
   const item = page.getByRole('menuitem',{name:'智能体'});
   const box = await item.boundingBox();
   assert.ok(await item.evaluate((el, [x, y]) => el.contains(document.elementFromPoint(x, y)), [box.x + box.width / 2, box.y + box.height / 2]), 'the chat covers the title bar menu');
+  // A long reasoning streams into blocks written once: the block still
+  // growing stays short, finished ones are never written again, and they read
+  // as the one text they replace. (It was one text node, rewritten and laid
+  // out again whole on every frame.)
+  await page.goto(base + '?reasoning');
+  await page.waitForFunction(() => window.__chat);
+  const think = (n, seed) => page.evaluate(([n, seed]) => {
+    const words = ['我们', '先看', 'the cache', '边界', '然后', 'check ', '。', '\n', '\n\n', '- 一项\n'];
+    for (let i = 0; i < n; i++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      window.__chat.handle({ type: 'reasoning_delta', delta: words[seed % words.length] });
+    }
+  }, [n, seed]);
+  const thought = () => page.evaluate(() => window.__chat.messages.at(-1).text);
+  await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'streaming' }));
+  await think(400, 1);
+  const line = page.locator('.reason-line span');
+  // Folded, its newest words in one line.
+  const lineEnd = (await thought()).slice(-240).replace(/\s+/g, ' ').trimStart();
+  await expect.poll(() => line.textContent(), { timeout: 10000 }).toBe(lineEnd);
+  await page.locator('.reason-line').click();
+  const body = page.locator('.reason-body .stream');
+  const shownText = () => body.evaluate((el) => (el.children.length ? [...el.children].map((b) => b.textContent).join('\n') : el.textContent));
+  for (let i = 0; i < 12; i++) { await think(800, i + 2); await page.waitForTimeout(40); }
+  await expect.poll(shownText, { timeout: 15000 }).toBe(await thought());
+  await body.evaluate((el) => {
+    window.__frozen = [...el.children].slice(0, -1).map((b) => [b, b.textContent]);
+    window.__writes = [];
+    new MutationObserver((rs) => window.__writes.push(...rs.map((r) => r.target))).observe(el, { subtree: true, characterData: true, childList: true });
+  });
+  for (let i = 0; i < 6; i++) { await think(800, i + 40); await page.waitForTimeout(40); }
+  await expect.poll(shownText, { timeout: 15000 }).toBe(await thought());
+  const blocks = await body.evaluate((el) => ({
+    count: el.children.length,
+    growing: (el.lastElementChild ?? el).textContent.length,
+    rewritten: window.__frozen.filter(([b, text]) => b.textContent !== text || window.__writes.some((t) => b.contains(t))).length,
+    // The same text as one node, under the same styles: as tall.
+    sameHeight: (() => { const one = el.cloneNode(false); one.textContent = [...el.children].map((b) => b.textContent).join('\n'); el.after(one); const same = one.offsetHeight === el.offsetHeight; one.remove(); return same; })()
+  }));
+  assert.ok(blocks.count > 20, `reasoning in ${blocks.count} blocks`);
+  assert.ok(blocks.growing < 2000, `the growing block holds ${blocks.growing} characters`);
+  assert.equal(blocks.rewritten, 0, 'a finished reasoning block was written again');
+  assert.ok(blocks.sameHeight, 'the blocks do not read as the one text');
+  // Once it ends it renders as Markdown, as before.
+  await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
+  await expect(page.locator('.reason-body .md')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning.');
 } finally { await browser.close(); await server.close(); }
