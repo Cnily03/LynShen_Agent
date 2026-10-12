@@ -41,6 +41,7 @@
 	import { contextItems, type ContextItem } from '$lib/ui/contextMenu';
 	import { streamText } from '$lib/streamText';
 	import { streamPlain, type PlainSource } from '$lib/streamPlain';
+	import { hasText, liveRead } from '$lib/liveText';
 
 	let {
 		messages,
@@ -405,21 +406,24 @@
 		return () => cancelAnimationFrame(raf);
 	});
 
-	/** The end of streaming reasoning as one line: enough to overflow the
-	 *  widest pane, so the line always ends at the newest word. */
-	function reasoningTail(text: string): string {
-		return text.slice(-240).replace(/\s+/g, ' ').trimStart();
-	}
-
 	// Text to show for a message — smoothed slice for the one currently streaming.
 	function revealed(m: Msg): string {
 		return m === active ? textOf(m).slice(0, Math.floor(shownChars)) : textOf(m);
 	}
 
-	/** The same as a length and a reader for part of it. */
+	/** The same as a length and a reader for part of it, which reads the
+	 *  streaming message from its deltas (liveText.ts): slicing its text would
+	 *  copy all of it on every delta. */
 	function shownText(m: Msg): PlainSource {
 		const text = textOf(m);
-		return { length: m === active ? Math.min(text.length, Math.floor(shownChars)) : text.length, read: (from, to) => text.slice(from, to) };
+		return { length: m === active ? Math.min(text.length, Math.floor(shownChars)) : text.length, read: liveRead(m, text) };
+	}
+
+	/** The end of streaming reasoning as one line: enough to overflow the
+	 *  widest pane, so the line always ends at the newest word. */
+	function reasoningTail(m: Msg): string {
+		const { length, read } = shownText(m);
+		return read(Math.max(0, length - 240), length).replace(/\s+/g, ' ').trimStart();
 	}
 
 	// Incremental streaming markdown: render completed blocks as markdown (memoized
@@ -483,7 +487,7 @@
 		if (m.kind === 'plan') return !!(m.title || m.text);
 		if (m.kind === 'agent_message') return !!m.summary;
 		if (m.kind === 'compaction') return true;
-		return !!m.text && m.text.trim().length > 0;
+		return !!m.text && hasText(m, m.text);
 	}
 
 	// A run of consecutive tool calls (rows that show nothing don't break it)
@@ -646,7 +650,7 @@
 					<!-- Folded while it streams: its latest words in one line,
 					     the earliest sliding out to the left. -->
 					<button class="reason-line" onclick={() => (m.collapsed = false)} aria-label={t('chat.reasoningExpand')}
-						><span>{reasoningTail(revealed(m))}</span></button
+						><span>{reasoningTail(m)}</span></button
 					>
 				{/if}
 				</div>

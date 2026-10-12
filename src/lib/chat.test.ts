@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ChatState, countDiffLines, shownTitle, UNTITLED } from './chat.svelte';
 import { setLocale } from './i18n';
+import { liveText } from './liveText';
 
 const userTexts = (c: ChatState) =>
 	c.messages.filter((m) => m.kind === 'user').map((m) => (m.kind === 'user' ? m.text : ''));
@@ -45,6 +46,29 @@ describe('ChatState.handle', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it('keeps the deltas of the reasoning and reply streaming now for the view, and only while they stream', () => {
+		const c = new ChatState();
+		c.handle({ type: 'status', message: 'streaming' });
+		let text = '';
+		for (let i = 0; i < 20_000; i++) {
+			const delta = i % 50 === 49 ? '\n\n' : `想${i} `;
+			text += delta;
+			c.handle({ type: 'reasoning_delta', delta });
+		}
+		const block = c.messages.at(-1)!;
+		expect(block.kind === 'reasoning' && block.text).toBe(text);
+		const live = liveText(block)!;
+		expect(live.length).toBe(text.length);
+		expect(live.slice(text.length - 240)).toBe(text.slice(-240));
+		c.handle({ type: 'assistant_delta', delta: 'The answer' });
+		// The reasoning ended: the view reads its text whole again.
+		expect(liveText(block)).toBeUndefined();
+		const reply = c.messages.at(-1)!;
+		expect(liveText(reply)?.slice(0)).toBe('The answer');
+		c.handle({ type: 'status', message: 'ready' });
+		expect(liveText(reply)).toBeUndefined();
 	});
 
 	it('keeps a just-sent message that the arriving snapshot does not have yet', () => {

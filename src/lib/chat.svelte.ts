@@ -30,6 +30,7 @@ import {
 	type SessionMessageView
 } from './sessions/sessionMessage';
 import { sessionInbox } from './sessions/inbox.svelte';
+import { endLive, liveText, startLive } from './liveText';
 
 /** Where a sent message is before its reply starts: accepted locally, the
  *  engine is connecting to the model gateway, connected and waiting for the
@@ -967,6 +968,9 @@ export class ChatState {
 
 	#assistantIdx = -1;
 	#reasoningIdx = -1;
+	/** The messages streaming now, whose deltas are recorded for the view
+	 *  (liveText.ts). Held by object: a replaced transcript moves them. */
+	#live = new Set<Msg>();
 	/** The live per-request timer (see CallTiming); null between requests. */
 	call = $state<CallTiming | null>(null);
 	/** This session's total running time: the sum of its turns, ms. Kept per
@@ -1183,6 +1187,7 @@ export class ChatState {
 			m.segMs = now - this.#segStart;
 			this.#turnSegments++;
 		}
+		this.#endLive(this.#assistantIdx);
 		this.#assistantIdx = -1;
 	}
 
@@ -1426,8 +1431,23 @@ export class ChatState {
 	#compactedCard: Extract<Msg, { kind: 'compaction' }> | null = null;
 
 	#resetCurrent() {
+		for (const m of this.#live) endLive(m);
+		this.#live.clear();
 		this.#assistantIdx = -1;
 		this.#reasoningIdx = -1;
+	}
+
+	/** The message at `idx` now streams: its deltas are recorded for the view. */
+	#startLive(idx: number) {
+		const m = this.messages[idx]!;
+		startLive(m);
+		this.#live.add(m);
+	}
+
+	/** The message at `idx` no longer streams: views read its text whole. */
+	#endLive(idx: number) {
+		const m = idx >= 0 ? this.messages[idx] : undefined;
+		if (m && this.#live.delete(m)) endLive(m);
 	}
 
 	/** End the active reasoning block once its tool call or the answer
@@ -1440,6 +1460,7 @@ export class ChatState {
 				m.live = false;
 				if (m.startedAt !== undefined && m.durationMs === undefined) m.durationMs = Date.now() - m.startedAt;
 			}
+			this.#endLive(this.#reasoningIdx);
 			this.#reasoningIdx = -1;
 		}
 	}
@@ -1779,6 +1800,7 @@ export class ChatState {
 				// The engine fires this eagerly at turn start, before reasoning. Don't
 				// create the message here — let the first delta create it, so reasoning
 				// (which streams first) is rendered above the answer.
+				this.#endLive(this.#assistantIdx);
 				this.#assistantIdx = -1;
 				break;
 			case 'assistant_delta': {
@@ -1787,9 +1809,14 @@ export class ChatState {
 					this.#collapseReasoning();
 					this.messages.push({ kind: 'assistant', text: '' });
 					this.#assistantIdx = this.messages.length - 1;
+					this.#startLive(this.#assistantIdx);
 				}
 				const m = this.messages[this.#assistantIdx];
-				if (m?.kind === 'assistant') m.text += str(ev.delta);
+				if (m?.kind === 'assistant') {
+					const delta = str(ev.delta);
+					m.text += delta;
+					liveText(m)?.append(delta);
+				}
 				break;
 			}
 			case 'thinking_start':
@@ -1802,9 +1829,15 @@ export class ChatState {
 				if (this.#reasoningIdx < 0) {
 					this.messages.push({ kind: 'reasoning', text: '', collapsed: true, live: true, startedAt: Date.now() });
 					this.#reasoningIdx = this.messages.length - 1;
+					// The view reads the newest part from the deltas (liveText.ts).
+					this.#startLive(this.#reasoningIdx);
 				}
 				const m = this.messages[this.#reasoningIdx];
-				if (m?.kind === 'reasoning') m.text += str(ev.delta);
+				if (m?.kind === 'reasoning') {
+					const delta = str(ev.delta);
+					m.text += delta;
+					liveText(m)?.append(delta);
+				}
 				break;
 			}
 			case 'tool_start':
