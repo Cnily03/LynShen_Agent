@@ -25,6 +25,8 @@
 	import GlobeIcon from 'phosphor-svelte/lib/GlobeIcon';
 	import HardDrivesIcon from 'phosphor-svelte/lib/HardDrivesIcon';
 	import StorefrontIcon from 'phosphor-svelte/lib/StorefrontIcon';
+	import MagicWandIcon from 'phosphor-svelte/lib/MagicWandIcon';
+	import PuzzlePieceIcon from 'phosphor-svelte/lib/PuzzlePieceIcon';
 	import RobotIcon from 'phosphor-svelte/lib/RobotIcon';
 	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThreeIcon';
 	import PlugsConnectedIcon from 'phosphor-svelte/lib/PlugsConnectedIcon';
@@ -98,6 +100,8 @@
 	import DaemonSection from './DaemonSection.svelte';
 	import McpSection from './McpSection.svelte';
 	import ImportSection from './ImportSection.svelte';
+	import SkillsSection from './SkillsSection.svelte';
+	import PluginsSection from './PluginsSection.svelte';
 	import ShortcutsSection from './ShortcutsSection.svelte';
 	import TeamSection from './TeamSection.svelte';
 	import PermissionRulesSection from './PermissionRulesSection.svelte';
@@ -118,7 +122,6 @@
 		onClose,
 		onAuthChange,
 		onAccountLogout,
-		onMarket,
 		onFeedback,
 		onAddFolders
 	}: {
@@ -133,8 +136,6 @@
 		onClose: () => void;
 		onAuthChange?: () => void;
 		onAccountLogout?: () => void;
-		/** Open the skill marketplace (closes the settings page). */
-		onMarket?: () => void;
 		/** Open 反馈问题. */
 		onFeedback?: () => void;
 		/** Show these folders as projects in the sidebar (导入); how many were new. */
@@ -153,6 +154,8 @@
 		models: BrainIcon,
 		network: GlobeIcon,
 		mcp: HardDrivesIcon,
+		skills: MagicWandIcon,
+		plugins: PuzzlePieceIcon,
 		market: StorefrontIcon,
 		agents: RobotIcon,
 		team: UsersThreeIcon,
@@ -1231,12 +1234,17 @@
 				{:else if current === 'mcp'}
 					<!-- The LynShen CLI's servers; only a LynShen session can apply edits live. -->
 					<McpSection {sessionId} chat={caps(chat).mcpManage ? chat : undefined} />
-				{:else if current === 'market'}
-					<SettingsSection>
-						<SettingsRow id="market-open" title={t('settings.market.groupLabel')}>
-							<Button size="sm" disabled={!onMarket} onclick={() => onMarket?.()}><StorefrontIcon size={14} /> {t('settings.market.open')}</Button>
-						</SettingsRow>
-					</SettingsSection>
+				{:else if current === 'skills'}
+					<!-- The marketplace is this page's second tab ('market' opens it). -->
+					<SkillsSection
+						tab={section === 'market' ? 'market' : 'installed'}
+						onTab={(tab) => (section = tab === 'market' ? 'market' : 'skills')}
+						backend={chat?.backendId === 'claude' ? 'claude' : 'lynshen'}
+						project={chat && !chat.isChatMode ? chat.cwd : ''}
+						onImport={() => (section = 'import')}
+					/>
+				{:else if current === 'plugins'}
+					<PluginsSection onOpen={(key) => (section = key)} />
 				{:else if current === 'agents'}
 					<BackendSection />
 					{#if chat && caps(chat).ruleScopes}<PermissionRulesSection {sessionId} {chat} />{/if}

@@ -17,6 +17,9 @@ export type SectionKey =
 	| 'models'
 	| 'network'
 	| 'mcp'
+	| 'skills'
+	| 'plugins'
+	/** The skills page's marketplace tab (not a nav item of its own). */
 	| 'market'
 	| 'agents'
 	| 'team'
@@ -28,15 +31,17 @@ export type SectionKey =
 export const GROUPS: { key: string; sections: SectionKey[] }[] = [
 	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'invite', 'devices', 'usage', 'voice'] },
 	{ key: 'models', sections: ['providers', 'models', 'network'] },
-	{ key: 'agents', sections: ['agents', 'team', 'acp', 'mcp', 'market', 'import'] },
+	{ key: 'agents', sections: ['agents', 'team', 'acp', 'skills', 'plugins', 'mcp', 'import'] },
 	{ key: 'system', sections: ['daemon', 'updates'] }
 ];
 
 const KEYS = new Set<string>(GROUPS.flatMap((g) => g.sections));
 
-/** Section to open for a caller's request; legacy modal keys map onto the new pages. */
+/** Section to open for a caller's request; legacy modal keys map onto the new
+ *  pages, and the marketplace is a tab of the skills page. */
 export function resolveSection(key: string | undefined): SectionKey {
 	if (key === 'overview') return 'usage';
+	if (key === 'market') return 'skills';
 	if (key && KEYS.has(key)) return key as SectionKey;
 	return 'general';
 }
@@ -99,7 +104,9 @@ export const ROWS: SearchRow[] = [
 	{ section: 'network', id: 'read-timeout', titleKey: 'settings.behavior.readTimeout' },
 	{ section: 'mcp', id: 'mcp-servers', titleKey: 'settings.mcp.groupLabel' },
 	{ section: 'mcp', id: 'mcp-extensions', titleKey: 'settings.ext.groupLabel' },
-	{ section: 'market', id: 'market-open', titleKey: 'settings.market.groupLabel' },
+	{ section: 'skills', id: 'skills-installed', titleKey: 'settings.section.skills', descKey: 'settings.skills.scopeHint.user' },
+	{ section: 'market', id: 'skills-market', titleKey: 'settings.section.market', descKey: 'settings.skills.browseMarket' },
+	{ section: 'plugins', id: 'plugins-foreign', titleKey: 'settings.plugins.foreign', descKey: 'settings.plugins.foreignHint' },
 	{ section: 'agents', id: 'default-backend', titleKey: 'settings.backend.defaultLabel' },
 	{ section: 'agents', id: 'shell-env', titleKey: 'settings.backend.shellEnvLabel', descKey: 'settings.backend.shellEnvHint' },
 	{ section: 'agents', id: 'backend-list', titleKey: 'settings.section.agents' },

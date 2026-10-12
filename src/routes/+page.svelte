@@ -98,7 +98,6 @@
 	import type { SectionKey } from '$lib/settings/nav';
 	import { folderName } from '$lib/agentImport';
 	import Welcome from '$lib/welcome/Welcome.svelte';
-	import Marketplace from '$lib/Marketplace.svelte';
 	import Sidebar from '$lib/Sidebar.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import CommandPalette from '$lib/CommandPalette.svelte';
@@ -232,7 +231,6 @@
 		showSettings = false;
 		loadProviders();
 	}
-	let showMarket = $state(false);
 	let showSetup = $state(false);
 	// The welcome page's first view when opened from the palette (sign-in on request).
 	let setupView = $state<'login' | undefined>();
@@ -369,7 +367,6 @@
 	function afterAccountLogout() {
 		showSettings = false;
 		showDesk = false;
-		showMarket = false;
 		modelSetup.open = false;
 		setupView = 'login';
 		showSetup = true;
@@ -841,7 +838,6 @@
 	$effect(() => {
 		const modalOpen =
 			showSettings ||
-			showMarket ||
 			showSetup ||
 			showPalette ||
 			showQuickOpen ||
@@ -1762,10 +1758,6 @@
 					navWidth={sidebarWidth}
 					onAuthChange={refreshAuth}
 					onAccountLogout={afterAccountLogout}
-					onMarket={() => {
-						closeSettings();
-						showMarket = true;
-					}}
 					onFeedback={() => (showFeedback = true)}
 					onAddFolders={addImportedFolders}
 					onClose={closeSettings}
@@ -1816,9 +1808,6 @@
 		</div>
 	</div>
 
-	{#if showMarket}
-		<Marketplace backend={active?.backendId ?? 'lynshen'} onClose={() => (showMarket = false)} />
-	{/if}
 
 	<UpdatePrompt />
 	{#if showSetup}
@@ -1958,7 +1947,7 @@
 			onNewProject={addProject}
 			onNewTask={() => newTask(activeProject)}
 			onSettings={() => openSettings()}
-			onMarket={() => (showMarket = true)}
+			onMarket={() => openSettings('market')}
 			onOpenPanel={openPanelTile}
 			onToggleSidebar={toggleSidebar}
 			onToggleTheme={cycleTheme}
