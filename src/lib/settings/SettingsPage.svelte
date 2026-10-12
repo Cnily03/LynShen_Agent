@@ -185,6 +185,9 @@
 
 	// Launch at login needs the desktop app (a browser has no login item).
 	const inApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+	// The window frost changes at once on macOS; a Windows window is
+	// see-through or not for its lifetime, so there it takes a restart.
+	const frostLive = typeof document !== 'undefined' && document.documentElement.dataset.os === 'macos';
 
 	// ---------- search ----------
 	let query = $state('');
@@ -914,7 +917,7 @@
 							</div>
 						</SettingsRow>
 						{#if vibrancySupported()}
-							<SettingsRow id="vibrancy" title={t('settings.behavior.vibrancy')} description={t('settings.behavior.vibrancyHint')}>
+							<SettingsRow id="vibrancy" title={t('settings.behavior.vibrancy')} description={t(frostLive ? 'settings.behavior.vibrancyHint' : 'settings.behavior.vibrancyHintRestart')}>
 								<Switch checked={prefs.sidebarVibrancy} label={t('settings.behavior.vibrancy')} onChange={(on) => prefs.setSidebarVibrancy(on)} />
 							</SettingsRow>
 						{/if}

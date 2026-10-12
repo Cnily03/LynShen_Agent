@@ -235,26 +235,37 @@ body {
  * not clip the content to the window's rounded corners — the page itself stays
  * transparent and the app frame rounds its own corners (+page.svelte .app).
  *
- * macOS vibrancy: a native NSVisualEffectView (frosted) sits behind the webview.
- * The window chrome and the sidebar become translucent so the frost reads
- * there, while the canvas stays opaque. The window appearance follows the app
- * theme (theme.svelte.ts), so the frost is light under the light theme. --vibrancy-tint (sidebar) and
- * --vibrancy-chrome (rail and top-left strip) are those fills, tuned per theme. */
+ * Window frost (Settings → 通用 → 窗口磨砂, off by default): a native layer
+ * behind the webview, NSVisualEffectView on macOS and Mica on Windows 11
+ * (src-tauri/src/main_window.rs). Off, there is none and the chrome is solid.
+ * On, prefs.svelte.ts sets `data-vibrancy` once the window has the layer: the
+ * page turns transparent, and the window chrome (--vibrancy-chrome: the frame
+ * under the title bar) and the sidebar and navs laid over it (--vibrancy-tint)
+ * let a little of it through. The canvas, panels and text stay opaque. The
+ * native layer follows the app theme (theme.svelte.ts).
+ *
+ * How little: the contrast rule (above the tokens) has to hold on both fills
+ * whatever is behind the window, a white backdrop and a black one. The title
+ * bar's --dim and --dim2 on --rail leave room for 1.5% of a black backdrop
+ * in the light theme and 5% of a white one in the dark theme; under that the
+ * sidebar keeps its own colour. Over white / over black, on the chrome and
+ * on the sidebar (src/lib/themeTokens.test.ts holds these):
+ *   light  --text 13.7 / 13.3 and 14.8 / 14.8, --dim 7.3 / 7.1 and 7.9 / 7.9,
+ *          --dim2 4.7 / 4.6 and 5.1 / 5.1
+ *   dark   --text 13.8 / 15.7 and 13.8 / 13.9, --dim 7.1 / 8.1 and 7.1 / 7.1,
+ *          --dim2 4.6 / 5.2 and 4.6 / 4.6 */
 :root[data-os='macos'],
 :root[data-os='macos'] body,
 :root[data-vibrancy='on'],
 :root[data-vibrancy='on'] body {
 	background: transparent;
 }
-/* Windows uses the same fills over Mica / Acrylic (the window is transparent
-   there too, see tauri.windows.conf.json); Linux has no native frost. */
 :root[data-vibrancy='on'] {
-	--vibrancy-tint: color-mix(in oklab, var(--sidebar) 36%, transparent);
-	--vibrancy-chrome: color-mix(in oklab, var(--rail) 32%, transparent);
+	--vibrancy-tint: color-mix(in oklab, var(--sidebar) 96%, transparent);
+	--vibrancy-chrome: color-mix(in oklab, var(--rail) 95%, transparent);
 }
 [data-theme='light']:root[data-vibrancy='on'] {
-	--vibrancy-tint: color-mix(in oklab, var(--sidebar) 56%, transparent);
-	--vibrancy-chrome: color-mix(in oklab, var(--rail) 50%, transparent);
+	--vibrancy-chrome: color-mix(in oklab, var(--rail) 98.5%, transparent);
 }
 
 ::-webkit-scrollbar {

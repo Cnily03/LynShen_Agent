@@ -64,9 +64,14 @@ tauri-plugin-autostart = "2"
 # 配置自动改写 feature，两边只在 macOS 开时，它会把 feature 写进共用依赖，导致 Linux/Windows
 # 构建报错。
 [target."cfg(any(target_os = \"macos\", target_os = \"windows\"))".dependencies]
-# 窗口磨砂：macOS 的 NSVisualEffectView，Windows 的 Mica / Acrylic（透明窗口在各自的
-# tauri.<os>.conf.json 里开启；Linux 没有通用的模糊接口，保持不透明）。
+# 窗口磨砂（默认关闭，见 src/main_window.rs）：macOS 的 NSVisualEffectView，Windows 11 的
+# Mica。macOS 的窗口始终透明（tauri.macos.conf.json），Windows 只在打开磨砂时透明；
+# Linux 没有通用的模糊接口，保持不透明。
 window-vibrancy = "0.5"
+
+[target."cfg(target_os = \"windows\")".dependencies]
+# Mica 只有 Windows 11（build 22000 起）才有：创建窗口之前要先知道系统版本。
+windows-version = "0.1"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"
