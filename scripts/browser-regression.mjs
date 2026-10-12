@@ -256,6 +256,112 @@ try {
   await expect(page.getByRole('menu')).toBeVisible();
   await page.mouse.click(700, 20);
   await expect(page.getByRole('menu')).toHaveCount(0);
+  // Settings → 通用 offers the conversation width, 自适应 by default; a
+  // choice is stored; the search finds the row.
+  await page.goto(base);
+  await page.getByRole('button',{name:'通用',exact:true}).click();
+  const widthRow = page.locator('#set-chat-width');
+  await expect(widthRow.getByRole('button')).toHaveText(['自适应', '标准', '铺满']);
+  await expect(widthRow.locator('.opt.on')).toHaveText('自适应');
+  await widthRow.getByRole('button',{name:'铺满'}).click();
+  await expect(widthRow.locator('.opt.on')).toHaveText('铺满');
+  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [2, 'full']);
+  await page.getByPlaceholder('搜索设置').fill('对话宽度');
+  await expect(page.getByRole('button',{name:/^对话宽度/})).toBeVisible();
+  await page.evaluate(() => localStorage.removeItem('lynshen-prefs'));
+  // The conversation column follows its pane and that setting, the composer
+  // with it; a wide table and a code block take the column, the page never
+  // scrolls sideways, and the composer stays in view at the size a user
+  // reported blank margins at (1720 × 789, sidebar open: a 1428px pane; the
+  // fixture's conversation has the turn rail, so 56px beside the column).
+  const shell = await browser.newPage({viewport:{width:1720,height:789}});
+  shell.on('pageerror', e => errors.push(e.message));
+  await shell.goto(base + '?shell');
+  await expect(shell.locator('.composer')).toBeVisible({timeout:30000});
+  const layout = () => shell.evaluate(() => {
+    const box = (sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return [Math.round(b.left), Math.round(b.width)]; };
+    const main = document.querySelector('.chatpane main');
+    const pad = parseFloat(getComputedStyle(main).paddingLeft);
+    const wrap = document.querySelector('.composer-wrap').getBoundingClientRect();
+    return {
+      column: [Math.round(main.getBoundingClientRect().left + pad), Math.round(main.clientWidth - 2 * pad)],
+      composer: box('.composer'), table: box('.table-wrap'), code: box('.codeblock'),
+      sideways: document.documentElement.scrollWidth - innerWidth,
+      composerInView: wrap.top >= 0 && wrap.bottom <= innerHeight
+    };
+  });
+  const expectColumn = async (width, what) => {
+    await expect.poll(async () => (await layout()).column[1], {message: what}).toBe(width);
+    const l = await layout();
+    for (const part of ['composer', 'table', 'code']) assert.deepEqual(l[part], l.column, `${what}: the ${part} is not on the column`);
+    assert.equal(l.sideways, 0, `${what}: the page scrolls sideways`);
+    assert.ok(l.composerInView, `${what}: the composer is cut off`);
+  };
+  await expectColumn(1071, '自适应, 1720 wide');
+  await shell.evaluate(() => window.__prefs.setChatWidth('standard'));
+  await expectColumn(844, '标准, 1720 wide');
+  await shell.evaluate(() => window.__prefs.setChatWidth('full'));
+  await expectColumn(1316, '铺满, 1720 wide');
+  await shell.setViewportSize({width:1280,height:800});
+  await expectColumn(876, '铺满, 1280 wide');
+  await shell.evaluate(() => window.__prefs.setChatWidth('auto'));
+  await expectColumn(844, '自适应, 1280 wide');
+  await shell.setViewportSize({width:1040,height:680});
+  await expectColumn(640, '自适应, the smallest window');
+  await shell.close();
+  // The window frost is off unless chosen. Preferences stored with the old
+  // default (on, without a version) are switched off once: in storage, in
+  // what the app is told, and nothing is translucent. (?frost: the system
+  // can frost, as the app answers; see tests/browser/main.ts.)
+  const frosted = async (query, stored) => {
+    const p = await browser.newPage();
+    p.on('pageerror', e => errors.push(e.message));
+    // Once: a reload keeps what the page stored.
+    await p.addInitScript((prefs) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('lynshen-prefs', prefs); sessionStorage.setItem('seeded', '1'); } }, JSON.stringify(stored));
+    await p.goto(base + query);
+    await expect(p.locator('.composer')).toBeVisible({timeout:30000});
+    return p;
+  };
+  const frostState = (p) => p.evaluate(() => ({
+    root: document.documentElement.dataset.vibrancy ?? null,
+    sidebar: getComputedStyle(document.querySelector('.sidebar')).backgroundColor,
+    stored: (({ version, sidebarVibrancy }) => [version, sidebarVibrancy])(JSON.parse(localStorage.getItem('lynshen-prefs'))),
+    told: window.__calls.filter((c) => c.command === 'set_window_frost').map((c) => c.args.on)
+  }));
+  const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
+  await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(32, 32, 32)', stored: [2, false], told: [false]});
+  // Turned on afterwards it is a choice: macOS frosts at once, and it is
+  // still on after a restart.
+  await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
+  await expect.poll(async () => (await frostState(mac)).root).toBe('on');
+  assert.match((await frostState(mac)).sidebar, /^oklab\(.* \/ 0\.96\)$|^rgba\(.*, 0\.96\)$/);
+  await mac.reload();
+  await expect(mac.locator('.composer')).toBeVisible({timeout:30000});
+  await expect.poll(async () => (await frostState(mac)).root).toBe('on');
+  assert.deepEqual((await frostState(mac)).stored, [2, true]);
+  await mac.close();
+  // A Windows window is see-through or not for its lifetime: the choice is
+  // handed to the app and shows after the next start.
+  const win = await frosted('?shell&frost=mica', {version: 2, sidebarVibrancy: false});
+  await win.evaluate(() => window.__prefs.setSidebarVibrancy(true));
+  await expect.poll(async () => (await frostState(win)).told).toEqual([false, true]);
+  assert.equal((await frostState(win)).root, null);
+  await win.reload();
+  await expect(win.locator('.composer')).toBeVisible({timeout:30000});
+  await expect.poll(async () => (await frostState(win)).root).toBe('on');
+  await win.close();
+  // The light theme's canvas is an off-white, the sidebar a step darker and
+  // the composer a step lighter; the page never paints white. (Glass off:
+  // with it the composer lets the canvas through.)
+  const light = await browser.newPage();
+  light.on('pageerror', e => errors.push(e.message));
+  await light.addInitScript(() => localStorage.setItem('lynshen-prefs', JSON.stringify({version: 2, glass: 0})));
+  await light.goto(base + '?shell&theme=light');
+  await expect(light.locator('.composer')).toBeVisible({timeout:30000});
+  const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
+  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(238, 236, 232)', 'rgb(251, 250, 248)']);
+  await light.close();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces.');
 } finally { await browser.close(); await server.close(); }

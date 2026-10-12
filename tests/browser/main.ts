@@ -2,6 +2,10 @@ import { mount } from 'svelte';
 import '../../src/lib/app.css';
 
 const calls: { command: string; args: any }[] = [];
+// The window frost choice in storage as the page loads (see set_window_frost).
+const frostAtStart = (() => {
+  try { return JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}').sidebarVibrancy === true; } catch { return false; }
+})();
 let loggedIn = new URL(location.href).searchParams.has('loggedIn');
 Object.assign(window, {
   __calls: calls,
@@ -27,8 +31,17 @@ Object.assign(window, {
         case 'provider_oauth_start': return 'attempt-1';
         case 'provider_oauth_poll': return {status:'waiting',url:'https://auth.openai.com/oauth/authorize?state=test'};
         case 'fetch_monoize_balance': return {balance_infos:[]};
+        // ?frost=vibrancy|mica: a system that can frost the window, as the app
+        // answers. macOS lays and removes its vibrancy at once; a Windows
+        // window keeps what it was created with (here: the choice stored
+        // when the page loaded).
+        case 'set_window_frost': {
+          const kind = new URL(location.href).searchParams.get('frost');
+          if (!kind) return {supported: false, effect: null};
+          return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
+        }
         // Only the agent-UX pages have a (stand-in) daemon.
-        case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
+        case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
         // Plugins of other agents, as the import scan finds them.
         case 'import_scan': return {sessions: [], skills: [
           {source:'claude', name:'docx', description:'', path:'/p/document-skills/docx', plugin:'document-skills', present:false},
@@ -48,11 +61,13 @@ Object.assign(window, {
 // The agent-UX pages run against a stand-in daemon (fakeDaemon.ts).
 const params = new URL(location.href).searchParams;
 const panels = ['skills', 'market', 'plugins', 'sidebar'].some((k) => params.has(k));
-if (panels) {
+// ?shell: the window's frame around one conversation (Shell.svelte).
+const shell = params.has('shell');
+if (panels || shell) {
   const { installFakeDaemon, daemonState } = await import('./fakeDaemon');
   installFakeDaemon();
   daemonState.old = params.has('oldEngine');
 }
 document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
-const { default: Fixture } = panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
+const { default: Fixture } = shell ? await import('./Shell.svelte') : panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
 mount(Fixture, {target:document.getElementById('app')!});
