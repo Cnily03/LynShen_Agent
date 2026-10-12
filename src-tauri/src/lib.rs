@@ -12,6 +12,7 @@ mod agent_import;
 mod app_cli;
 #[cfg(desktop)]
 mod app_update;
+mod attachments;
 #[cfg(desktop)]
 mod autostart;
 mod backend;
@@ -3815,6 +3816,9 @@ pub fn run() {
             write_text,
             git_head_text,
             save_temp_image,
+            attachments::save_temp_file,
+            attachments::clipboard_file_paths,
+            attachments::path_exists,
             check_environment,
             install_dependency,
             check_dependencies,

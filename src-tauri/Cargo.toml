@@ -58,6 +58,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-autostart = "2"
+# The paths of files copied in Explorer / Finder / a Linux file manager
+# (attachments.rs). Already in the tree through tauri-plugin-clipboard-manager,
+# whose own clipboard handle is private.
+arboard = { version = "3", default-features = false }
 
 # macOS 侧栏磨砂（NSVisualEffectView）。macOSPrivateApi 在 tauri.conf.json 里对所有平台开启
 # （非 macOS 上不起作用），和共用依赖里的 macos-private-api feature 保持一致：tauri dev 会按
