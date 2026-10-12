@@ -19,6 +19,7 @@ mod browser;
 mod capture;
 mod claude_history;
 mod installer;
+mod main_window;
 mod monoize_auth;
 mod native_import;
 mod plugins;
@@ -639,17 +640,6 @@ fn read_auth_strict() -> Result<serde_json::Value, String> {
 
 fn write_auth(auth: &mut serde_json::Value) -> Result<(), String> {
     AuthStore::app_local().write(auth)
-}
-
-/// The native frost under the main window, set once at startup: `vibrancy`
-/// (macOS), `mica` or `acrylic` (Windows); unset where none applied.
-static WINDOW_EFFECT: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
-
-/// Which native frost the window has, if any (the frontend's translucent
-/// chrome needs one behind it).
-#[tauri::command]
-fn window_effect() -> Option<&'static str> {
-    WINDOW_EFFECT.get().copied()
 }
 
 #[tauri::command]
@@ -3670,17 +3660,14 @@ fn set_dev_dock_icon() {
     }
 }
 
-/// What the window-state plugin restores. On a silent launch at login it
-/// leaves visibility alone: it shows and focuses the window once the window
-/// is ready, which runs after `setup` hides it.
+/// What the window-state plugin restores. Not decorations (see below), and
+/// not visibility: the app creates the main window hidden and shows it itself
+/// once it has its background, or not at all on a silent launch at login
+/// (main_window::create). With visibility the plugin would show the window
+/// as soon as it is ready, before either.
 fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
     use tauri_plugin_window_state::StateFlags;
-    let flags = StateFlags::all() - StateFlags::DECORATIONS;
-    #[cfg(desktop)]
-    if autostart::silent_launch() {
-        return flags - StateFlags::VISIBLE;
-    }
-    flags
+    StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3714,51 +3701,21 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // 登录项以静默方式启动：主窗口只留在托盘。配置里的窗口创建时可见，
-            // 这里立刻藏起来；窗口状态插件这次不恢复可见性（window_state_flags），
-            // 否则它在窗口就绪时会再次显示并聚焦。托盘、Dock 图标、深链和二次
-            // 启动仍走 show_main_window。
+            // 主窗口在这里创建（配置里是 `create: false`）：磨砂与否、底色用哪个主题，
+            // 都要在创建之前定下来，见 main_window.rs。登录项以静默方式启动时窗口
+            // 不显示，只留在托盘；托盘、Dock 图标、深链和二次启动仍走
+            // show_main_window。
             #[cfg(desktop)]
-            if autostart::silent_launch() {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.hide();
-                }
-            }
+            let silent = autostart::silent_launch();
+            #[cfg(not(desktop))]
+            let silent = false;
+            main_window::create(app, silent)?;
             #[cfg(all(debug_assertions, target_os = "macos"))]
             set_dev_dock_icon();
             // 异步捕获登录 shell 环境快照（不阻塞启动；见 shell_env.rs）。
             shell_env::init_async();
             // Claude Code / Codex files an earlier version overwrote go back.
             tool_switch::restore_leftovers();
-            // 给主窗口铺一层原生磨砂：macOS 的 NSVisualEffectView，Windows 11 的 Mica
-            //（Windows 10 退回 Acrylic）。前端把主区域画成不透明、只让侧栏和窗框半透明，
-            // 于是磨砂只在那里透出（见 app.css 的 [data-vibrancy]）。前端按 window_effect
-            // 的结果决定是否半透明：没铺上时窗口是透明的，半透明会直接透出桌面。
-            #[cfg(target_os = "macos")]
-            if let Some(win) = app.get_webview_window("main") {
-                use window_vibrancy::{
-                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
-                };
-                if apply_vibrancy(
-                    &win,
-                    NSVisualEffectMaterial::Sidebar,
-                    Some(NSVisualEffectState::Active),
-                    None,
-                )
-                .is_ok()
-                {
-                    let _ = WINDOW_EFFECT.set("vibrancy");
-                }
-            }
-            #[cfg(target_os = "windows")]
-            if let Some(win) = app.get_webview_window("main") {
-                // None: follows the window's light / dark appearance (theme.svelte.ts).
-                if window_vibrancy::apply_mica(&win, None).is_ok() {
-                    let _ = WINDOW_EFFECT.set("mica");
-                } else if window_vibrancy::apply_acrylic(&win, None).is_ok() {
-                    let _ = WINDOW_EFFECT.set("acrylic");
-                }
-            }
             #[cfg(desktop)]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -3788,7 +3745,8 @@ pub fn run() {
         .manage(capture::Recorder::default())
         .invoke_handler(tauri::generate_handler![
             quit_app,
-            window_effect,
+            main_window::set_window_frost,
+            main_window::set_window_theme,
             daemon_endpoint,
             check_backend,
             check_agent_update,

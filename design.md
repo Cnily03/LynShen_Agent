@@ -1,7 +1,7 @@
 ---
 name: lynshen-desktop-design
 description: Presentation rules for the LynShen Desktop app window (Tauri + Svelte) — the workbench canvas, side navigators, full-panel pages such as settings and the workbench overview, the first-run welcome page, popovers and dialogs. For a dense developer tool used for hours at a time, in Chinese and English, in light and dark themes.
-version: 2026-10-06
+version: 2026-10-13
 ---
 
 # LynShen Desktop design.md
@@ -17,7 +17,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 ## 2. Brand and Readers
 
 - Readers are developers who keep the window open all day beside an editor. They scan long transcripts, diffs and terminal output. Desktop pointer and keyboard; minimum window 1040 × 680.
-- "Quiet": black, white and cool grays carry the interface. Color appears only for meaning (state, error, focus, links). [SHOULD]
+- "Quiet": near-black, off-white and neutral grays carry the interface (slightly warm in the light theme). Color appears only for meaning (state, error, focus, links). [SHOULD]
 - "Dense but calm": rows are 38px, body text 15–16px, and separation comes from fills and spacing, not from outlines. [SHOULD]
 - Copy tone: short, plain, second person. Labels name the object ("终端", "Git"), buttons name the action ("在浏览器中授权"). No exclamation marks, no marketing words. [SHOULD]
 
@@ -30,7 +30,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - The content panel has one rounded top-left corner (`--r-lg`) and uses `--bg`. [SHOULD]
 
 ### Workbench canvas (conversation + tools)
-- First viewport: the conversation fills the canvas. The transcript column is centered with `--chat-w` (default 844px, minimum 640px). The composer is pinned to the bottom of the same column. [SHOULD]
+- First viewport: the conversation fills the canvas. The transcript column is centered, and its width `--chat-w` follows the chat pane. The default setting ("自适应") is 75% of the pane width, at least 844px where the pane has room and at most 1120px. The setting also offers "标准" (844px) and "铺满" (the pane minus its side padding). On a narrow pane the column shrinks to the pane, down to 640px. The composer is pinned to the bottom of the same column and has the same width. [SHOULD] — Decision 2026-10-13: user feedback that a widened window left large blank margins beside a fixed 844px column; the cap keeps lines readable, and the setting covers both tastes.
 - Tool panels (git, terminal, files, plan, diff review, browser, …) open beside the conversation, in a leaf to its right with 42% of the area. Later tools stack as tabs in that leaf. A tool must not replace the conversation in its leaf when the chat would keep at least 560px after the split. Below that width the tool stacks as a tab in the chat leaf. [MUST] — Decision: source `src/lib/workbench/canvas.ts` `openToolTab`, `TOOL_SIDE_RATIO`, `TOOL_SPLIT_MIN_CHAT`. Reason: a covered conversation hides the agent's progress while the user inspects its work.
 - A canvas with one leaf and one tab hides the tab bar. With two or more tabs the bar shows. [SHOULD]
 - Empty canvas (no project): the wordmark at 16% opacity, one line of `--dim` text, and at most two buttons, centered. [SHOULD]
@@ -56,11 +56,16 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - `--accent` is the neutral emphasis: primary buttons, selected state, counts. `--brand` / `--brand-bright` are for links and the focus ring only. [SHOULD]
 - Status: `--ok` success, `--info` information, `--warn` caution, `--err` error. An error surface uses `color-mix(in oklab, var(--err) 10–11%, transparent)` with `--err` text. [SHOULD]
 - Text: `--text` primary, `--dim` secondary, `--dim2` tertiary (section heads, hints). Primary information never uses `--dim2`. [MUST]
+- Light theme: no surface larger than a card, a menu or an input is pure white. `--bg` is an off-white with CIE L* between 95.5 and 97 and a slightly warm, low-chroma hue. `--sidebar` and `--rail` are each one visible step darker than the layer in front of them. `--panel` may be lighter than `--bg`, up to L* 99. The dark theme is unchanged. [MUST] — Decision 2026-10-13: user feedback that the white light theme is glaring while the dark theme is comfortable; the warm hue matches the Aogiri brand.
+- Contrast, both themes, measured on `--bg` and on `--sidebar`: `--text` at least 12:1, `--dim` at least 7:1, `--dim2` at least 4.5:1. A status color used as text is at least 4.5:1 on the surface it sits on. [MUST]
+- Launch: the native window background and the first painted frame use the active theme's `--bg`. A white frame must not show before the interface in either theme. [MUST]
 
 ### Surfaces and depth
 - Layers back to front: `--rail` → `--sidebar` → `--bg` → `--panel` with `--shadow-float` (composer, cards) → `--panel` with `--shadow-pop` (menus) → `--shadow-modal` (dialogs). [SHOULD]
 - Strokes are `--hairline`. Use `--border` only for inputs and buttons. [SHOULD]
 - Radii use `--r-*` only: rows and tabs `--r-md`, cards and menus `--r-lg`, chat bubbles `--r-xl`, composer `--r-2xl`, pills `--r-full`. [MUST]
+- Window frost ("窗口磨砂": macOS vibrancy, Windows Mica) is off by default. When it is off, no native effect is applied, and on Windows the window is opaque, not transparent. [MUST] — Decision 2026-10-13: user feedback that the frost does not match the interface; on Windows a transparent window with Acrylic lags behind the pointer while it is dragged.
+- When window frost is on, only `--rail` and `--sidebar` let it show. Their fills stay opaque enough that the contrast rule above holds over a white and over a black backdrop. The canvas, panels and the title bar text stay opaque. On Windows the effect is Mica (Windows 11); there is no Acrylic fallback. [SHOULD]
 
 ### Controls and states
 - Hover: a `--surface2` fill. Selected: `--surface2` fill and `--text` color. Unselected tabs and nav items: `--dim` until hover. [SHOULD]

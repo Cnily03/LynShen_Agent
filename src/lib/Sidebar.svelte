@@ -882,8 +882,9 @@
 	.collapsed .list {
 		pointer-events: none;
 	}
-	/* Under macOS vibrancy the sidebar becomes translucent so the native frost
-	 * shows through; everywhere else it stays fully opaque. */
+	/* With the window frost on (off by default) the sidebar lets a little of
+	 * the native layer through (--vibrancy-tint, app.css); otherwise it is
+	 * opaque. */
 	:global(:root[data-vibrancy='on']) .sidebar {
 		background: var(--vibrancy-tint);
 	}

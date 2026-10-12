@@ -68,6 +68,7 @@
 	import { dispatch } from '$lib/backends/router';
 	import { caps } from '$lib/backends';
 	import { prefs, TURN_STAT_KEYS, BACKGROUND_STRENGTHS, vibrancySupported } from '$lib/prefs.svelte';
+	import { CHAT_WIDTH_MODES, isChatWidthMode } from '$lib/chatWidth';
 	import { turnParts } from '$lib/turnStats';
 	import { themeState, setTheme, type ThemePref } from '$lib/theme.svelte';
 	import type { ChatState, TurnStats } from '$lib/chat.svelte';
@@ -184,6 +185,9 @@
 
 	// Launch at login needs the desktop app (a browser has no login item).
 	const inApp = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+	// The window frost changes at once on macOS; a Windows window is
+	// see-through or not for its lifetime, so there it takes a restart.
+	const frostLive = typeof document !== 'undefined' && document.documentElement.dataset.os === 'macos';
 
 	// ---------- search ----------
 	let query = $state('');
@@ -913,7 +917,7 @@
 							</div>
 						</SettingsRow>
 						{#if vibrancySupported()}
-							<SettingsRow id="vibrancy" title={t('settings.behavior.vibrancy')} description={t('settings.behavior.vibrancyHint')}>
+							<SettingsRow id="vibrancy" title={t('settings.behavior.vibrancy')} description={t(frostLive ? 'settings.behavior.vibrancyHint' : 'settings.behavior.vibrancyHintRestart')}>
 								<Switch checked={prefs.sidebarVibrancy} label={t('settings.behavior.vibrancy')} onChange={(on) => prefs.setSidebarVibrancy(on)} />
 							</SettingsRow>
 						{/if}
@@ -949,6 +953,13 @@
 						</SettingsRow>
 					</SettingsSection>
 					<SettingsSection title={t('settings.page.conversation')}>
+						<SettingsRow id="chat-width" title={t('settings.behavior.chatWidth')} description={t('settings.behavior.chatWidthHint')}>
+							<Segmented
+								value={prefs.chatWidth}
+								options={CHAT_WIDTH_MODES.map((mode) => ({ value: mode, label: t(`settings.behavior.chatWidthMode.${mode}`) }))}
+								onChange={(v) => isChatWidthMode(v) && prefs.setChatWidth(v)}
+							/>
+						</SettingsRow>
 						<SettingsRow id="turn-stats" title={t('settings.behavior.turnStats')} stacked>
 							<div class="stat-preview" aria-label={t('settings.behavior.turnStatsPreview')}>
 								<span class="sp-label">{t('settings.behavior.turnStatsPreview')}</span>

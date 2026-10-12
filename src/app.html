@@ -7,15 +7,17 @@
     <!-- PWA (the /remote page on a phone); inert in the desktop app. -->
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f5f2" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1a1a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>LynShen</title>
     <script>
-      // Before any script loads: the saved theme (theme.svelte.ts applies the
-      // same rule later), and on the phone app a centered boot screen that the
-      // page replaces once it renders.
+      // Before any script or stylesheet loads: the saved theme
+      // (theme.svelte.ts applies the same rule later) and the host OS
+      // (prefs.svelte.ts applyPlatformClass does too), which the style below
+      // paints the first frame from; and on the phone app a centered boot
+      // screen that the page replaces once it renders.
       (function () {
         var root = document.documentElement;
         try {
@@ -23,10 +25,27 @@
           var light = pref === 'light' || (pref !== 'dark' && matchMedia('(prefers-color-scheme: light)').matches);
           root.setAttribute('data-theme', light ? 'light' : 'dark');
         } catch (e) {}
+        var ua = navigator.userAgent;
+        root.setAttribute('data-os', /Macintosh|Mac OS X/.test(ua) ? 'macos' : /Windows/.test(ua) ? 'windows' : 'linux');
         if (location.pathname.indexOf('/remote') === 0) root.classList.add('remote-boot');
       })();
     </script>
     <style>
+      /* The first frame, before app.css arrives with the page's scripts: the
+         theme's canvas (--bg in src/lib/app.css; themeTokens.test.ts keeps
+         these equal to it), never the webview's white. Where the root is to
+         stay clear, app.css says so again and outranks these: the macOS
+         app's transparent window (the page rounds its own corners), and a
+         window with the frost behind it. */
+      html {
+        background: #1a1a1a;
+      }
+      html[data-theme='light'] {
+        background: #f6f5f2;
+      }
+      html[data-os='macos'] {
+        background: transparent;
+      }
       #boot {
         display: none;
       }
@@ -44,8 +63,8 @@
         letter-spacing: -0.01em;
       }
       .remote-boot[data-theme='light'] #boot {
-        background: #ffffff;
-        color: #1f1f1f;
+        background: #f6f5f2;
+        color: #1a1917;
       }
       .remote-boot #boot i {
         width: 18px;

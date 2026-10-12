@@ -2,24 +2,30 @@
 // from engine/backend settings — these are pure UI choices.
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { leastVeil, parseColor, sampleImage, softImage, SECONDARY_CONTRAST, TEXT_CONTRAST, type RGB } from './readability';
+import { isChatWidthMode, type ChatWidthMode } from './chatWidth';
 
 const KEY = 'lynshen-prefs';
+/** The stored shape's version. 2 turned the window frost off for everyone,
+ *  once: until then it was on by default and written out with every other
+ *  preference, so a stored `true` was not a choice (design.md, "Surfaces
+ *  and depth"). */
+export const PREFS_VERSION = 2;
 
 type PrefsShape = {
 	/** Clicking an .html/.htm link in chat opens it in the built-in browser
 	 *  (rendered). When false it opens in the editor (source). Non-HTML files
 	 *  always open in the editor. */
 	htmlOpenInBrowser: boolean;
-	/** Frost the sidebar and window chrome with the native window effect
-	 *  (macOS vibrancy, Windows Mica / Acrylic). The native layer is always
-	 *  present but stays invisible unless this opts the CSS in (the root
-	 *  `data-vibrancy` flag), so toggling needs no window round-trip. */
+	/** 窗口磨砂: frost the sidebar and window chrome with the native window
+	 *  effect (macOS vibrancy, Windows 11 Mica). Off by default. The app
+	 *  keeps a copy (set_window_frost) and reads it before it creates the
+	 *  window: off, the window has no native effect and on Windows is
+	 *  opaque; macOS applies a change at once, Windows at the next start. */
 	sidebarVibrancy: boolean;
 	/** Which per-turn figures the reply footer shows (see TurnStats). */
 	turnStats: TurnStatKey[];
-	/** Width in px of the conversation column (messages and composer), set by
-	 *  dragging its edge. */
-	chatWidth: number;
+	/** 对话宽度: how the conversation column follows its pane (chatWidth.ts). */
+	chatWidth: ChatWidthMode;
 	/** Offer to stop a running turn when one of its requests misses the
 	 *  prompt cache (see cacheMiss.ts). */
 	cacheMissAlert: boolean;
@@ -69,9 +75,9 @@ export type TurnStatKey = (typeof TURN_STAT_KEYS)[number];
 
 const DEFAULTS: PrefsShape = {
 	htmlOpenInBrowser: true,
-	sidebarVibrancy: true,
+	sidebarVibrancy: false,
 	turnStats: ['elapsed', 'tokens', 'files'],
-	chatWidth: 844,
+	chatWidth: 'auto',
 	cacheMissAlert: true,
 	telemetry: true,
 	terminalFont: '',
@@ -125,11 +131,26 @@ export function glassStyle(glass: number, background: BackgroundStrength | null,
 /** A terminal font size within 8–32 px; anything else is the default. */
 const fontSize = (v: unknown) => (typeof v === 'number' && v >= 8 && v <= 32 ? v : DEFAULTS.terminalFontSize);
 
-function load(): PrefsShape {
+/** Stored preferences brought up to PREFS_VERSION (see there). What is
+ *  saved afterwards carries the version, so a later choice is kept. */
+export function migratePrefs(stored: Record<string, unknown>): Record<string, unknown> {
+	const version = typeof stored.version === 'number' ? stored.version : 1;
+	const next: Record<string, unknown> = { ...stored, version: PREFS_VERSION };
+	if (version < 2) next.sidebarVibrancy = false;
+	return next;
+}
+
+/** The stored preferences over the defaults, and whether they were stored
+ *  by an older version (and so are to be written back). */
+function load(): { prefs: PrefsShape; outdated: boolean } {
 	try {
-		return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) || '{}') as Partial<PrefsShape>) };
+		const raw = localStorage.getItem(KEY);
+		const parsed: unknown = raw ? JSON.parse(raw) : null;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { prefs: { ...DEFAULTS }, outdated: false };
+		const stored = parsed as Record<string, unknown>;
+		return { prefs: { ...DEFAULTS, ...(migratePrefs(stored) as Partial<PrefsShape>) }, outdated: stored.version !== PREFS_VERSION };
 	} catch {
-		return { ...DEFAULTS };
+		return { prefs: { ...DEFAULTS }, outdated: false };
 	}
 }
 
@@ -148,23 +169,31 @@ export function applyPlatformClass() {
 	document.documentElement.dataset.os = os;
 }
 
-/** The window has a native frost behind it (the app reports which at
- *  startup: `window_effect`); without one the translucent chrome would show
- *  the bare desktop. */
-export const vibrancySupported = () => prefs.windowEffect !== null;
+/** What the app answers to set_window_frost. */
+type WindowFrost = {
+	/** This system has a native frost: macOS vibrancy, Windows 11 Mica. */
+	supported: boolean;
+	/** The one behind the window now (`vibrancy` or `mica`), or null. */
+	effect: string | null;
+};
+
+const inApp = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const onMac = () => typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
+
+/** This system can frost the window (the app reports it: set_window_frost).
+ *  Not on Linux, Windows 10 or in a browser: the setting is not offered. */
+export const vibrancySupported = () => prefs.frostSupported;
 
 class PrefsStore {
 	htmlOpenInBrowser = $state(DEFAULTS.htmlOpenInBrowser);
 	sidebarVibrancy = $state(DEFAULTS.sidebarVibrancy);
-	/** `vibrancy`, `mica` or `acrylic`; null where none applied (Linux, the
-	 *  browser, an unsupported Windows). */
-	windowEffect = $state<string | null>(
-		// The macOS app always has one: assume it for the first frame (no flash
-		// of an opaque sidebar); window_effect confirms it right after.
-		typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && /Macintosh|Mac OS X/.test(navigator.userAgent)
-			? 'vibrancy'
-			: null
-	);
+	/** The macOS app always can; elsewhere the app's answer says. */
+	frostSupported = $state(inApp() && onMac());
+	/** The native frost behind the window now: `vibrancy` or `mica`; null
+	 *  without one. Only over one may the chrome turn translucent: without
+	 *  it the chrome would show the bare desktop (macOS) or nothing at all
+	 *  (an opaque Windows window). */
+	windowEffect = $state<string | null>(null);
 	turnStats = $state<TurnStatKey[]>(DEFAULTS.turnStats);
 	chatWidth = $state(DEFAULTS.chatWidth);
 	cacheMissAlert = $state(DEFAULTS.cacheMissAlert);
@@ -185,13 +214,18 @@ class PrefsStore {
 	thinkingSummaries = $state(DEFAULTS.thinkingSummaries);
 
 	init() {
-		const p = load();
+		const { prefs: p, outdated } = load();
 		this.htmlOpenInBrowser = p.htmlOpenInBrowser;
-		this.sidebarVibrancy = p.sidebarVibrancy;
+		this.sidebarVibrancy = p.sidebarVibrancy === true;
+		// The macOS app starts with the frost its copy of the choice says:
+		// assume so for the first frame (no flash of an opaque sidebar);
+		// set_window_frost confirms it right after.
+		if (inApp() && onMac()) this.windowEffect = this.sidebarVibrancy ? 'vibrancy' : null;
 		this.turnStats = Array.isArray(p.turnStats)
 			? p.turnStats.filter((k): k is TurnStatKey => (TURN_STAT_KEYS as readonly string[]).includes(k))
 			: DEFAULTS.turnStats;
-		this.chatWidth = Number.isFinite(p.chatWidth) ? p.chatWidth : DEFAULTS.chatWidth;
+		// (An older version kept a number of pixels here.)
+		this.chatWidth = isChatWidthMode(p.chatWidth) ? p.chatWidth : DEFAULTS.chatWidth;
 		this.cacheMissAlert = p.cacheMissAlert !== false;
 		this.telemetry = p.telemetry !== false;
 		this.terminalFont = typeof p.terminalFont === 'string' ? p.terminalFont : DEFAULTS.terminalFont;
@@ -208,6 +242,7 @@ class PrefsStore {
 		this.footContext = p.footContext !== false;
 		this.footCost = p.footCost !== false;
 		this.thinkingSummaries = p.thinkingSummaries !== false;
+		if (outdated) this.#save();
 		this.#applyVibrancy();
 		this.#applyBackground();
 		// Asking the system for less transparency turns the glass solid.
@@ -216,14 +251,21 @@ class PrefsStore {
 		// The veils follow the theme's text colours.
 		if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined')
 			new MutationObserver(() => this.#applyGlass()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-			invoke<string | null>('window_effect')
-				.then((effect) => {
-					this.windowEffect = effect;
-					this.#applyVibrancy();
-				})
-				.catch(() => {});
-		}
+		this.#syncFrost();
+	}
+
+	/** Hands the frost choice to the app, which keeps it for the next start
+	 *  (and on macOS applies it now), and takes what the window has. */
+	#syncFrost() {
+		if (!inApp()) return;
+		invoke<WindowFrost | null>('set_window_frost', { on: this.sidebarVibrancy })
+			.then((frost) => {
+				if (!frost) return;
+				this.frostSupported = frost.supported;
+				this.windowEffect = frost.effect;
+				this.#applyVibrancy();
+			})
+			.catch(() => {});
 	}
 
 	#save() {
@@ -231,6 +273,7 @@ class PrefsStore {
 			localStorage.setItem(
 				KEY,
 				JSON.stringify({
+					version: PREFS_VERSION,
 					htmlOpenInBrowser: this.htmlOpenInBrowser,
 					sidebarVibrancy: this.sidebarVibrancy,
 					turnStats: this.turnStats,
@@ -258,10 +301,11 @@ class PrefsStore {
 		}
 	}
 
-	/** Reflect the vibrancy choice onto the root, gated by platform support. */
+	/** Reflect the frost onto the root: on while the choice is on and the
+	 *  window has the native effect behind it. */
 	#applyVibrancy() {
 		if (typeof document === 'undefined') return;
-		if (vibrancySupported() && this.sidebarVibrancy) {
+		if (this.windowEffect !== null && this.sidebarVibrancy) {
 			document.documentElement.setAttribute('data-vibrancy', 'on');
 		} else {
 			document.documentElement.removeAttribute('data-vibrancy');
@@ -373,8 +417,8 @@ class PrefsStore {
 		this.#save();
 	}
 
-	setChatWidth(v: number) {
-		this.chatWidth = Math.round(v);
+	setChatWidth(v: ChatWidthMode) {
+		this.chatWidth = v;
 		this.#save();
 	}
 
@@ -440,6 +484,7 @@ class PrefsStore {
 		this.sidebarVibrancy = v;
 		this.#applyVibrancy();
 		this.#save();
+		this.#syncFrost();
 	}
 }
 

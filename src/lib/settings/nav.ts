@@ -63,6 +63,7 @@ export const ROWS: SearchRow[] = [
 	{ section: 'general', id: 'open-elsewhere', titleKey: 'settings.behavior.openElsewhere', descKey: 'settings.behavior.openElsewhereHint' },
 	{ section: 'general', id: 'terminal-font', titleKey: 'settings.behavior.terminalFont' },
 	{ section: 'general', id: 'terminal-font-size', titleKey: 'settings.behavior.terminalFontSize' },
+	{ section: 'general', id: 'chat-width', titleKey: 'settings.behavior.chatWidth', descKey: 'settings.behavior.chatWidthHint' },
 	{ section: 'general', id: 'turn-stats', titleKey: 'settings.behavior.turnStats', descKey: 'settings.behavior.turnStatsHint' },
 	{ section: 'general', id: 'scroll-on-send', titleKey: 'settings.behavior.scrollOnSend', descKey: 'settings.behavior.scrollOnSendHint' },
 	{ section: 'general', id: 'foot-context', titleKey: 'settings.behavior.footContext', descKey: 'settings.behavior.footContextHint' },

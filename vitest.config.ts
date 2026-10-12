@@ -15,6 +15,9 @@ export default defineConfig({
 	},
 	test: {
 		environment: 'node',
-		include: ['src/**/*.test.ts']
+		include: ['src/**/*.test.ts'],
+		// A stylesheet imported by a module under test is empty; one imported
+		// as text (`?raw`) is its source (themeTokens.test.ts reads app.css).
+		css: { include: /\.css\?raw$/ }
 	}
 });

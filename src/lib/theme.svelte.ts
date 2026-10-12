@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -25,6 +26,11 @@ function apply() {
 		getCurrentWindow()
 			.setTheme(themeState.pref === 'system' ? null : themeState.value)
 			.catch(() => {});
+		// The app keeps the choice for its next start, when it paints the
+		// window in the theme's canvas colour before this page exists, and
+		// repaints the window behind the page now (it shows while the window
+		// is resized faster than the page).
+		invoke('set_window_theme', { theme: themeState.pref, dark: themeState.value === 'dark' }).catch(() => {});
 	}
 }
 

@@ -13,6 +13,7 @@ import { fetchAccountInfo, fetchCloudSettings, putCloudSettings, readConfig, wri
 import { getLocale, LOCALES, setLocale, type Locale } from './i18n/core.svelte';
 import { setTheme, themeState, type ThemePref } from './theme.svelte';
 import { prefs, TURN_STAT_KEYS, type TurnStatKey } from './prefs.svelte';
+import { isChatWidthMode } from './chatWidth';
 import { loadBackendSettings, saveBackendSettings } from './backends/settings';
 import { isBackendId } from './backends';
 
@@ -64,9 +65,18 @@ const SPECS: Spec[] = [
 		apply: (v) => (['system', 'light', 'dark'].includes(v as string) ? (setTheme(v as ThemePref), true) : false)
 	},
 	{
-		key: 'ui.vibrancy',
+		// Not `ui.vibrancy`, the key of versions whose frost was on by default:
+		// they uploaded that default as if it were a choice, and it must not
+		// switch the frost back on here. Those versions go on syncing the old
+		// key among themselves; no version reads both.
+		key: 'ui.windowFrost',
 		read: () => prefs.sidebarVibrancy,
 		apply: (v) => (typeof v === 'boolean' ? (prefs.setSidebarVibrancy(v), true) : false)
+	},
+	{
+		key: 'ui.chatWidth',
+		read: () => prefs.chatWidth,
+		apply: (v) => (isChatWidthMode(v) ? (prefs.setChatWidth(v), true) : false)
 	},
 	{
 		key: 'ui.turnStats',
@@ -135,6 +145,9 @@ const SPECS: Spec[] = [
 		}
 	}
 ];
+
+/** The keys this version syncs. */
+export const SYNC_KEYS: readonly string[] = SPECS.map((spec) => spec.key);
 
 /** JSON with object keys sorted, so equal values compare equal. */
 export function stableJson(value: unknown): string {

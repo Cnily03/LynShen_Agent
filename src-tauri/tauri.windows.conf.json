@@ -4,12 +4,12 @@
     "windows": [
       {
         "title": "LynShen",
+        "create": false,
         "width": 1320,
         "height": 880,
         "minWidth": 1040,
         "minHeight": 680,
-        "decorations": false,
-        "transparent": true
+        "decorations": false
       }
     ]
   }
