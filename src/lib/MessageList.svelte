@@ -781,9 +781,15 @@
 		transition: background var(--t-slow) var(--ease-out), box-shadow var(--t-slow) var(--ease-out);
 	}
 	/* New rows come in once: fade and rise over --t-enter. Suppressed under
-	   windowing so rows scrolling back into the window don't replay. */
+	   windowing so rows scrolling back into the window don't replay. Fill
+	   backwards only: a fill that held the end would leave every row
+	   transformed (by an identity matrix) for good, the containing block of
+	   its fixed children (a menu's click-away backdrop would cover only its
+	   row) and, in Chromium, a compositing layer whose paint time grows with
+	   a streaming row's text. The end values are the row's own, so nothing
+	   moves when the animation lets go. */
 	.mwrap.animate {
-		animation: msg-in var(--t-enter) var(--ease-enter) both;
+		animation: msg-in var(--t-enter) var(--ease-enter) backwards;
 	}
 	.mwrap.hit {
 		background: var(--accent-soft);

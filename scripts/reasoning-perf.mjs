@@ -4,7 +4,7 @@
 // ChatState.handle, then the pane follows the end. Not run in CI.
 //
 //   node scripts/reasoning-perf.mjs [--deltas 20000] [--windows 10] [--per-frame 4] [--words 1]
-//                                   [--open] [--answer] [--webkit]
+//                                   [--open] [--answer] [--webkit] [--paint] [--port 1439]
 //
 // Prints, per window of deltas: the time the deliveries took per delta, the
 // time per frame (average and 95th percentile), and in Chromium the main
@@ -19,7 +19,14 @@
 // --webkit: Playwright's WebKit (the engine of the macOS app's web view)
 //   instead of Chromium. It has no CDP: memory is the WebContent process's
 //   footprint (macOS `footprint`), which WebKit's allocator does not give
-//   back when freed, so it shows the peak.
+//   back when freed, so it shows the peak; and the GPU process's, which
+//   holds the compositing layers' backing stores in this WebKit build. Only
+//   the processes started by this run count (not another run's at the same
+//   time).
+// --paint (Chromium): also trace each window (devtools.timeline) and print
+//   the main thread's PrePaint, Paint and Layerize time per frame. Tracing
+//   slows every frame a little: compare runs that all trace, or none.
+// --port: the preview server's port (another run may hold 1439).
 import { resolve } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,6 +47,8 @@ const WORDS = opt('words', 1);
 const OPEN = args.includes('--open');
 const ANSWER = args.includes('--answer');
 const WEBKIT = args.includes('--webkit');
+const PAINT = args.includes('--paint') && !WEBKIT;
+const PORT = opt('port', 1439);
 
 const outDir = mkdtempSync(resolve(tmpdir(), 'lynshen-perf-'));
 const shared = {
@@ -49,15 +58,23 @@ const shared = {
 	resolve: { alias: { $lib: resolve('src/lib') } }
 };
 await build({ ...shared, build: { outDir, emptyOutDir: true, rollupOptions: { input: resolve('tests/browser/perf.html') } } });
-const server = await preview({ ...shared, build: { outDir }, preview: { host: '127.0.0.1', port: 1439, strictPort: true } });
+const server = await preview({ ...shared, build: { outDir }, preview: { host: '127.0.0.1', port: PORT, strictPort: true } });
+/** The WebKit processes of a kind (WebContent, GPU) running now. */
+const webkitPids = (kind) => {
+	try {
+		return execFileSync('pgrep', ['-f', `ms-playwright/webkit.*${kind}`], { encoding: 'utf8' }).trim().split('\n');
+	} catch {
+		return []; // none
+	}
+};
+const others = new Set([...webkitPids('WebContent'), ...webkitPids('GPU')]);
 const browser = WEBKIT
 	? await webkit.launch()
 	: await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH });
-/** The WebContent processes' footprint, MB (WebKit only). */
-const footprintMB = () => {
-	const pids = execFileSync('pgrep', ['-f', 'ms-playwright/webkit.*WebContent'], { encoding: 'utf8' }).trim().split('\n');
+/** This run's processes' footprint, MB (WebKit only). */
+const footprintMB = (kind = 'WebContent') => {
 	let total = 0;
-	for (const pid of pids) {
+	for (const pid of webkitPids(kind).filter((p) => !others.has(p))) {
 		const out = execFileSync('footprint', ['-p', pid], { encoding: 'utf8' });
 		const m = out.match(/Footprint:\s+([\d.]+)\s+(KB|MB|GB)/);
 		if (m) total += Number(m[1]) * (m[2] === 'GB' ? 1024 : m[2] === 'KB' ? 1 / 1024 : 1);
@@ -71,10 +88,40 @@ try {
 	const cdp = WEBKIT ? null : await page.context().newCDPSession(page);
 	await cdp?.send('Performance.enable');
 	page.on('console', (m) => m.type() === 'error' && console.error('[page]', m.text()));
-	await page.goto('http://127.0.0.1:1439/tests/browser/perf.html');
+	await page.goto(`http://127.0.0.1:${PORT}/tests/browser/perf.html`);
 	await page.waitForFunction(() => window.__perf?.ready(), null, { timeout: 15000 });
 	const metrics = async () =>
 		cdp ? Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value])) : {};
+	/** Renderer main thread time in each rendering step, ms, from the trace
+	 *  since the last call (--paint): an event inside another of its name
+	 *  counts once. */
+	const STEPS = ['PrePaint', 'Paint', 'Layerize'];
+	const traceSteps = async () => {
+		const done = new Promise((r) => cdp.once('Tracing.tracingComplete', r));
+		await cdp.send('Tracing.end');
+		const { stream } = await done;
+		let text = '';
+		for (let eof = false; !eof; ) {
+			const chunk = await cdp.send('IO.read', { handle: stream, size: 1 << 22 });
+			text += chunk.base64Encoded ? Buffer.from(chunk.data, 'base64').toString() : chunk.data;
+			eof = chunk.eof;
+		}
+		await cdp.send('IO.close', { handle: stream });
+		const parsed = JSON.parse(text);
+		const events = Array.isArray(parsed) ? parsed : parsed.traceEvents;
+		const main = new Set(events.filter((e) => e.ph === 'M' && e.name === 'thread_name' && e.args?.name === 'CrRendererMain').map((e) => `${e.pid}:${e.tid}`));
+		const ms = Object.fromEntries(STEPS.map((n) => [n, 0]));
+		const until = {};
+		for (const e of events.filter((e) => e.ph === 'X' && e.name in ms && main.has(`${e.pid}:${e.tid}`)).sort((a, b) => a.ts - b.ts)) {
+			const key = `${e.name}:${e.tid}`;
+			if (e.ts < (until[key] ?? 0)) continue;
+			until[key] = e.ts + e.dur;
+			ms[e.name] += e.dur / 1000;
+		}
+		return ms;
+	};
+	const startTrace = () =>
+		cdp.send('Tracing.start', { traceConfig: { includedCategories: ['devtools.timeline'] }, transferMode: 'ReturnAsStream' });
 	const gcHeap = async () => {
 		if (!cdp) return NaN;
 		await cdp.send('HeapProfiler.collectGarbage');
@@ -143,7 +190,9 @@ try {
 	let before = await metrics();
 	const t0 = Date.now();
 	for (let w = 0; w < WINDOWS; w++) {
+		if (PAINT) await startTrace();
 		const { frames, busy, wall } = await feed(per);
+		const steps = PAINT ? await traceSteps() : null;
 		const after = await metrics();
 		const d = (k) => (after[k] - before[k]) * 1000;
 		const n = frames.length;
@@ -156,12 +205,14 @@ try {
 				'task ms/frame': +(d('TaskDuration') / n).toFixed(2),
 				'script ms/frame': +(d('ScriptDuration') / n).toFixed(2),
 				'layout ms/frame': +(d('LayoutDuration') / n).toFixed(2),
+				...(steps && Object.fromEntries(STEPS.map((s) => [`${s.toLowerCase()} ms/frame`, +(steps[s] / n).toFixed(2)]))),
 				'heap MB': +(after.JSHeapUsedSize / 1e6).toFixed(1)
 			});
 		} else {
 			const mb = footprintMB();
 			peak = Math.max(peak, mb);
 			row['footprint MB'] = mb;
+			row['GPU process MB'] = footprintMB('GPU');
 		}
 		Object.assign(row, {
 			'ms/frame': +(wall / n).toFixed(1),
@@ -186,7 +237,7 @@ try {
 			seconds,
 			...(cdp
 				? { peakHeapMB: +(peak / 1e6).toFixed(1), heapAfterGcMB: +(heapAfterGc / 1e6).toFixed(1), heapAfterTurnMB: +(finalHeap / 1e6).toFixed(1) }
-				: { peakFootprintMB: peak, footprintAfterTurnMB: footprintMB() }),
+				: { peakFootprintMB: peak, footprintAfterTurnMB: footprintMB(), gpuProcessAfterTurnMB: footprintMB('GPU') }),
 			errors
 		})
 	);
