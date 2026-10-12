@@ -4,7 +4,8 @@
 /* LynShen design system — follows brand-docs/DESIGN-SPEC.md, tuned for a desktop
    app. Dark is the default theme.
 
-   Color: black, white and cool grays carry the UI. --accent is the *neutral*
+   Color: near-black, off-white and neutral grays carry the UI (a little warm
+   in the light theme). --accent is the *neutral*
    emphasis (primary buttons, selected state: near-white on dark, near-black on
    light); the brand purple (--brand) is kept for links and the focus ring only.
    Layers, back to front: --rail (window chrome: top-left strip + workspace
@@ -38,9 +39,10 @@
 	--border: #2e2e2e;
 	--border-strong: #3a3a3a;
 
+	/* On --bg / --sidebar: --text 14.7 / 13.8, --dim 7.6 / 7.1, --dim2 4.9 / 4.6. */
 	--text: #ececec;
-	--dim: #a3a3a3;
-	--dim2: #737373;
+	--dim: #ababab;
+	--dim2: #888888;
 
 	--ok: #4fd1b5;
 	--info: #7cc4fa;
@@ -114,53 +116,59 @@
 	--cm-punct: #9d9da6;
 }
 
+/* Light: an off-white canvas (L* 96.5, a little warm), never pure white on
+   anything larger than a card; the sidebar and the window chrome are each a
+   step darker, panels a step lighter. Contrast on --bg / --sidebar / --rail:
+   --text 16.1 / 14.9 / 13.7, --dim 8.6 / 8.0 / 7.3, --dim2 5.6 / 5.1 / 4.7;
+   the status colours are at least 4.5:1 on all three and on their own 11%
+   tints (src/lib/themeTokens.test.ts holds these numbers). */
 [data-theme='light'] {
 	--brand: #7c3aed;
 	--brand-bright: #6d28d9;
 
-	--accent: #1f1f1f;
-	--accent-bright: #0d0d0d;
-	--accent-deep: #525252;
-	--accent-soft: rgba(0, 0, 0, 0.05);
+	--accent: #1a1917;
+	--accent-bright: #0d0c0b;
+	--accent-deep: #494642;
+	--accent-soft: rgba(26, 25, 23, 0.05);
 	--on-accent: #ffffff;
 
-	--bg: #ffffff;
-	--sidebar: #f7f7f7;
-	--rail: #ececec;
-	--panel: #ffffff;
-	--surface: rgba(0, 0, 0, 0.025);
-	--surface2: rgba(0, 0, 0, 0.055);
-	--hairline: rgba(0, 0, 0, 0.06);
-	--border: #e8e8e8;
-	--border-strong: #d6d6d6;
+	--bg: #f6f5f2;
+	--sidebar: #eeece8;
+	--rail: #e5e3de;
+	--panel: #fbfaf8;
+	--surface: rgba(26, 25, 23, 0.03);
+	--surface2: rgba(26, 25, 23, 0.06);
+	--hairline: rgba(26, 25, 23, 0.07);
+	--border: #dedbd5;
+	--border-strong: #ccc8c1;
 
-	--text: #1f1f1f;
-	--dim: #5c5c5c;
-	--dim2: #9a9a9a;
+	--text: #1a1917;
+	--dim: #494642;
+	--dim2: #66625d;
 
-	--ok: #0f8f7a;
-	--info: #2563eb;
-	--err: #d33a2c;
-	--warn: #a75f06;
+	--ok: #006d5a;
+	--info: #1754dc;
+	--err: #ba1d13;
+	--warn: #954e00;
 
-	--shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.08);
-	--shadow-float: 0 0 0 1px rgba(24, 24, 27, 0.04), 0 6px 22px rgba(24, 24, 27, 0.07);
-	--shadow-float-strong: 0 0 0 1px rgba(24, 24, 27, 0.06), 0 8px 28px rgba(24, 24, 27, 0.11);
-	--shadow-canvas: 0 0 0 1px rgba(24, 24, 27, 0.06), 0 6px 24px rgba(24, 24, 27, 0.07);
-	--shadow-pop: 0 10px 28px rgba(24, 24, 27, 0.12), 0 0 0 1px rgba(24, 24, 27, 0.07);
-	--shadow-modal: 0 20px 56px rgba(24, 24, 27, 0.18), 0 0 0 1px rgba(24, 24, 27, 0.07);
-	--scrim: rgba(24, 24, 27, 0.32);
+	--shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.08);
+	--shadow-float: 0 0 0 1px rgba(28, 25, 23, 0.05), 0 6px 22px rgba(28, 25, 23, 0.07);
+	--shadow-float-strong: 0 0 0 1px rgba(28, 25, 23, 0.07), 0 8px 28px rgba(28, 25, 23, 0.11);
+	--shadow-canvas: 0 0 0 1px rgba(28, 25, 23, 0.06), 0 6px 24px rgba(28, 25, 23, 0.07);
+	--shadow-pop: 0 10px 28px rgba(28, 25, 23, 0.12), 0 0 0 1px rgba(28, 25, 23, 0.08);
+	--shadow-modal: 0 20px 56px rgba(28, 25, 23, 0.18), 0 0 0 1px rgba(28, 25, 23, 0.08);
+	--scrim: rgba(28, 25, 23, 0.32);
 	--glass-strong: color-mix(in oklab, var(--panel) 88%, transparent);
 
 	--cm-keyword: #7c3aed;
-	--cm-string: #15803d;
-	--cm-number: #b45309;
-	--cm-comment: #8e8e97;
+	--cm-string: #0b7b39;
+	--cm-number: #af4f00;
+	--cm-comment: #6e6a64;
 	--cm-function: #1d4ed8;
-	--cm-type: #a16207;
-	--cm-property: #2563eb;
+	--cm-type: #9b5c00;
+	--cm-property: #2360e8;
 	--cm-tag: #be123c;
-	--cm-punct: #52525b;
+	--cm-punct: #55524e;
 }
 
 /* ⌘K AI-edit pending pulse (CodeMirror line decoration, outside svelte scope). */
@@ -288,7 +296,8 @@ body {
 	}
 }
 /* Top thinking effort: a slow light sweep over --effort-accent (slider fill,
-   effort labels). Stops under reduced motion like every animation. */
+   effort labels), toward white on dark and toward black on light
+   (--accent-bright). Stops under reduced motion like every animation. */
 @keyframes sweep {
 	from {
 		background-position: 200% 0;
@@ -301,9 +310,9 @@ body {
 	background: linear-gradient(
 		90deg,
 		var(--effort-accent) 0%,
-		color-mix(in oklab, var(--effort-accent) 35%, white) 25%,
+		color-mix(in oklab, var(--effort-accent) 35%, var(--accent-bright)) 25%,
 		var(--effort-accent) 50%,
-		color-mix(in oklab, var(--effort-accent) 35%, white) 75%,
+		color-mix(in oklab, var(--effort-accent) 35%, var(--accent-bright)) 75%,
 		var(--effort-accent) 100%
 	);
 	background-size: 200% 100%;

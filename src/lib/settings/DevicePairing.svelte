@@ -41,7 +41,9 @@
 	let statusPoll: ReturnType<typeof setInterval> | null = null;
 
 	const base = $derived(address.trim().replace(/\/+$/, ''));
-	const qr = $derived(pairing?.link ? renderSVG(pairing.link) : '');
+	// The code brings its own white ground and quiet zone (four modules, as
+	// scanners expect), in the dark theme too: the tile adds no fill.
+	const qr = $derived(pairing?.link ? renderSVG(pairing.link, { border: 4 }) : '');
 	const remaining = $derived.by(() => {
 		if (!pairing) return '';
 		const s = Math.max(0, Math.round((pairing.expires_at - now) / 1000));
@@ -280,10 +282,8 @@
 	.qr {
 		width: 156px;
 		height: 156px;
-		padding: 8px;
 		border-radius: var(--r-md);
-		/* QR codes need a light background to scan reliably in dark themes. */
-		background: #fff;
+		overflow: hidden;
 		flex-shrink: 0;
 	}
 	.qr :global(svg) {
