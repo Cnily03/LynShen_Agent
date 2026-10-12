@@ -214,6 +214,20 @@ try {
   await expect(cutReply.locator('.md')).toHaveText('先这样回答一半');
   await expect(cutReply.locator('.foot')).toHaveText('已中断');
   await expect(page.locator('.answer').last().locator('.stream')).toHaveText('好，改用测试库', { timeout: 15000 });
+  // A row's entrance leaves nothing behind: once it has come in, its plan's
+  // menu closes on a click anywhere else. (A fill that held the animation's
+  // end kept every row transformed, so the menu's fixed click-away backdrop
+  // covered only the row.)
+  await page.evaluate(() => {
+    const c = window.__chat;
+    c.handle({ type: 'status', message: 'ready' });
+    c.handle({ type: 'proposed_plan', id: 'p1', title: '重构缓存', markdown: '- 读代码\n- 改缓存', status: 'pending' });
+  });
+  await page.waitForFunction(() => document.querySelector('.plan')?.closest('.mwrap')?.getAnimations().every((a) => a.playState === 'finished'));
+  await page.getByRole('button',{name:'执行时的审批模式'}).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.mouse.click(700, 20);
+  await expect(page.getByRole('menu')).toHaveCount(0);
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, long reasoning and reply, steered reply.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, long reasoning and reply, steered reply, plan menu click-away.');
 } finally { await browser.close(); await server.close(); }

@@ -58,7 +58,7 @@
   </div>
 {:else if mode.has('reasoning')}
   <main bind:this={scroller} style="height:600px;width:720px;overflow:auto">
-    <MessageList messages={chat.messages} streamingMsg={answering} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} />
+    <MessageList messages={chat.messages} streamingMsg={answering} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} onPlan={() => {}} />
   </main>
 {:else if mode.has('chat')}
   <div style="height:600px;width:900px;display:flex;flex-direction:column;position:relative">
