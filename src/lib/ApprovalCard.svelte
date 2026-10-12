@@ -348,14 +348,21 @@
 
 <style>
 	/* Every prompt (an action to allow, a question, a plan) is the same raised
-	   card as the composer it sits on: it stands out by elevation, not tint. */
+	   card as the composer it sits on: it stands out by elevation, not tint.
+	   It rises in with fill backwards only: a fill that held the end left the
+	   card transformed (by an identity matrix) for good, the containing block
+	   of its scope menu's fixed click-away backdrop, which then covered only
+	   the card. The end values are the card's own. Positioned, so it still
+	   paints over the composer below (its shadow on the composer's edge), as
+	   it does with glass. */
 	.approval {
+		position: relative;
 		padding: 12px 14px;
 		background: var(--panel);
 		border: 1px solid var(--border);
 		border-radius: var(--r-lg);
 		box-shadow: var(--shadow-float);
-		animation: rise var(--t-slow) var(--ease-out) both;
+		animation: rise var(--t-slow) var(--ease-out) backwards;
 	}
 	.plan-body {
 		margin-top: 10px;

@@ -1792,6 +1792,9 @@
 		   centres the column. */
 		padding-inline: max(var(--chat-pad), calc((100% - var(--chat-w)) / 2));
 	}
+	/* Fill backwards only: a fill that held the end left the block transformed
+	   for good, so the new-conversation picker's menus (fixed click-away
+	   backdrops) closed only on a click inside it. */
 	.welcome {
 		margin: auto;
 		display: flex;
@@ -1800,7 +1803,7 @@
 		gap: 10px;
 		padding: 24px;
 		text-align: center;
-		animation: rise var(--t-slow) var(--ease-out) both;
+		animation: rise var(--t-slow) var(--ease-out) backwards;
 	}
 	.spawn-spin {
 		display: inline-flex;

@@ -997,6 +997,8 @@
 		flex-direction: column;
 		padding: 18px max(14px, calc((100% - 880px) / 2)) 16px;
 	}
+	/* Fill backwards only, as on the desktop (ChatPane): a held end would
+	   keep it transformed for good. */
 	.welcome {
 		margin: auto;
 		display: flex;
@@ -1005,7 +1007,7 @@
 		gap: 10px;
 		padding: 24px;
 		text-align: center;
-		animation: rise var(--t-slow) var(--ease-out) both;
+		animation: rise var(--t-slow) var(--ease-out) backwards;
 	}
 	.spawn-spin {
 		display: inline-flex;

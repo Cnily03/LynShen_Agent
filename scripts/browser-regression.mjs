@@ -112,6 +112,51 @@ try {
   await expect(page.locator('.tools-count')).toHaveText('4');
   await page.getByRole('button',{name:'返回会话列表'}).click();
   await expect(page.locator('.sess', {hasText:'限流调整'}).first()).toBeVisible();
+  // Entrances leave nothing behind: once a new conversation's welcome and
+  // an approval card have come in, their menus close on a click anywhere
+  // else. (A fill that held the end kept each transformed, so a menu's
+  // fixed click-away backdrop covered only it.)
+  await page.goto(base + '?chat');
+  const settled = (sel) => page.waitForFunction((sel) => document.querySelector(sel)?.getAnimations().every((a) => a.playState === 'finished'), sel);
+  await settled('.welcome');
+  await page.getByRole('button',{name:'项目',exact:true}).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.mouse.click(1200, 700);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 'c1', name: 'shell', summary: 'pnpm build', scopes: ['session', 'project', 'user'] }));
+  await settled('.approval');
+  await page.getByRole('button',{name:'始终允许…'}).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.mouse.click(1200, 700);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  // With glass on (the app's default) the transcript is masked and the
+  // approval card keeps its glass on a layer of its own. Each stacks a
+  // menu's click-away backdrop under the composer, and Chromium gives a
+  // masked element's backdrop no click outside the mask: a press there
+  // closes the menu all the same.
+  await page.goto(base + '?chat&glass');
+  await settled('.welcome');
+  assert.ok(await page.evaluate(() => 'glass' in document.documentElement.dataset), 'glass is off');
+  const closesOn = async (trigger, point) => {
+    await trigger.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    const [x, y] = point ?? await page.locator('.composer').evaluate((el) => { const r = el.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+    await page.mouse.click(x, y);
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  };
+  const project = page.getByRole('button',{name:'项目',exact:true});
+  await closesOn(project);
+  await closesOn(project, [1200, 700]);
+  await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 'c1', name: 'shell', summary: 'pnpm build', scopes: ['session', 'project', 'user'] }));
+  await settled('.approval');
+  await closesOn(page.getByRole('button',{name:'始终允许…'}));
+  await page.evaluate(() => {
+    const c = window.__paneChat();
+    c.handle({ type: 'status', message: 'ready' });
+    c.handle({ type: 'proposed_plan', id: 'p1', title: '重构缓存', markdown: '- 读代码\n- 改缓存', status: 'pending' });
+  });
+  await page.waitForFunction(() => document.querySelector('.plan')?.closest('.mwrap')?.getAnimations().every((a) => a.playState === 'finished'));
+  await closesOn(page.getByRole('button',{name:'执行时的审批模式'}));
   // A long reasoning streams into blocks written once: the block still
   // growing stays short, finished ones are never written again, and they read
   // as the one text they replace. (It was one text node, rewritten and laid
@@ -212,5 +257,5 @@ try {
   await page.mouse.click(700, 20);
   await expect(page.getByRole('menu')).toHaveCount(0);
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, long reasoning and reply, steered reply, plan menu click-away.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away.');
 } finally { await browser.close(); await server.close(); }
