@@ -63,6 +63,55 @@ try {
   const item = page.getByRole('menuitem',{name:'智能体'});
   const box = await item.boundingBox();
   assert.ok(await item.evaluate((el, [x, y]) => el.contains(document.elementFromPoint(x, y)), [box.x + box.width / 2, box.y + box.height / 2]), 'the chat covers the title bar menu');
+  // Settings → 技能 against a stand-in daemon: a switch reaches the engine,
+  // load problems show, a personal skill is deleted after confirming.
+  await page.goto(base + '?skills');
+  // The first visit compiles the page's modules.
+  await expect(page.getByText('agent-browser')).toBeVisible({timeout:30000});
+  const grill = page.getByRole('switch', {name:'启用 grill-me'});
+  await expect(grill).toHaveAttribute('aria-checked', 'false');
+  await grill.click();
+  await expect(grill).toHaveAttribute('aria-checked', 'true');
+  assert.ok(await page.evaluate(() => window.__ops.some(o => o.op === 'skill_set_enabled' && o.path.endsWith('/grill-me') && o.enabled === true)));
+  await page.getByRole('button',{name:/技能加载诊断：0 个错误，2 个警告/}).click();
+  await expect(page.getByText('缺少 description，不会加载')).toBeVisible();
+  await page.getByText('ste-writing').hover();
+  await page.locator('.srow', {hasText:'ste-writing'}).getByRole('button',{name:'删除'}).click();
+  await page.getByRole('button',{name:'删除',exact:true}).last().click();
+  await expect(page.getByText('ste-writing')).toHaveCount(0);
+  // Shared and project skills switch but are not deleted here.
+  await expect(page.locator('.srow', {hasText:'deploy-preview'}).getByRole('button',{name:'删除'})).toHaveCount(0);
+  // The marketplace tab: an install that fails says so on its own item.
+  await page.getByRole('tab',{name:'技能市场'}).click();
+  await page.locator('.item', {hasText:'MCP builder'}).getByRole('button',{name:'安装'}).click();
+  await expect(page.getByText('安装失败：GitHub returned 403 for the skill tree')).toBeVisible();
+  await page.locator('.item', {hasText:'Skill creator'}).getByRole('button',{name:'安装'}).click();
+  await expect(page.locator('.item', {hasText:'Skill creator'}).getByText('已安装')).toBeVisible();
+  // An engine without the skill ops: a note, not a broken page.
+  await page.goto(base + '?skills&oldEngine');
+  await expect(page.getByText(/当前的 LynShen 引擎还不能在这里管理技能/)).toBeVisible();
+  await page.goto(base + '?plugins');
+  await expect(page.getByText('document-skills')).toBeVisible();
+  // The sidebar: folded sections stay folded after a restart; the archive
+  // restores several conversations at once.
+  await page.goto(base + '?sidebar');
+  await expect(page.locator('.folder-name')).toHaveCount(3, {timeout:30000});
+  await page.getByRole('button',{name:'项目',exact:true}).click();
+  await expect(page.locator('.folder-name')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('button',{name:'项目',exact:true})).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.folder-name')).toHaveCount(0);
+  await page.getByRole('button',{name:'展开所有项目'}).click();
+  await expect(page.locator('.folder-name')).toHaveCount(3);
+  await page.getByRole('button',{name:'已归档的对话'}).click();
+  await expect(page.locator('.tools-count')).toHaveText('6');
+  await page.getByRole('button',{name:'选择',exact:true}).click();
+  await page.getByText('限流调整').click();
+  await page.getByText('0.4.30 发布').click();
+  await page.getByRole('button',{name:'恢复 2 个'}).click();
+  await expect(page.locator('.tools-count')).toHaveText('4');
+  await page.getByRole('button',{name:'返回会话列表'}).click();
+  await expect(page.locator('.sess', {hasText:'限流调整'}).first()).toBeVisible();
   // A long reasoning streams into blocks written once: the block still
   // growing stays short, finished ones are never written again, and they read
   // as the one text they replace. (It was one text node, rewritten and laid
@@ -149,5 +198,5 @@ try {
   await expect(cutReply.locator('.foot')).toHaveText('已中断');
   await expect(page.locator('.answer').last().locator('.stream')).toHaveText('好，改用测试库', { timeout: 15000 });
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning and reply, steered reply.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, long reasoning and reply, steered reply.');
 } finally { await browser.close(); await server.close(); }

@@ -22,6 +22,10 @@
 	import PushPinSlashIcon from 'phosphor-svelte/lib/PushPinSlashIcon';
 	import SidebarSimpleIcon from 'phosphor-svelte/lib/SidebarSimpleIcon';
 	import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimpleIcon';
+	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeftIcon';
+	import ArrowsInLineVerticalIcon from 'phosphor-svelte/lib/ArrowsInLineVerticalIcon';
+	import ArrowsOutLineVerticalIcon from 'phosphor-svelte/lib/ArrowsOutLineVerticalIcon';
+	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
 	import mark from '$lib/lynshen-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import { rowIn } from '$lib/ui/motion';
@@ -140,14 +144,19 @@
 	} = $props();
 	const reqs = useRequirements();
 
-	// Which projects have their archived section expanded (collapsed by default).
-	let showArchived = $state<Record<string, boolean>>({});
-	// Bulk restore: the project whose archived list is in selection mode, and
+	// 已归档: the toolbar's archive button shows the archived conversations
+	// of every project in place of the list. Bulk restore: selection mode and
 	// the picked session ids.
-	let selecting = $state('');
+	let archiveOpen = $state(false);
+	let selecting = $state(false);
 	let picked = $state<string[]>([]);
-	function toggleSelecting(id: string) {
-		selecting = selecting === id ? '' : id;
+	function toggleArchive() {
+		archiveOpen = !archiveOpen;
+		selecting = false;
+		picked = [];
+	}
+	function toggleSelecting() {
+		selecting = !selecting;
 		picked = [];
 	}
 	function togglePick(id: string) {
@@ -155,12 +164,16 @@
 	}
 	function restorePicked() {
 		for (const id of picked) onUnarchiveSession(id);
-		selecting = '';
+		selecting = false;
 		picked = [];
 	}
-	// Collapsed project folders, and folders showing all of their sessions
-	// instead of the first SHOW_LIMIT.
-	let collapsed = $state<Record<string, boolean>>({});
+	// Folded sections (对话, 项目) and project folders, kept across restarts;
+	// folders showing all of their sessions instead of the first SHOW_LIMIT.
+	let fold = $state<SidebarFold>(readSidebarFold(localStorage));
+	function saveFold(next: SidebarFold) {
+		fold = next;
+		writeSidebarFold(localStorage, next, projects.map((p) => p.id));
+	}
 	let showAll = $state<Record<string, boolean>>({});
 	const SHOW_LIMIT = 6;
 	/** A project's first sessions, and the active one wherever it is. */
@@ -176,6 +189,7 @@
 	// Each conversation outside a project has a folder (and group) of its own.
 	const homes = $derived(projects.filter((p) => p.home));
 	const codeProjects = $derived(projects.filter((p) => !p.chats && !p.home));
+	const everyFolded = $derived(allFolded(fold, codeProjects.map((p) => p.id)));
 	const RECENT_LIMIT = 8;
 	const recent = $derived.by(() => {
 		const listed = projects
@@ -208,6 +222,22 @@
 	const sessionMatches = (p: Project, s: Project['sessions'][number]) =>
 		!query || s.chat.title.toLowerCase().includes(query) || p.name.toLowerCase().includes(query);
 	const shownRecent = $derived(recent.filter((x) => sessionMatches(x.p, x.s)));
+	// The archived conversations per place (对话 first, then each project) the
+	// filter matches, and how many there are in all.
+	const archivedGroups = $derived.by(() => {
+		const groups: { id: string; name: string; sessions: Session[] }[] = [];
+		const chats = homes.flatMap((h) => h.sessions.filter((s) => s.archived && sessionMatches(h, s)));
+		if (chats.length) groups.push({ id: 'chats', name: t('shell.chats'), sessions: chats });
+		for (const p of codeProjects) {
+			const list = p.sessions.filter((s) => s.archived && sessionMatches(p, s));
+			if (list.length) groups.push({ id: p.id, name: p.name, sessions: list });
+		}
+		return groups;
+	});
+	const archivedShown = $derived(archivedGroups.flatMap((g) => g.sessions));
+	const archivedTotal = $derived(
+		[...homes, ...codeProjects].reduce((n, p) => n + p.sessions.filter((s) => s.archived).length, 0)
+	);
 
 	// Inline rename (dblclick a session title).
 	let renaming = $state<string | null>(null);
@@ -402,8 +432,7 @@
 		if (e.target === e.currentTarget && e.propertyName === 'clip-path' && !peek) closing = false;
 	}}
 >
-	<!-- Header: the logo and wordmark, or the session filter in its place
-	     while searching. Collapsed, the logo expands the sidebar. -->
+	<!-- Header: the logo and wordmark. Collapsed, the logo expands the sidebar. -->
 	<div class="brand" data-tauri-drag-region>
 		{#if railed}
 			<button
@@ -416,26 +445,11 @@
 				<span class="mark" aria-hidden="true">{@html mark}</span>
 				<span class="mark-alt" aria-hidden="true"><SidebarSimpleIcon size={18} /></span>
 			</button>
-		{:else if searchOpen}
-			<span class="logo-slot"><MagnifyingGlassIcon size={18} /></span>
 		{:else}
 			<span class="logo" aria-hidden="true"><span class="mark">{@html mark}</span></span>
 		{/if}
 		<div class="brand-rest" inert={folded}>
-			{#if searchOpen}
-				<input
-					class="filter"
-					bind:this={searchEl}
-					bind:value={searchQuery}
-					placeholder={t('shell.searchSessions')}
-					onkeydown={searchKey}
-					onblur={() => !searchQuery && toggleSearch()}
-				/>
-				<button class="head-act" onclick={toggleSearch} aria-label={t('shell.closeSearch')} title={t('shell.closeSearch')}><XIcon size={18} /></button>
-			{:else}
-				<span class="word">LynShen</span>
-				<button class="head-act" onclick={toggleSearch} aria-label={t('shell.searchSessions')} title={t('shell.searchSessions')}><MagnifyingGlassIcon size={18} /></button>
-			{/if}
+			<span class="word">LynShen</span>
 		</div>
 	</div>
 
@@ -574,27 +588,60 @@
 		</button>
 	{/snippet}
 
-	{#snippet archived(p: Project, arch: Session[], nested: boolean)}
-		{#if arch.length}
-			{@const open = showArchived[p.id] || !!query}
-			{@const sel = selecting === p.id && open}
-			<div class="more-line" class:nested>
-				<button class="more" onclick={() => (showArchived[p.id] = !showArchived[p.id])}>
-					<span class="chev" class:open={showArchived[p.id]}><CaretRightIcon size={16} /></span>
-					<span>{t('shell.archived')} · {arch.length}</span>
-				</button>
-				{#if open && arch.length > 1}
-					<button class="more-act" onclick={() => toggleSelecting(p.id)}>
-						{sel ? t('shell.archiveSelectCancel') : t('shell.archiveSelect')}
-					</button>
-				{/if}
-			</div>
-			{#if open}
-				{#each arch as s (s.id)}{@render sessRow(s, nested, sel)}{/each}
-				{#if sel}
-					{@const all = arch.every((s) => picked.includes(s.id))}
-					<div class="bulk" class:nested>
-						<button class="more-act" onclick={() => (picked = all ? [] : arch.map((s) => s.id))}>
+	<!-- The list's toolbar: fold every project, filter, and the archive. -->
+	<div class="tools" role="toolbar" aria-label={t('shell.listTools')} inert={folded}>
+		{#if archiveOpen}
+			<button class="tool" onclick={toggleArchive} aria-label={t('shell.archiveBack')} title={t('shell.archiveBack')}><ArrowLeftIcon size={16} /></button>
+			<span class="tools-title">{t('shell.archived')}<span class="tools-count">{archivedTotal}</span></span>
+			{#if archivedShown.length > 1}
+				<button class="more-act" aria-pressed={selecting} onclick={toggleSelecting}>{selecting ? t('shell.archiveSelectCancel') : t('shell.archiveSelect')}</button>
+			{/if}
+		{:else}
+			<span class="grow"></span>
+			<button
+				class="tool"
+				disabled={!codeProjects.length}
+				onclick={() => saveFold(foldAll(fold, codeProjects.map((p) => p.id), !everyFolded))}
+				aria-label={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}
+				title={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}
+			>
+				{#if everyFolded}<ArrowsOutLineVerticalIcon size={16} />{:else}<ArrowsInLineVerticalIcon size={16} />{/if}
+			</button>
+		{/if}
+		<!-- Pressing a toggle keeps the filter's focus (its blur would close it first). -->
+		<button class="tool" class:on={searchOpen} aria-pressed={searchOpen} onpointerdown={(e) => searchOpen && e.preventDefault()} onclick={toggleSearch} aria-label={t('shell.searchSessions')} title={t('shell.searchSessions')}><MagnifyingGlassIcon size={16} /></button>
+		<button class="tool" class:on={archiveOpen} aria-pressed={archiveOpen} onclick={toggleArchive} aria-label={t('shell.archiveOpen')} title={t('shell.archiveOpen')}><ArchiveIcon size={16} /></button>
+	</div>
+	{#if searchOpen}
+		<div class="search-row" inert={folded}>
+			<MagnifyingGlassIcon size={14} />
+			<input
+				class="filter"
+				bind:this={searchEl}
+				bind:value={searchQuery}
+				placeholder={t('shell.searchSessions')}
+				aria-label={t('shell.searchSessions')}
+				onkeydown={searchKey}
+				onblur={() => !searchQuery && toggleSearch()}
+			/>
+			<button class="tool" onpointerdown={(e) => e.preventDefault()} onclick={toggleSearch} aria-label={t('shell.closeSearch')} title={t('shell.closeSearch')}><XIcon size={14} /></button>
+		</div>
+	{/if}
+
+	<div class="list" class:dragging={drag?.live} bind:this={listEl} inert={folded}>
+		{#if archiveOpen}
+			<!-- 已归档: every archived conversation, by place, with bulk restore. -->
+			<section class="archive">
+				{#each archivedGroups as g (g.id)}
+					<div class="group-name" title={g.name}>{g.name}</div>
+					{#each g.sessions as s (s.id)}{@render sessRow(s, false, selecting)}{/each}
+				{:else}
+					<div class="note">{query ? t('shell.archiveNoMatch') : t('shell.archiveEmpty')}</div>
+				{/each}
+				{#if selecting}
+					{@const all = archivedShown.every((s) => picked.includes(s.id))}
+					<div class="bulk">
+						<button class="more-act" onclick={() => (picked = all ? [] : archivedShown.map((s) => s.id))}>
 							{all ? t('shell.archiveSelectNone') : t('shell.archiveSelectAll')}
 						</button>
 						<span class="grow"></span>
@@ -603,11 +650,8 @@
 						</Button>
 					</div>
 				{/if}
-			{/if}
-		{/if}
-	{/snippet}
-
-	<div class="list" class:dragging={drag?.live} bind:this={listEl} inert={folded}>
+			</section>
+		{:else}
 		<!-- Agents: long-lived workers of the local daemon. -->
 		<!-- Shown only while there are agents: they are no longer created here. -->
 		{#if agents.length}
@@ -655,41 +699,50 @@
 
 		<!-- 对话: the latest conversations, in a project or not, newest first. -->
 		{#if shownRecent.length || !query}
+			{@const chatsOpen = !fold.sections.chats || !!query}
 			<section>
 				<div class="head">
-					<span>{t('shell.chats')}</span>
+					<button class="head-toggle" aria-expanded={chatsOpen} onclick={() => saveFold(toggleSection(fold, 'chats'))}>
+						<span>{t('shell.chats')}</span>
+						<span class="head-caret" class:open={chatsOpen} class:hidden={!!query} aria-hidden="true"><CaretRightIcon size={12} /></span>
+					</button>
 					{#if home}
 						<button class="head-act" onclick={() => onHistory(home)} aria-label={t('shell.history')} title={t('shell.history')}><ClockCounterClockwiseIcon size={16} /></button>
 					{/if}
 					<button class="head-act" onclick={() => onNewChat()} aria-label={t('shell.newChat')} title={t('shell.newChat')}><PlusIcon size={16} /></button>
 				</div>
-				{#each showAllRecent || query ? shownRecent : shownRecent.slice(0, RECENT_LIMIT) as x (x.s.id)}
-					{@render sessRow(x.s, false, false, x.p.home ? x.p : undefined, x.p.home ? undefined : x.p.name)}
-				{:else}
-					<div class="note">{t('shell.home.noChats')}</div>
-				{/each}
-				{#if shownRecent.length > RECENT_LIMIT && !query}
-					<button class="more" onclick={() => (showAllRecent = !showAllRecent)}>{showAllRecent ? t('shell.showLess') : t('shell.showMore')}</button>
-				{/if}
-				{#if home}{@render archived(home, homes.flatMap((h) => h.sessions.filter((s) => s.archived && sessionMatches(h, s))), false)}{/if}
+				<Collapse open={chatsOpen}>
+					{#each showAllRecent || query ? shownRecent : shownRecent.slice(0, RECENT_LIMIT) as x (x.s.id)}
+						{@render sessRow(x.s, false, false, x.p.home ? x.p : undefined, x.p.home ? undefined : x.p.name)}
+					{:else}
+						<div class="note">{t('shell.home.noChats')}</div>
+					{/each}
+					{#if shownRecent.length > RECENT_LIMIT && !query}
+						<button class="more" onclick={() => (showAllRecent = !showAllRecent)}>{showAllRecent ? t('shell.showLess') : t('shell.showMore')}</button>
+					{/if}
+				</Collapse>
 			</section>
 		{/if}
 
 		<!-- Projects: folders with their coding sessions nested. -->
+		{@const projectsOpen = !fold.sections.projects || !!query}
 		<section>
 			<div class="head">
-				<span>{t('shell.projects')}</span>
+				<button class="head-toggle" aria-expanded={projectsOpen} onclick={() => saveFold(toggleSection(fold, 'projects'))}>
+					<span>{t('shell.projects')}</span>
+					<span class="head-caret" class:open={projectsOpen} class:hidden={!!query} aria-hidden="true"><CaretRightIcon size={12} /></span>
+				</button>
 				<button class="head-act" onclick={onNewProject} aria-label={t('shell.newProjectTitle')} title={t('shell.newProjectTitle')}><PlusIcon size={16} /></button>
 			</div>
+			<Collapse open={projectsOpen}>
 			{#if !codeProjects.length && !query}
 				<button class="sess ghost" onclick={onNewProject}><PlusIcon size={16} /><span class="sess-title">{t('shell.home.addProject')}</span></button>
 			{/if}
 			{#each codeProjects as p (p.id)}
 				{@const active = listedSessions(p).filter((s) => sessionMatches(p, s))}
-				{@const arch = p.sessions.filter((s) => s.archived && sessionMatches(p, s))}
-				{@const open = !collapsed[p.id] || !!query}
+				{@const open = !fold.folders[p.id] || !!query}
 				{@const w = p.sessions.some((s) => s.id === activeId) ? 'fill' : 'regular'}
-				{#if !query || active.length || arch.length}
+				{#if !query || active.length}
 					<div
 						class="project"
 						class:lifted={drag?.live && drag.group === 'projects' && drag.id === p.id}
@@ -705,7 +758,7 @@
 								aria-expanded={open}
 								aria-label={t('shell.projectPage.toggle')}
 								title={t('shell.projectPage.toggle')}
-								onclick={() => (collapsed[p.id] = !collapsed[p.id])}><CaretRightIcon size={11} /></button
+								onclick={() => saveFold(toggleFolder(fold, p.id))}><CaretRightIcon size={11} /></button
 							>
 							<button class="folder-row" onpointerdown={(e) => rowDown(e, p)} onclick={() => onOpenProject(p)} oncontextmenu={(e) => onProjectMenu(p, e)} title={p.worktree ? t('shell.task.worktreeTip', { branch: p.worktree.branch, base: p.worktree.baseBranch || '?' }) : p.path}>
 								{#if p.icon}<TabGlyph icon={p.icon} color={p.color ?? 'var(--dim)'} active={w === 'fill'} size={16} />{:else if p.worktree}<GitBranchIcon size={18} weight={w} color={p.color} />{:else if open}<FolderOpenIcon size={18} weight={w} color={p.color} />{:else}<FolderIcon size={18} weight={w} color={p.color} />{/if}
@@ -727,15 +780,20 @@
 							{#if active.length > SHOW_LIMIT && !query}
 								<button class="more nested" onclick={() => (showAll[p.id] = !showAll[p.id])}>{showAll[p.id] ? t('shell.showLess') : t('shell.showMore')}</button>
 							{/if}
-							{#if active.length === 0 && arch.length === 0 && !p.stale && !query}
+							{#if active.length === 0 && !p.stale && !query}
 								<button class="sess ghost nested" onclick={() => onNewSession(p)}><span class="sess-title">{t('shell.newChat')}</span></button>
 							{/if}
-							{@render archived(p, arch, true)}
 						</Collapse>
 					</div>
 				{/if}
 			{/each}
+			</Collapse>
 		</section>
+		<!-- Searching: archived matches are one click away. -->
+		{#if query && archivedShown.length}
+			<button class="more" onclick={toggleArchive}><ArchiveIcon size={14} />{t('shell.archiveMatches', { n: archivedShown.length })}</button>
+		{/if}
+		{/if}
 	</div>
 	<SidebarFooter {...footer} collapsed={folded} onCardOpenChange={(open) => (cardOpen = open)} />
 
@@ -803,18 +861,24 @@
 	/* What the rail has no room for fades out; it fades back in once the
 	   panel is most of the way open. */
 	.brand-rest,
+	.tools,
+	.search-row,
 	.list,
 	.primary .label,
 	.primary .count {
 		transition: opacity var(--t-med) var(--ease-base) 40ms;
 	}
 	.collapsed .brand-rest,
+	.collapsed .tools,
+	.collapsed .search-row,
 	.collapsed .list,
 	.collapsed .primary .label,
 	.collapsed .primary .count {
 		opacity: 0;
 		transition: opacity var(--t-fast) var(--ease-base);
 	}
+	.collapsed .tools,
+	.collapsed .search-row,
 	.collapsed .list {
 		pointer-events: none;
 	}
@@ -841,8 +905,7 @@
 		margin: 14px 10px 10px;
 		flex-shrink: 0;
 	}
-	.logo,
-	.logo-slot {
+	.logo {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
@@ -897,6 +960,84 @@
 		align-items: center;
 		gap: 2px;
 		padding-left: 6px;
+	}
+	/* The list's toolbar, between the primary nav and the list: quiet icons
+	   (fold every project, filter, archive) that stay put while the list
+	   scrolls. */
+	.tools {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		flex-shrink: 0;
+		height: 34px;
+		margin: 4px 10px 0;
+		padding: 0 4px;
+	}
+	.tool {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		flex-shrink: 0;
+		padding: 0;
+		border: none;
+		border-radius: var(--r-sm);
+		background: none;
+		color: var(--dim);
+		cursor: pointer;
+		transition:
+			background var(--t-fast) var(--ease-out),
+			color var(--t-fast) var(--ease-out);
+	}
+	.tool:hover:not(:disabled),
+	.tool.on {
+		background: var(--surface2);
+		color: var(--text);
+	}
+	.tool:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.tools-title {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		padding-left: 4px;
+		color: var(--text);
+		font-size: var(--fs-sm);
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.tools-count {
+		color: var(--dim);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		font-weight: 400;
+		font-variant-numeric: tabular-nums;
+	}
+	.search-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+		height: 32px;
+		margin: 4px 14px 2px;
+		padding: 0 2px 0 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-md);
+		background: var(--surface);
+		color: var(--dim);
+		animation: rise var(--t-fast) var(--ease-out);
+	}
+	.search-row:focus-within {
+		border-color: var(--border-strong);
+	}
+	.search-row .tool {
+		width: 26px;
+		height: 26px;
 	}
 	.filter {
 		flex: 1;
@@ -1054,8 +1195,58 @@
 		font-size: var(--fs-xs);
 		font-weight: 500;
 	}
-	.head span {
+	.head > span {
 		flex: 1;
+	}
+	/* A section head folds its section: the label, then a caret that shows
+	   when folded (and on hover or focus when open). */
+	.head-toggle {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		height: 28px;
+		padding: 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.head-toggle:hover {
+		color: var(--dim);
+	}
+	.head-caret {
+		display: inline-flex;
+		transition:
+			transform var(--t-fast) var(--ease-out),
+			opacity var(--t-fast) var(--ease-out);
+	}
+	.head-caret.open {
+		transform: rotate(90deg);
+		opacity: 0;
+	}
+	.head-toggle:hover .head-caret.open,
+	.head-toggle:focus-visible .head-caret.open {
+		opacity: 1;
+	}
+	.head-caret.hidden {
+		visibility: hidden;
+	}
+	/* 已归档: the place each archived conversation is from. */
+	.group-name {
+		padding: 12px 12px 4px;
+		color: var(--dim2);
+		font-size: var(--fs-xs);
+		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.archive .group-name:first-child {
+		padding-top: 4px;
 	}
 	.head-act,
 	.act {
@@ -1146,15 +1337,6 @@
 	.sess.nested {
 		padding-left: 42px;
 	}
-	.more-line {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-	.more-line .more {
-		flex: 1;
-		min-width: 0;
-	}
 	.more-act {
 		flex-shrink: 0;
 		padding: 4px 8px;
@@ -1179,9 +1361,6 @@
 		gap: 8px;
 		padding: 6px 4px 8px 12px;
 		animation: rise var(--t-fast) var(--ease-out);
-	}
-	.bulk.nested {
-		padding-left: 28px;
 	}
 	.grow {
 		flex: 1;
@@ -1365,16 +1544,6 @@
 		min-height: 30px;
 		color: var(--dim);
 		font-size: var(--fs-xs);
-	}
-	.more-line.nested .more {
-		padding-left: 42px;
-	}
-	.chev {
-		display: inline-flex;
-		transition: transform var(--t-fast) var(--ease-out);
-	}
-	.chev.open {
-		transform: rotate(90deg);
 	}
 
 </style>

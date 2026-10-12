@@ -347,6 +347,70 @@ export async function installMarketplaceSkill(source: SkillSource, id: string, b
 	return reply.path as string;
 }
 
+// Skills on this computer (Settings → 技能): what an engine loads, with its
+// switch and what keeps any from loading. An engine older than these ops
+// answers them as unknown (see `isUnknownOp`).
+/** `user`: the engine's personal folder; `shared`: ~/.agents/skills;
+ *  `project`: the project's own. */
+export type SkillScope = 'user' | 'shared' | 'project';
+export interface InstalledSkill {
+	name: string;
+	description: string;
+	/** The skill's folder: its id in the other skill ops. */
+	path: string;
+	scope: SkillScope;
+	enabled: boolean;
+	/** LynShen switches it (not Claude Code's skills). */
+	toggleable: boolean;
+	/** A folder of the personal directory, which may be deleted here. */
+	removable: boolean;
+}
+export interface SkillProblem {
+	level: 'error' | 'warning';
+	/** `unreadable` · `no_description` · `duplicate` · `untrusted` · `state`. */
+	kind: string;
+	path: string;
+	message: string;
+}
+export interface SkillList {
+	backend: string;
+	skills: InstalledSkill[];
+	problems: SkillProblem[];
+	dirs: { scope: SkillScope; path: string }[];
+	/** Whether the project's skills load; null without a project. */
+	projectTrusted: boolean | null;
+}
+/** The engines whose skills the desktop lists. */
+export type SkillBackend = 'lynshen' | 'claude';
+
+/** A daemon too old to know `op`: it names the op unknown, or (an op with no
+ *  session) asks for a session. */
+export function isUnknownOp(error: unknown, op: string): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes(`unknown op ${op}`) || message.includes(`${op} requires session`);
+}
+export async function listSkills(backend: SkillBackend, cwd?: string): Promise<SkillList> {
+	await daemon.connect();
+	return (await daemon.request({ op: 'skills_list', backend, ...(cwd ? { cwd } : {}) })) as unknown as SkillList;
+}
+/** Switches a listed LynShen skill for every new turn; the reply is the new list. */
+export async function setSkillEnabled(path: string, enabled: boolean, cwd?: string): Promise<SkillList> {
+	await daemon.connect();
+	return (await daemon.request({ op: 'skill_set_enabled', path, enabled, ...(cwd ? { cwd } : {}) })) as unknown as SkillList;
+}
+/** Deletes a skill folder of the personal directory: a listed one by `path`,
+ *  or a catalog skill by its `skill` id. */
+export async function uninstallSkill(target: { path: string } | { skill: string }, backend: SkillBackend): Promise<void> {
+	await daemon.connect();
+	await daemon.request({ op: 'skill_uninstall', backend, ...target });
+}
+/** A new skill in ~/.lynshen/skills; resolves with its SKILL.md. */
+export async function createSkill(name: string, description: string): Promise<string> {
+	await daemon.connect();
+	const reply = await daemon.request({ op: 'skill_create', name, description });
+	return reply.path as string;
+}
+
 // LynShen account: plan / balance / usage / call-details, fetched via the
 // OAuth read endpoints using the stored device access token (auto-refreshed).
 export interface AccountInfo {

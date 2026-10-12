@@ -27,10 +27,32 @@ Object.assign(window, {
         case 'provider_oauth_start': return 'attempt-1';
         case 'provider_oauth_poll': return {status:'waiting',url:'https://auth.openai.com/oauth/authorize?state=test'};
         case 'fetch_monoize_balance': return {balance_infos:[]};
+        // Only the agent-UX pages have a (stand-in) daemon.
+        case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
+        // Plugins of other agents, as the import scan finds them.
+        case 'import_scan': return {sessions: [], skills: [
+          {source:'claude', name:'docx', description:'', path:'/p/document-skills/docx', plugin:'document-skills', present:false},
+          {source:'claude', name:'xlsx', description:'', path:'/p/document-skills/xlsx', plugin:'document-skills', present:false},
+          {source:'claude', name:'frontend-design', description:'', path:'/p/frontend-design/skills/frontend-design', plugin:'frontend-design', present:true},
+          {source:'codex', name:'figma-implement-design', description:'', path:'/c/figma/skills/implement', plugin:'figma', present:false},
+          {source:'zcode', name:'android-emulator', description:'', path:'/z/android/skills/emulator', plugin:'android-emulator', present:false}
+        ], mcp: [
+          {source:'codex', from:'figma', name:'figma', transport:'http', command:null, args:null, url:'https://mcp.figma.com/mcp', present:false, entry:{name:'figma', transport:'http', enabled:true}},
+          {source:'claude', from:'/Users/me/code/app', name:'db', transport:'stdio', command:'db-mcp', args:[], url:null, present:false, entry:{name:'db', transport:'stdio', enabled:true}}
+        ]};
         default: return null;
       }
     }
   }
 });
-const { default: Fixture } = await import('./Regression.svelte');
+// The agent-UX pages run against a stand-in daemon (fakeDaemon.ts).
+const params = new URL(location.href).searchParams;
+const panels = ['skills', 'market', 'plugins', 'sidebar'].some((k) => params.has(k));
+if (panels) {
+  const { installFakeDaemon, daemonState } = await import('./fakeDaemon');
+  installFakeDaemon();
+  daemonState.old = params.has('oldEngine');
+}
+document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
+const { default: Fixture } = panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
 mount(Fixture, {target:document.getElementById('app')!});
