@@ -1,28 +1,13 @@
 import { Marked } from 'marked';
-import { markedHighlight } from 'marked-highlight';
 import markedKatex from 'marked-katex-extension';
 import hljs from '$lib/hljs';
 import { t } from '$lib/i18n';
 import { codeFileRef, fileHref, splitFileRefs, type FileRef } from '$lib/fileRefs';
 
 // One configured instance for the whole app. Configuring the shared `marked`
-// singleton from each <Markdown> instance stacks the highlight extension and
-// makes code blocks get highlighted (and escaped) more than once.
-const marked = new Marked(
-	markedHighlight({
-		langPrefix: 'hljs language-',
-		highlight(code, info) {
-			// The info string may go on to name the file ("rust src/a.rs", "ts:src/a.ts").
-			const lang = (info || '').split(/[\s:]/)[0];
-			const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
-			try {
-				return hljs.highlight(code, { language }).value;
-			} catch {
-				return code;
-			}
-		}
-	})
-);
+// singleton from each <Markdown> instance stacks the extensions and makes
+// code blocks get highlighted (and escaped) more than once.
+const marked = new Marked();
 marked.setOptions({ breaks: true, gfm: true });
 // Math: $…$ inline (with a space or punctuation around it, so "$5 和 $10"
 // stays text), $$…$$ display. A formula KaTeX can't parse shows as its source.
@@ -31,6 +16,26 @@ marked.use(markedKatex({ throwOnError: false, output: 'htmlAndMathml' }));
 const escapeHtml = (s: string) =>
 	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const escapeAttr = (s: string) => escapeHtml(s).replace(/"/g, '&quot;');
+
+/** A code block's text as HTML, highlighted as the language its info string
+ *  starts with ("rust src/a.rs", "ts:src/a.ts").
+ *
+ *  Highlighted here, in the code renderer, not by marked-highlight: that
+ *  extension is a `walkTokens` callback, and marked's walk gathers each
+ *  token's result with `concat`, which copies the list so far for every
+ *  token. On a long text that is quadratic: rendering a 240,000-character
+ *  reasoning left about 250 MB of dead arrays behind (in WebKit the
+ *  process's footprint reached 330 MB during the render; 70 MB without
+ *  the walk). */
+function highlightCode(code: string, info: string): string {
+	const lang = info.split(/[\s:]/)[0];
+	const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+	try {
+		return hljs.highlight(code, { language }).value;
+	} catch {
+		return escapeHtml(code);
+	}
+}
 
 /** A file reference as a link the chat opens in the editor (see <Markdown>). */
 function fileLink(ref: FileRef, inner: string): string {
@@ -42,14 +47,14 @@ function fileLink(ref: FileRef, inner: string): string {
 // by <Markdown> via event delegation, reading the <pre>'s text content.
 marked.use({
 	renderer: {
-		code(token: { text: string; lang?: string; escaped?: boolean }) {
+		code(token: { text: string; lang?: string }) {
 			// The info string may name the file: "ts src/a.ts" or "ts:src/a.ts".
 			const info = (token.lang || '').trim();
 			const [head, ...rest] = info.split(/\s+/);
 			const [langPart, pathPart] = head.includes(':') && head.includes('/') ? head.split(/:(.*)/s) : [head, rest[0]];
 			const lang = langPart ?? '';
 			const named = pathPart ? codeFileRef(pathPart) : null;
-			const body = token.escaped ? token.text : escapeHtml(token.text);
+			const body = highlightCode(token.text, info);
 			const langCls = lang ? ` language-${escapeAttr(lang)}` : '';
 			return (
 				`<div class="codeblock"><div class="cb-head">` +
