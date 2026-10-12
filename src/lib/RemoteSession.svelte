@@ -26,6 +26,7 @@
 	import FileIcon from 'phosphor-svelte/lib/FileIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import { sendFile, type Uploaded } from '$lib/upload';
+	import { withFiles } from '$lib/attachments';
 	import { loadSession, saveSession } from '$lib/remote/cache';
 	import ModelMenu from '$lib/remote/ModelMenu.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
@@ -366,7 +367,7 @@
 		if ((!typed && !attached.length) || uploading) return;
 		const images = attached.filter((a) => a.image).map((a) => a.path);
 		const files = attached.filter((a) => !a.image).map((a) => a.path);
-		const content = files.length ? `${typed}${typed ? '\n\n' : ''}Attached files (read these):\n${files.join('\n')}` : typed;
+		const content = withFiles(typed, files);
 		if (draft) {
 			draft = false;
 			await connect();

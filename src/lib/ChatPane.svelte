@@ -100,6 +100,7 @@
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
 	import { parseDelivery } from '$lib/delivery';
+	import { withFiles, withVideo } from '$lib/attachments';
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import RequirementTag from '$lib/requirements/RequirementTag.svelte';
 	import { statusLabel } from '$lib/requirements/labels';
@@ -884,11 +885,12 @@
 				quotes = [];
 				return;
 			}
-			if (files.length)
-				content += `${content ? '\n\n' : ''}Attached files (read these):\n${files.join('\n')}`;
+			// The engine reads the files and videos from a list after the text;
+			// the conversation shows them as chips (attachments.ts).
+			content = withFiles(content, files);
 			for (const v of videos) {
 				imagePaths.push(...v.frames);
-				content += `${content ? '\n\n' : ''}[视频附件] ${base(v.path)}（时长 ${v.duration.toFixed(1)} 秒）：已按时间等间隔抽取 ${v.frames.length} 个关键帧，随消息以图片附上（按时间先后排序），请结合这些关键帧理解视频内容。`;
+				content = withVideo(content, base(v.path), v.duration, v.frames.length);
 			}
 			// Echo the message instantly when it starts a turn now (a busy session
 			// queues it instead, shown in the composer's queue strip).
