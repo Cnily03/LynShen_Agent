@@ -144,8 +144,11 @@
 		font-weight: 600;
 		line-height: 1.35;
 	}
+	/* Fill backwards only: a fill that held the end kept every block
+	   transformed for good, in Chromium a compositing layer each (the block
+	   still being written too). */
 	.block {
-		animation: rise var(--t-slow, 320ms) var(--ease-out) both;
+		animation: rise var(--t-slow, 320ms) var(--ease-out) backwards;
 	}
 	.block + .block {
 		margin-top: 10px;

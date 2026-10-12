@@ -8,6 +8,9 @@
   import Probe from './Probe.svelte';
   import MessageList from '../../src/lib/MessageList.svelte';
   import { ChatState } from '../../src/lib/chat.svelte';
+  import ChatPane from '../../src/lib/ChatPane.svelte';
+  import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
+  import type { DaemonClient } from '../../src/lib/daemon';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
@@ -35,6 +38,14 @@
     const last = chat.messages.at(-1);
     return chat.busy && last?.kind === 'assistant' && !last.interrupted ? last : null;
   });
+  // A conversation pane on a new conversation (?chat), fed by the test
+  // (window.__paneChat()).
+  if (mode.has('chat')) {
+    provideRequirements(new Requirements({} as DaemonClient));
+    sessions.createProject('/tmp/regression-project');
+  }
+  const paneSession = $derived(sessionMap.get(sessions.activeId));
+  (window as unknown as { __paneChat: () => ChatState | undefined }).__paneChat = () => paneSession?.chat;
 </script>
 {#if mode.has('mosaic')}
   <button onclick={() => (tiles = splitLeaf(tiles, leavesOf(tiles.root)[0].id, 'right', { id: 't1', panel: 'b' }).layout)}>拆分</button>
@@ -49,6 +60,10 @@
   <main bind:this={scroller} style="height:600px;width:720px;overflow:auto">
     <MessageList messages={chat.messages} streamingMsg={answering} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} />
   </main>
+{:else if mode.has('chat')}
+  <div style="height:600px;width:900px;display:flex;flex-direction:column;position:relative">
+    {#if paneSession}<ChatPane session={paneSession} store={sessions} isActive />{/if}
+  </div>
 {:else if mode.has('home')}
   <p data-testid="started">{started}</p>
   <div style="height:600px;position:relative">

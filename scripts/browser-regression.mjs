@@ -112,6 +112,23 @@ try {
   await expect(page.locator('.tools-count')).toHaveText('4');
   await page.getByRole('button',{name:'返回会话列表'}).click();
   await expect(page.locator('.sess', {hasText:'限流调整'}).first()).toBeVisible();
+  // Entrances leave nothing behind: once a new conversation's welcome and
+  // an approval card have come in, their menus close on a click anywhere
+  // else. (A fill that held the end kept each transformed, so a menu's
+  // fixed click-away backdrop covered only it.)
+  await page.goto(base + '?chat');
+  const settled = (sel) => page.waitForFunction((sel) => document.querySelector(sel)?.getAnimations().every((a) => a.playState === 'finished'), sel);
+  await settled('.welcome');
+  await page.getByRole('button',{name:'项目',exact:true}).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.mouse.click(1200, 700);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 'c1', name: 'shell', summary: 'pnpm build', scopes: ['session', 'project', 'user'] }));
+  await settled('.approval');
+  await page.getByRole('button',{name:'始终允许…'}).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.mouse.click(1200, 700);
+  await expect(page.getByRole('menu')).toHaveCount(0);
   // A long reasoning streams into blocks written once: the block still
   // growing stays short, finished ones are never written again, and they read
   // as the one text they replace. (It was one text node, rewritten and laid
@@ -198,5 +215,5 @@ try {
   await expect(cutReply.locator('.foot')).toHaveText('已中断');
   await expect(page.locator('.answer').last().locator('.stream')).toHaveText('好，改用测试库', { timeout: 15000 });
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, long reasoning and reply, steered reply.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, long reasoning and reply, steered reply.');
 } finally { await browser.close(); await server.close(); }

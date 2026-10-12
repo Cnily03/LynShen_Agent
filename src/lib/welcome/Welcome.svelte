@@ -434,9 +434,11 @@
 		font-size: var(--fs-xs);
 		color: var(--dim2);
 	}
-	/* One rise on first paint, children staggered (the website hero's entrance). */
+	/* One rise on first paint, children staggered (the website hero's entrance).
+	   Fill backwards: hidden through their delay, nothing held once in (a held
+	   end kept each child transformed for good). */
 	.copy > :global(*) {
-		animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+		animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 	}
 	.copy > :global(:nth-child(2)) {
 		animation-delay: 60ms;
@@ -460,7 +462,7 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
-		animation: fade 0.35s ease both;
+		animation: fade 0.35s ease backwards;
 	}
 	@keyframes fade {
 		from {
@@ -584,7 +586,7 @@
 	}
 	.pane {
 		max-width: 620px;
-		animation: fade 0.25s ease both;
+		animation: fade 0.25s ease backwards;
 	}
 	h2 {
 		margin: 0;

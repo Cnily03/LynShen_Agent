@@ -100,7 +100,10 @@
 {/if}
 
 <style>
-	/* Running: a card in the conversation. */
+	/* Running: a card in the conversation. Its entrance and the divider's
+	   fill backwards only: their end values are the elements' own, and a fill
+	   that held them kept each element transformed (by an identity matrix)
+	   for good, in Chromium a compositing layer of its own. */
 	.card {
 		display: flex;
 		align-items: center;
@@ -109,7 +112,7 @@
 		border-radius: var(--r-xl);
 		background: var(--panel);
 		box-shadow: var(--shadow-float);
-		animation: card-in var(--t-enter) var(--ease-enter) both;
+		animation: card-in var(--t-enter) var(--ease-enter) backwards;
 	}
 	@keyframes card-in {
 		from {
@@ -238,11 +241,11 @@
 	}
 	.live .rule:first-child {
 		transform-origin: right;
-		animation: rule-in var(--t-slow) var(--ease-out) both;
+		animation: rule-in var(--t-slow) var(--ease-out) backwards;
 	}
 	.live .rule:last-child {
 		transform-origin: left;
-		animation: rule-in var(--t-slow) var(--ease-out) both;
+		animation: rule-in var(--t-slow) var(--ease-out) backwards;
 	}
 	@keyframes rule-in {
 		from {
@@ -272,7 +275,7 @@
 		background: color-mix(in oklab, var(--accent-soft), var(--text) 6%);
 	}
 	.live .pill {
-		animation: pill-in var(--t-enter) var(--ease-out) both;
+		animation: pill-in var(--t-enter) var(--ease-out) backwards;
 	}
 	@keyframes pill-in {
 		from {
