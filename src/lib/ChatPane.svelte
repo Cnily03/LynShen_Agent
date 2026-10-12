@@ -470,7 +470,7 @@
 	const streamingMsg = $derived.by(() => {
 		if (!chat.busy) return null;
 		const last = chat.messages[chat.messages.length - 1];
-		return last?.kind === 'assistant' ? last : null;
+		return last?.kind === 'assistant' && !last.interrupted ? last : null;
 	});
 	// The reasoning block currently receiving deltas — rendered with the
 	// line-by-line streaming animation (others render as static markdown).

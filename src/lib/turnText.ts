@@ -4,7 +4,8 @@
 import type { Msg } from '$lib/chat.svelte';
 
 type Reply = Extract<Msg, { kind: 'assistant' }>;
-const hasText = (m: Msg): m is Reply => m.kind === 'assistant' && /\S/.test(m.text);
+// A reply cut off for a steered message is not part of the conversation.
+const hasText = (m: Msg): m is Reply => m.kind === 'assistant' && !m.interrupted && /\S/.test(m.text);
 
 /** The assistant text of the turn `index` is in, as Markdown source: every
  *  assistant message of the turn without its blank lead and trailing space
@@ -28,11 +29,12 @@ export function turnText(messages: readonly Msg[], index: number): string {
 }
 
 /** The last assistant message with text in each turn: where the turn's copy
- *  button goes. */
-export function turnEnds(messages: readonly Msg[]): Set<Msg> {
+ *  button goes. Only the messages before `end` count. */
+export function turnEnds(messages: readonly Msg[], end = messages.length): Set<Msg> {
 	const ends = new Set<Msg>();
 	let last: Msg | null = null;
-	for (const m of messages) {
+	for (let i = 0; i < end; i++) {
+		const m = messages[i]!;
 		if (m.kind === 'user') {
 			if (last) ends.add(last);
 			last = null;

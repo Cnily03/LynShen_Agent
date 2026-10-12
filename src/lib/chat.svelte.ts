@@ -30,6 +30,7 @@ import {
 	type SessionMessageView
 } from './sessions/sessionMessage';
 import { sessionInbox } from './sessions/inbox.svelte';
+import { endLive, liveText, startLive } from './liveText';
 
 /** Where a sent message is before its reply starts: accepted locally, the
  *  engine is connecting to the model gateway, connected and waiting for the
@@ -75,6 +76,9 @@ export type Msg =
 			segMs?: number;
 			uuid?: string;
 			turn?: TurnStats;
+			/** Cut off for a steered message (`response_interrupted`): the
+			 *  engine keeps none of it, so a reloaded transcript lacks it. */
+			interrupted?: boolean;
 	  }
 	| {
 			kind: 'reasoning';
@@ -88,6 +92,8 @@ export type Msg =
 			startedAt?: number;
 			/** How long the model thought, once the block ended. */
 			durationMs?: number;
+			/** Cut off for a steered message, like a reply. */
+			interrupted?: boolean;
 	  }
 	| {
 			kind: 'tool';
@@ -772,6 +778,10 @@ export class ChatState {
 	#billingTurns: Record<string, BillingCost> = {};
 	#turnBillingIds: string[] = [];
 	pendingMessages = $state<string[]>([]);
+	/** The queued message being steered into the running turn: it left the
+	 *  queue (`status: steering`) and shows once its `user_message` comes,
+	 *  after the running tool if one runs. */
+	steering = $state<string | null>(null);
 	/** The last queued message the engine took back (`unqueued`), for the
 	 *  pane to return its text to the message box; `seq` tells repeats apart. */
 	unqueued = $state<{ text: string; seq: number } | null>(null);
@@ -967,6 +977,9 @@ export class ChatState {
 
 	#assistantIdx = -1;
 	#reasoningIdx = -1;
+	/** The messages streaming now, whose deltas are recorded for the view
+	 *  (liveText.ts). Held by object: a replaced transcript moves them. */
+	#live = new Set<Msg>();
 	/** The live per-request timer (see CallTiming); null between requests. */
 	call = $state<CallTiming | null>(null);
 	/** This session's total running time: the sum of its turns, ms. Kept per
@@ -1130,7 +1143,7 @@ export class ChatState {
 		this.#segStart = null;
 		for (let i = this.messages.length - 1; i >= 0; i--) {
 			const m = this.messages[i];
-			if (m.kind === 'assistant') {
+			if (m.kind === 'assistant' && !m.interrupted) {
 				m.elapsed = elapsed;
 				m.turn = turn;
 				this.#lastTurn = m.turn;
@@ -1183,6 +1196,7 @@ export class ChatState {
 			m.segMs = now - this.#segStart;
 			this.#turnSegments++;
 		}
+		this.#endLive(this.#assistantIdx);
 		this.#assistantIdx = -1;
 	}
 
@@ -1426,8 +1440,23 @@ export class ChatState {
 	#compactedCard: Extract<Msg, { kind: 'compaction' }> | null = null;
 
 	#resetCurrent() {
+		for (const m of this.#live) endLive(m);
+		this.#live.clear();
 		this.#assistantIdx = -1;
 		this.#reasoningIdx = -1;
+	}
+
+	/** The message at `idx` now streams: its deltas are recorded for the view. */
+	#startLive(idx: number) {
+		const m = this.messages[idx]!;
+		startLive(m);
+		this.#live.add(m);
+	}
+
+	/** The message at `idx` no longer streams: views read its text whole. */
+	#endLive(idx: number) {
+		const m = idx >= 0 ? this.messages[idx] : undefined;
+		if (m && this.#live.delete(m)) endLive(m);
 	}
 
 	/** End the active reasoning block once its tool call or the answer
@@ -1440,6 +1469,7 @@ export class ChatState {
 				m.live = false;
 				if (m.startedAt !== undefined && m.durationMs === undefined) m.durationMs = Date.now() - m.startedAt;
 			}
+			this.#endLive(this.#reasoningIdx);
 			this.#reasoningIdx = -1;
 		}
 	}
@@ -1742,6 +1772,7 @@ export class ChatState {
 				break;
 			case 'user_message': {
 				const text = str(ev.content);
+				this.steering = null;
 				// Skip the echo of a message we already showed optimistically. The
 				// echo need not be the last message: claude's --replay-user-messages
 				// re-emits the user turn AFTER the assistant reply, so the optimistic
@@ -1779,6 +1810,7 @@ export class ChatState {
 				// The engine fires this eagerly at turn start, before reasoning. Don't
 				// create the message here — let the first delta create it, so reasoning
 				// (which streams first) is rendered above the answer.
+				this.#endLive(this.#assistantIdx);
 				this.#assistantIdx = -1;
 				break;
 			case 'assistant_delta': {
@@ -1787,9 +1819,28 @@ export class ChatState {
 					this.#collapseReasoning();
 					this.messages.push({ kind: 'assistant', text: '' });
 					this.#assistantIdx = this.messages.length - 1;
+					this.#startLive(this.#assistantIdx);
 				}
 				const m = this.messages[this.#assistantIdx];
-				if (m?.kind === 'assistant') m.text += str(ev.delta);
+				if (m?.kind === 'assistant') {
+					const delta = str(ev.delta);
+					m.text += delta;
+					liveText(m)?.append(delta);
+				}
+				break;
+			}
+			case 'response_interrupted': {
+				// The response streaming now was cut off for a steered message and
+				// the engine keeps none of it. What streamed of it stays where it
+				// is, finished and marked; the next deltas start new messages
+				// after the steered one.
+				const reply = this.#assistantIdx >= 0 ? this.messages[this.#assistantIdx] : undefined;
+				if (reply?.kind === 'assistant') reply.interrupted = true;
+				const thought = this.#reasoningIdx >= 0 ? this.messages[this.#reasoningIdx] : undefined;
+				if (thought?.kind === 'reasoning') thought.interrupted = true;
+				this.#collapseReasoning();
+				this.#closeSegment(Date.now());
+				this.call = null;
 				break;
 			}
 			case 'thinking_start':
@@ -1802,9 +1853,15 @@ export class ChatState {
 				if (this.#reasoningIdx < 0) {
 					this.messages.push({ kind: 'reasoning', text: '', collapsed: true, live: true, startedAt: Date.now() });
 					this.#reasoningIdx = this.messages.length - 1;
+					// The view reads the newest part from the deltas (liveText.ts).
+					this.#startLive(this.#reasoningIdx);
 				}
 				const m = this.messages[this.#reasoningIdx];
-				if (m?.kind === 'reasoning') m.text += str(ev.delta);
+				if (m?.kind === 'reasoning') {
+					const delta = str(ev.delta);
+					m.text += delta;
+					liveText(m)?.append(delta);
+				}
 				break;
 			}
 			case 'tool_start':
@@ -2466,6 +2523,8 @@ export class ChatState {
 				const msg = str(ev.message);
 				const m = msg.match(/^(?:new|resumed) session (\S+)/);
 				if (m) this.sessionId = m[1];
+				// Steering takes the first queued message (the queue update follows).
+				if (msg === 'steering' && this.engineState !== 'steering') this.steering = this.pendingMessages[0] ?? null;
 				this.engineState = msg;
 				// A status event with no error means the (possibly just-restarted) engine
 				// is healthy again, so clear the crash auto-restart budget. This replaces
@@ -2478,6 +2537,8 @@ export class ChatState {
 				}
 				if (!this.busy) {
 					this.retry = null;
+					// Not taken in this turn: it runs as the next one.
+					this.steering = null;
 					// A turn ended without an error: a later failure is a new one,
 					// with its own automatic retries.
 					if (this.#turnStart !== null) this.autoRetries = 0;

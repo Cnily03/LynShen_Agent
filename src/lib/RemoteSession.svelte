@@ -130,7 +130,7 @@
 	const streamingMsg = $derived.by(() => {
 		if (!chat.busy) return null;
 		const last = chat.messages[chat.messages.length - 1];
-		return last?.kind === 'assistant' ? last : null;
+		return last?.kind === 'assistant' && !last.interrupted ? last : null;
 	});
 	const streamingReasoning = $derived.by(() => {
 		if (!chat.busy) return null;
@@ -155,7 +155,9 @@
 	let fromCache = $state(false);
 	const cacheKey = $derived(chat.sessionId || session ? `${host.id}:${chat.sessionId || session}` : '');
 	function keep() {
-		if (cacheKey && !fromCache && chat.messages.length) void saveSession(cacheKey, chat.messages, title);
+		// What a steered message cut off is not kept, as the engine keeps none of it.
+		const kept = chat.messages.filter((m) => !('interrupted' in m && m.interrupted));
+		if (cacheKey && !fromCache && kept.length) void saveSession(cacheKey, kept, title);
 	}
 	$effect(() => {
 		// After each turn, with the conversation as it now stands.
@@ -709,6 +711,12 @@
 				<div class="queued">
 					<span class="queued-label">{t('chat.modePending', { mode: APPROVAL_MODES[chat.approvalPending]?.label ?? chat.approvalPending })}</span>
 					<button type="button" class="qsteer" onclick={stop}>{t('chat.modeApplyNow')}</button>
+				</div>
+			{/if}
+			{#if chat.steering && chat.busy}
+				<div class="queued">
+					<span class="queued-label">{t(chat.phase === 'tool' ? 'chat.steeringWait' : 'chat.steeringNow')}</span>
+					<span class="qchip"><span class="qtext">{chat.steering}</span></span>
 				</div>
 			{/if}
 			{#if waiting.length}
