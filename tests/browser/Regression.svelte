@@ -33,7 +33,7 @@
   });
   const answering = $derived.by(() => {
     const last = chat.messages.at(-1);
-    return chat.busy && last?.kind === 'assistant' ? last : null;
+    return chat.busy && last?.kind === 'assistant' && !last.interrupted ? last : null;
   });
 </script>
 {#if mode.has('mosaic')}

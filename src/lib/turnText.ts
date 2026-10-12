@@ -4,7 +4,8 @@
 import type { Msg } from '$lib/chat.svelte';
 
 type Reply = Extract<Msg, { kind: 'assistant' }>;
-const hasText = (m: Msg): m is Reply => m.kind === 'assistant' && /\S/.test(m.text);
+// A reply cut off for a steered message is not part of the conversation.
+const hasText = (m: Msg): m is Reply => m.kind === 'assistant' && !m.interrupted && /\S/.test(m.text);
 
 /** The assistant text of the turn `index` is in, as Markdown source: every
  *  assistant message of the turn without its blank lead and trailing space

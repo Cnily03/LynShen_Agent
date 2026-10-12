@@ -596,8 +596,9 @@
 					<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
 					<!-- Only the turn's last reply carries the request's totals
 					     and the copy button for the whole turn. -->
-					{#if m.turn || m.elapsed || turnEnd}
+					{#if m.turn || m.elapsed || turnEnd || m.interrupted}
 						<div class="foot">
+							{#if m.interrupted}<span title={t('chat.interruptedTitle')}>{t('chat.interrupted')}</span>{/if}
 							{#if m.turn}
 								{#each turnParts(m.turn, prefs.turnStats) as part, j (j)}
 									<span class="stat" class:mono={part.mono} title={part.title}>{part.text}</span>
@@ -627,6 +628,7 @@
 						{:else}
 							{t('chat.reasoning')}
 						{/if}
+						{#if m.interrupted}<span class="cut" title={t('chat.interruptedTitle')}>{t('chat.interrupted')}</span>{/if}
 					</span>
 					<span class="rchev"><CaretRightIcon size={13} /></span>
 				</button>
@@ -1071,6 +1073,12 @@
 	}
 	.reason-head:hover {
 		color: var(--text);
+	}
+	.reason-head .cut {
+		margin-left: 6px;
+		color: var(--dim2);
+		font-size: var(--fs-2xs);
+		font-weight: 400;
 	}
 	.rchev {
 		display: inline-flex;

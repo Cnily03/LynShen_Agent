@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ChatState, countDiffLines, shownTitle, UNTITLED } from './chat.svelte';
 import { setLocale } from './i18n';
 import { liveText } from './liveText';
+import type { AgentEvent } from './protocol';
 
 const userTexts = (c: ChatState) =>
 	c.messages.filter((m) => m.kind === 'user').map((m) => (m.kind === 'user' ? m.text : ''));
@@ -69,6 +70,92 @@ describe('ChatState.handle', () => {
 		expect(liveText(reply)?.slice(0)).toBe('The answer');
 		c.handle({ type: 'status', message: 'ready' });
 		expect(liveText(reply)).toBeUndefined();
+	});
+
+	describe('a response cut off for a steered message', () => {
+		/** A turn whose response streams `before`, is steered with `steer` and
+		 *  goes on with a new response (the serve protocol's order). */
+		function steered(before: AgentEvent[], interrupted = true) {
+			const c = new ChatState();
+			c.handle({ type: 'user_message', content: 'first' });
+			c.handle({ type: 'connecting' });
+			c.handle({ type: 'status', message: 'streaming' });
+			for (const ev of before) c.handle(ev);
+			c.handle({ type: 'pending_messages', messages: ['use staging'] });
+			c.handle({ type: 'status', message: 'steering' });
+			c.handle({ type: 'pending_messages', messages: [] });
+			if (interrupted) c.handle({ type: 'response_interrupted' });
+			c.handle({ type: 'user_message', content: 'use staging' });
+			c.handle({ type: 'connecting' });
+			return c;
+		}
+
+		it('finishes the reply in place, marked, and starts a new one after the steered message', () => {
+			const c = steered([
+				{ type: 'reasoning_delta', delta: 'think' },
+				{ type: 'assistant_delta', delta: 'Half an ans' }
+			]);
+			const cut = c.messages[2]!;
+			expect(cut.kind === 'assistant' && cut.interrupted && cut.text).toBe('Half an ans');
+			// The reasoning had ended when the answer started: it is whole.
+			expect(c.messages[1]!.kind === 'reasoning' && c.messages[1]!.interrupted).toBeFalsy();
+			for (const delta of ['A new', ' answer']) c.handle({ type: 'assistant_delta', delta });
+			expect(c.messages.map((m) => m.kind)).toEqual(['user', 'reasoning', 'assistant', 'user', 'assistant']);
+			// Later deltas never touch it, and nothing of it streams any more.
+			expect(cut.kind === 'assistant' && cut.text).toBe('Half an ans');
+			expect(liveText(cut)).toBeUndefined();
+			expect(c.messages[4]!.kind === 'assistant' && !c.messages[4]!.interrupted && c.messages[4]!.text).toBe('A new answer');
+			// The turn's totals go on a reply the conversation keeps.
+			c.handle({ type: 'status', message: 'ready' });
+			expect(cut.kind === 'assistant' && cut.turn).toBeUndefined();
+			expect(c.messages[4]!.kind === 'assistant' && c.messages[4]!.turn).toBeTruthy();
+		});
+
+		it('finishes reasoning cut off while it streams, with how long it ran', () => {
+			vi.useFakeTimers();
+			try {
+				vi.setSystemTime(1_000);
+				// Steered before any response streamed: nothing to cut yet.
+				const c = steered([]);
+				expect(c.messages.map((m) => m.kind)).toEqual(['user', 'user']);
+				c.handle({ type: 'reasoning_delta', delta: 'thinking about prod' });
+				vi.setSystemTime(4_000);
+				c.handle({ type: 'response_interrupted' });
+				c.handle({ type: 'user_message', content: 'really, staging' });
+				c.handle({ type: 'reasoning_delta', delta: 'staging then' });
+				const [cut, fresh] = c.messages.filter((m) => m.kind === 'reasoning');
+				expect(cut?.kind === 'reasoning' && cut).toMatchObject({ text: 'thinking about prod', interrupted: true, live: false, durationMs: 3000 });
+				expect(fresh?.kind === 'reasoning' && fresh).toMatchObject({ text: 'staging then', live: true });
+				expect(liveText(cut!)).toBeUndefined();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('shows the steered message as on its way until the engine reads it', () => {
+			const c = new ChatState();
+			c.handle({ type: 'status', message: 'streaming' });
+			c.handle({ type: 'tool_start', call_id: 'c1', name: 'bash' });
+			c.handle({ type: 'pending_messages', messages: ['use staging', 'then deploy'] });
+			c.handle({ type: 'status', message: 'steering' });
+			c.handle({ type: 'pending_messages', messages: ['then deploy'] });
+			expect(c.steering).toBe('use staging');
+			expect(c.phase).toBe('tool');
+			c.handle({ type: 'tool_output', call_id: 'c1', name: 'bash', output: 'ok', is_error: false });
+			c.handle({ type: 'user_message', content: 'use staging' });
+			expect(c.steering).toBeNull();
+		});
+
+		it('changes nothing for an engine without the event', () => {
+			const c = steered([{ type: 'assistant_delta', delta: 'Half' }], false);
+			c.handle({ type: 'assistant_delta', delta: 'New' });
+			expect(c.messages.map((m) => (m.kind === 'assistant' ? `${m.text}${m.interrupted ? '!' : ''}` : m.kind))).toEqual([
+				'user',
+				'Half',
+				'user',
+				'New'
+			]);
+		});
 	});
 
 	it('keeps a just-sent message that the arriving snapshot does not have yet', () => {

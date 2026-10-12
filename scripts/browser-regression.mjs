@@ -126,6 +126,28 @@ try {
   await expect(reply.locator('.md').last()).toContainText('let b = 2;');
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
   await expect(reply.locator('.md')).toHaveCount(1);
+  // A steered message cuts the streaming reply off: it stays, finished and
+  // marked, and the next response is a reply of its own after the message.
+  await page.evaluate(() => {
+    const c = window.__chat;
+    c.handle({ type: 'user_message', content: '再想想' });
+    c.handle({ type: 'connecting' });
+    c.handle({ type: 'status', message: 'streaming' });
+    c.handle({ type: 'assistant_delta', delta: '先这样回答一半' });
+  });
+  await expect(page.locator('.answer').last().locator('.stream')).toHaveText('先这样回答一半', { timeout: 15000 });
+  await page.evaluate(() => {
+    const c = window.__chat;
+    c.handle({ type: 'status', message: 'steering' });
+    c.handle({ type: 'response_interrupted' });
+    c.handle({ type: 'user_message', content: '用测试库' });
+    c.handle({ type: 'connecting' });
+    c.handle({ type: 'assistant_delta', delta: '好，改用测试库' });
+  });
+  const cutReply = page.locator('.answer').nth(-2);
+  await expect(cutReply.locator('.md')).toHaveText('先这样回答一半');
+  await expect(cutReply.locator('.foot')).toHaveText('已中断');
+  await expect(page.locator('.answer').last().locator('.stream')).toHaveText('好，改用测试库', { timeout: 15000 });
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning and reply.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning and reply, steered reply.');
 } finally { await browser.close(); await server.close(); }

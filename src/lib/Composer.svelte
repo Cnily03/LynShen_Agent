@@ -848,6 +848,14 @@
 			<button class="qsteer" onclick={onStop}>{t('chat.modeApplyNow')}</button>
 		</div>
 	{/if}
+	{#if chat.steering && chat.busy}
+		<!-- Taken from the queue into the running turn: it shows in the
+		     conversation once the engine reads it, after a running tool. -->
+		<div class="queued">
+			<span class="queued-label">{t(chat.phase === 'tool' ? 'chat.steeringWait' : 'chat.steeringNow')}</span>
+			<span class="qchip" title={chat.steering}><span class="qtext">{chat.steering}</span></span>
+		</div>
+	{/if}
 	{#if chat.pendingMessages.length}
 		<div class="queued">
 			<span class="queued-label">{t('chat.queuedLabel', { n: chat.pendingMessages.length })}</span>
