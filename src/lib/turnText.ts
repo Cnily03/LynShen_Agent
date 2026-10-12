@@ -28,11 +28,12 @@ export function turnText(messages: readonly Msg[], index: number): string {
 }
 
 /** The last assistant message with text in each turn: where the turn's copy
- *  button goes. */
-export function turnEnds(messages: readonly Msg[]): Set<Msg> {
+ *  button goes. Only the messages before `end` count. */
+export function turnEnds(messages: readonly Msg[], end = messages.length): Set<Msg> {
 	const ends = new Set<Msg>();
 	let last: Msg | null = null;
-	for (const m of messages) {
+	for (let i = 0; i < end; i++) {
+		const m = messages[i]!;
 		if (m.kind === 'user') {
 			if (last) ends.add(last);
 			last = null;

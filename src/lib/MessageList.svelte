@@ -20,7 +20,7 @@
 	import DeliveryNotice from '$lib/DeliveryNotice.svelte';
 	import { parseDelivery } from '$lib/delivery';
 	import { sendCardProps, sendCardView, type SessionMessageView } from '$lib/sessions/sessionMessage';
-	import { stableBlocks } from '$lib/streamBlocks';
+	import { ReplyStream } from '$lib/streamBlocks';
 	import { parseToolOutput, toolIcon, toolTarget, toolVerb } from '$lib/toolSummary';
 	import Indicator from '$lib/Indicator.svelte';
 	import CallTimer from '$lib/CallTimer.svelte';
@@ -329,8 +329,10 @@
 	// assistant message since the user's, as Markdown) from the button on the
 	// turn's last reply or the reply's context menu. The turn still running
 	// offers neither.
-	const ends = $derived(turnEnds(messages));
 	const liveFrom = $derived(streamingMsg || streamingReasoning || phase ? lastTurnStart(messages) : messages.length);
+	// Up to the running turn only (it offers no copy): its reply's text is
+	// not read on every delta.
+	const ends = $derived(turnEnds(messages, liveFrom));
 	let copied = $state<Msg | null>(null);
 	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 	async function copy(text: string, mark: Msg | undefined) {
@@ -380,6 +382,7 @@
 		if (!active) {
 			shownChars = 0;
 			smoothing = null;
+			reply = null;
 			return;
 		}
 		let raf = 0;
@@ -406,12 +409,8 @@
 		return () => cancelAnimationFrame(raf);
 	});
 
-	// Text to show for a message — smoothed slice for the one currently streaming.
-	function revealed(m: Msg): string {
-		return m === active ? textOf(m).slice(0, Math.floor(shownChars)) : textOf(m);
-	}
-
-	/** The same as a length and a reader for part of it, which reads the
+	/** Text to show for a message — the smoothed reveal of the one currently
+	 *  streaming — as a length and a reader for part of it, which reads the
 	 *  streaming message from its deltas (liveText.ts): slicing its text would
 	 *  copy all of it on every delta. */
 	function shownText(m: Msg): PlainSource {
@@ -426,29 +425,15 @@
 		return read(Math.max(0, length - 240), length).replace(/\s+/g, ' ').trimStart();
 	}
 
-	// Incremental streaming markdown: render completed blocks as markdown (memoized
-	// by the slice, so it only re-parses when a block finalizes) and the in-progress
-	// tail block as plain text. Per-token cost tracks the current block, not the
-	// whole message. The split never lands inside an open code fence.
-	//
-	// Fences are matched anchored to line starts per CommonMark (optional ≤3 spaces,
-	// then 3+ backticks or tildes). Counting every "```" occurrence — as before —
-	// miscounts inline code spans and 4-backtick fences, splitting the block wrongly
-	// mid-stream.
-	const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/gm;
-	function splitIdx(text: string): number {
-		const fences = text.match(FENCE_RE);
-		if (fences && fences.length % 2 === 1) {
-			// Inside an open fence: keep the whole open block in the plain-text tail
-			// so it isn't parsed as a finalized (broken) code block. Split at the
-			// start of the last fence line.
-			let idx = 0;
-			const re = new RegExp(FENCE_RE.source, 'gm');
-			for (let m = re.exec(text); m; m = re.exec(text)) idx = m.index;
-			return idx;
-		}
-		const i = text.lastIndexOf('\n\n');
-		return i < 0 ? 0 : i + 2;
+	// Incremental streaming markdown: render completed blocks as markdown (each
+	// chunk once, keyed) and the in-progress tail block as plain text. Per-frame
+	// cost tracks what the frame reveals and the current block, not the whole
+	// message (ReplyStream). The split never lands inside an open code fence.
+	let reply: { m: Msg; stream: ReplyStream } | null = null;
+	function streamingReply(m: Msg) {
+		if (reply?.m !== m) reply = { m, stream: new ReplyStream() };
+		const { length, read } = shownText(m);
+		return reply.stream.update(length, read);
 	}
 
 	// A user message's text split into runs of "> " quote lines (quoted
@@ -603,10 +588,9 @@
 		{:else if m.kind === 'assistant'}
 			<div class="answer" use:contextItems={() => turnMenu(i)}>
 				{#if m === streamingMsg}
-					{@const rt = revealed(m)}
-					{@const si = splitIdx(rt)}
-					{#each stableBlocks(rt.slice(0, si)) as block (block.key)}<Markdown text={block.text} />{/each}
-					<div class="stream" use:streamText={{ text: rt.slice(si), from: si }}></div>
+					{@const r = streamingReply(m)}
+					{#each r.blocks as block (block.key)}<Markdown text={block.text} />{/each}
+					<div class="stream" use:streamText={{ text: r.tail, from: r.split }}></div>
 				{:else}
 					{@const turnEnd = ends.has(m) && i < liveFrom}
 					<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />

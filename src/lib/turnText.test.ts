@@ -65,6 +65,17 @@ describe('turnEnds', () => {
 		const msgs = [user('a'), tool('read'), user('b'), reply('B'), reply(' '), tool('x')];
 		expect([...turnEnds(msgs)]).toEqual([msgs[3]]);
 	});
+
+	it('leaves the running turn out when told where it starts, without reading its reply', () => {
+		const streaming = {
+			kind: 'assistant',
+			get text(): string {
+				throw new Error('the streaming reply was read');
+			}
+		} as Msg;
+		const msgs = [user('a'), reply('A'), user('b'), streaming];
+		expect([...turnEnds(msgs, lastTurnStart(msgs))]).toEqual([msgs[1]]);
+	});
 });
 
 describe('lastTurnStart', () => {

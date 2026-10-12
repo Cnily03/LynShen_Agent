@@ -23,13 +23,17 @@
   let section = $state('account');
   let sequence = 0;
   const projectMode = new URL(location.href).searchParams.has('projects');
-  // A reply thinking at length, fed by the test (window.__chat).
+  // A reply thinking and answering at length, fed by the test (window.__chat).
   const chat = new ChatState();
   (window as unknown as { __chat: ChatState }).__chat = chat;
   let scroller = $state<HTMLElement | null>(null);
   const thinking = $derived.by(() => {
     const last = chat.messages.at(-1);
     return chat.busy && last?.kind === 'reasoning' && last.live ? last : null;
+  });
+  const answering = $derived.by(() => {
+    const last = chat.messages.at(-1);
+    return chat.busy && last?.kind === 'assistant' ? last : null;
   });
 </script>
 {#if mode.has('mosaic')}
@@ -43,7 +47,7 @@
   </div>
 {:else if mode.has('reasoning')}
   <main bind:this={scroller} style="height:600px;width:720px;overflow:auto">
-    <MessageList messages={chat.messages} streamingMsg={null} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} />
+    <MessageList messages={chat.messages} streamingMsg={answering} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} />
   </main>
 {:else if mode.has('home')}
   <p data-testid="started">{started}</p>

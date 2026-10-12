@@ -109,6 +109,23 @@ try {
   // Once it ends it renders as Markdown, as before.
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
   await expect(page.locator('.reason-body .md')).toBeVisible();
+  // A long reply: each finished paragraph renders once, the paragraph being
+  // written streams as text after them, a code fence stays in it until it
+  // closes.
+  await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'streaming' }));
+  const answer = (text) => page.evaluate((text) => { for (const delta of text.match(/[^]{1,6}/g)) window.__chat.handle({ type: 'assistant_delta', delta }); }, text);
+  const reply = page.locator('.answer').last();
+  await answer(Array.from({ length: 30 }, (_, i) => `第 ${i} 段：the cache 边界。\n\n`).join('') + 'Code:\n```js\nlet a = 1;\n\nlet b');
+  await expect(reply.locator('.stream')).toHaveText('```js\nlet a = 1;\n\nlet b', { timeout: 15000 });
+  await expect(reply.locator('.md')).toHaveCount(31);
+  await reply.locator('.md').first().evaluate((el) => (el.dataset.seen = '1'));
+  await answer(' = 2;\n```\n\nDone.');
+  await expect(reply.locator('.stream')).toHaveText('Done.', { timeout: 15000 });
+  await expect(reply.locator('.md')).toHaveCount(31);
+  assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a finished paragraph rendered again');
+  await expect(reply.locator('.md').last()).toContainText('let b = 2;');
+  await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
+  await expect(reply.locator('.md')).toHaveCount(1);
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, long reasoning and reply.');
 } finally { await browser.close(); await server.close(); }
