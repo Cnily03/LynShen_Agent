@@ -277,6 +277,14 @@ const shell = {
 		archiveSelectAll: '全选',
 		archiveSelectNone: '全不选',
 		archiveRestore: '恢复 {n} 个',
+		archiveOpen: '已归档的对话',
+		archiveBack: '返回会话列表',
+		archiveEmpty: '没有已归档的对话',
+		archiveNoMatch: '已归档的对话里没有匹配的',
+		archiveMatches: '已归档中还有 {n} 个匹配',
+		listTools: '会话列表工具',
+		foldAll: '折叠所有项目',
+		unfoldAll: '展开所有项目',
 		// The one-and-only creatable session type (mosaic +, sidebar, palette):
 		// the coding agent is picked inside the session, not at creation.
 		agentSession: '新建会话',
@@ -1214,6 +1222,14 @@ const shell = {
 		archiveSelectAll: 'Select all',
 		archiveSelectNone: 'Select none',
 		archiveRestore: 'Restore {n}',
+		archiveOpen: 'Archived conversations',
+		archiveBack: 'Back to the session list',
+		archiveEmpty: 'No archived conversations',
+		archiveNoMatch: 'No archived conversation matches',
+		archiveMatches: '{n} more in Archived',
+		listTools: 'Session list tools',
+		foldAll: 'Collapse all projects',
+		unfoldAll: 'Expand all projects',
 		// The one-and-only creatable session type (mosaic +, sidebar, palette):
 		// the coding agent is picked inside the session, not at creation.
 		agentSession: 'New session',
