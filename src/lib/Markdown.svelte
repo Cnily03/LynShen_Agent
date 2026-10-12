@@ -5,9 +5,24 @@
 	import { renderMarkdown } from '$lib/markdown';
 	import { t } from '$lib/i18n';
 
-	let { text, onFile }: { text: string; onFile?: (href: string) => void } = $props();
+	let {
+		text,
+		onFile,
+		more = false
+	}: {
+		text: string;
+		onFile?: (href: string) => void;
+		/** More of the same document follows (a reply shown as chunks):
+		 *  the last element keeps its space after it. */
+		more?: boolean;
+	} = $props();
 
-	const html = $derived(DOMPurify.sanitize(renderMarkdown(text)));
+	// Rendered again only when the text itself changes: `text` read through
+	// a derived of its own, which stays as it was when a parent hands over
+	// the same text again (a list that made its items anew, a reply's chunks
+	// as it finishes), so nothing below is worked out again.
+	const source = $derived(text);
+	const html = $derived(DOMPurify.sanitize(renderMarkdown(source)));
 
 	// Only hand a link to the system opener if it carries an explicit, allowed
 	// scheme. The test is anchored and case-insensitive so tricks like
@@ -45,7 +60,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="md" onclick={onClick}>{@html html}</div>
+<div class="md" class:more onclick={onClick}>{@html html}</div>
 
 <style>
 	.md {
@@ -55,7 +70,12 @@
 	.md :global(p) {
 		margin: 0 0 10px;
 	}
-	.md :global(*:last-child) {
+	/* The document's last element has no space after it. A chunk with more
+	   of the document after it keeps that space at its top level, so chunks
+	   space as the one document does. (:where: the rule weighs what it
+	   weighed, so the rules after it still win.) */
+	.md:where(:not(.more)) :global(*:last-child),
+	.md:where(.more) :global(* *:last-child) {
 		margin-bottom: 0;
 	}
 	.md :global(h1),

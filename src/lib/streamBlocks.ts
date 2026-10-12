@@ -75,6 +75,76 @@ export function stableBlocks(done: string): Block[] {
 	return blocks;
 }
 
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const REF_DEF = /^ {0,3}\[[^\]\n]+\]:/;
+const CODE_SPAN = /`[^`]*`/g;
+// A tag as marked passes one through (its name may hold "_"), a closing
+// tag, a comment or a declaration. Not `<https://…>` or `a < b`.
+const RAW_HTML = /<(?:[A-Za-z][\w-]*(?=[\s/>]|$)|\/[A-Za-z]|[!?])/;
+/** The line that opens or closes a block of math. */
+const MATH_FENCE = /^\${1,2}$/;
+/** Code indented by a tab after spaces, which the cuts do not see as code. */
+const SPACE_TAB = /^ {1,3}\t/;
+
+/** Whether the chunks of a reply may not render as the reply does whole.
+ *
+ *  The chunks are cut counting every fence line as one that opens or closes
+ *  a code block. Markdown closes a block only with a fence of its own
+ *  character, at least as long, with nothing after it, and reads a line
+ *  like "```a```" as text: where the two counts part (a fence inside a
+ *  longer one, "```" inside "~~~"), a cut may be inside a code block.
+ *
+ *  Outside code, a part of the reply may reach into another chunk: a link
+ *  reference definition (another chunk may use it), raw HTML (an element
+ *  left open takes in what follows it), or a block of math with a blank
+ *  line or a fence line in it (the cuts are at blank lines, and count the
+ *  fence). This errs to the whole reply: a "$$" line counts as math even
+ *  where Markdown would read it as text. */
+function partsDiffer(text: string): boolean {
+	/** As the chunks are cut: every fence line toggles. */
+	let open = false;
+	/** As Markdown reads it: the fence that opened the block. */
+	let fence: { char: string; length: number } | null = null;
+	/** The line that opened the block of math, and its lines so far. */
+	let math = '';
+	let mathLines = 0;
+	for (const line of text.split(/\r?\n/)) {
+		const f = FENCE_LINE.exec(line);
+		if (f) {
+			if (math) return true;
+			const run = f[1]!;
+			const rest = f[2]!;
+			open = !open;
+			if (!fence) {
+				if (run[0] === '~' || !rest.includes('`')) fence = { char: run[0]!, length: run.length };
+			} else if (run[0] === fence.char && run.length >= fence.length && /^ *$/.test(rest)) fence = null;
+			if (open !== !!fence) return true;
+			continue;
+		}
+		if (fence) continue;
+		if (math) {
+			// Markdown takes no math without a line in it: it would read on.
+			if (line === math ? !mathLines : !line.trim()) return true;
+			if (line === math) math = '';
+			else mathLines++;
+		} else if (MATH_FENCE.test(line)) {
+			math = line;
+			mathLines = 0;
+		}
+		if (REF_DEF.test(line) || SPACE_TAB.test(line) || RAW_HTML.test(line.replace(CODE_SPAN, ''))) return true;
+	}
+	return false;
+}
+
+/** A finished reply as the chunks it streamed in: `stableBlocks` cuts the
+ *  chunks ReplyStream gave, keys and all, so a view keyed by them keeps
+ *  what it rendered while the reply streamed. One chunk, the whole reply,
+ *  when its chunks may not render as it does whole (`partsDiffer`). */
+export function finishedBlocks(text: string): Block[] {
+	if (!partsDiffer(text)) return stableBlocks(text);
+	return text.trim() ? [{ key: `0:${text.length}`, text }] : [];
+}
+
 /** A line break, as the `m` flag of FENCE_RE sees one. */
 const isBreak = (c: string) => c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029';
 

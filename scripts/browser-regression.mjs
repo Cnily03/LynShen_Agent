@@ -218,8 +218,18 @@ try {
   await expect(reply.locator('.md')).toHaveCount(31);
   assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a finished paragraph rendered again');
   await expect(reply.locator('.md').last()).toContainText('let b = 2;');
+  // Once it ends the reply keeps what it rendered as it streamed: only its
+  // last paragraph renders, and the paragraphs are spaced as one document's
+  // (the last has no space after it). (The whole reply rendered again, as
+  // one document: time and memory that grew with the reply.)
+  const spaces = () => reply.locator('.md > p:last-child').evaluateAll((ps) => ps.map((p) => getComputedStyle(p).marginBottom));
+  assert.deepEqual([...new Set(await spaces())], ['10px'], 'the paragraphs of a streaming reply are spaced');
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
-  await expect(reply.locator('.md')).toHaveCount(1);
+  await expect(reply.locator('.stream')).toHaveCount(0);
+  await expect(reply.locator('.md')).toHaveCount(32);
+  await expect(reply.locator('.md').last()).toHaveText('Done.');
+  assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a paragraph rendered again as the reply ended');
+  assert.deepEqual(await spaces(), [...Array(30).fill('10px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
   // A steered message cuts the streaming reply off: it stays, finished and
   // marked, and the next response is a reply of its own after the message.
   await page.evaluate(() => {
