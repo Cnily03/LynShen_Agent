@@ -87,7 +87,9 @@ jobs:
       - run: pnpm check
       - run: pnpm test --testTimeout=15000
       - run: node --test scripts/prepare-desktop-release.test.mjs
-      - run: python3 scripts/test-receive-desktop-release.py
+      # The receiver runs on the Linux server and imports fcntl, which Windows lacks.
+      - if: runner.os != 'Windows'
+        run: python3 scripts/test-receive-desktop-release.py
 
       - name: Check out the pinned CLI engine
         uses: actions/checkout@v4
