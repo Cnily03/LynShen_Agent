@@ -350,9 +350,8 @@ carried over: the new MSI installs to `Program Files\Aogiri`.
   `/Applications/LynShen.app`, with `CFBundleName` and the executable now
   Aogiri. The menu bar, the About item, the window title and the icon show
   Aogiri; Finder, Launchpad and the privacy lists in System Settings show the
-  file name (LynShen), and so, likely, does the Dock label. Renaming the bundle from the app was rejected: it
-  would move a running bundle, break Dock items and the login item path, and
-  gains little.
+  file name (LynShen), and so does the Dock label. 0.6.0 left it at that;
+  0.7.0 renames the bundle (see "After 0.6.0" below).
 - A fresh install from the dmg is `/Applications/Aogiri.app`. A user who also
   installs the dmg over an updated install gets two apps (same identifier,
   same data). The README and the install guide say not to.
@@ -448,19 +447,106 @@ Cases that need the owner's decision (current choice in brackets):
    or the `LynShen Desktop / ` key prefix.
 4. Re-run the "Rename upgrade" workflow on the release commit.
 
+## After 0.6.0: what was left, and what 0.7.0 does
+
+Owner's report after 0.6.0, updated in the app on both machines: the old
+"LynShen" shortcut is still on the Windows desktop with the old icon, and
+clicking it opens the app; on macOS `/Applications` has only "LynShen", which
+opens Aogiri.
+
+### Causes (reproduced in the "Rename upgrade" workflow)
+
+The workflow now takes the update the way users do. Windows: the released
+LynShen 0.5.1 runs, finds the update on a local https feed
+(`desktop_update_url` in `~/.lynshen/config.json`, a throwaway CA, the release
+feeds blocked in `hosts`), and "Update now" and "Restart now" are clicked
+through UI Automation; the app downloads and verifies the update and starts
+the installer itself. (A release WebView2 opens no DevTools port, by
+environment variable or by policy key.) macOS: the bundle is swapped in place
+and relaunched exactly as the updater plugin and `process::restart` do.
+`new_release_tag=v0.6.0` runs the checks against the published installers.
+
+- **macOS.** The updater keeps the bundle's path, so the app stays
+  `LynShen.app` and Finder, Launchpad, Spotlight and the Dock name it
+  LynShen. 0.6.0 also moved the login item to `Aogiri.plist` with the path
+  inside `LynShen.app`. A fresh Aogiri.app from the dmg beside it gave two
+  copies and no word about it.
+- **Windows.** The in-app update does run the hooks: on a clean machine the
+  installer's own `LynShen.lnk` in the user's Desktop and Start menu goes.
+  But the 0.6.0 hook only looked at `$DESKTOP\LynShen.lnk` and
+  `$SMPROGRAMS\LynShen.lnk`, only when LynShen's registry record was there,
+  and only removed one whose target was exactly `<LynShen dir>\LynShen.exe`
+  at that moment. Everything else stayed: a copy the user made, a
+  shortcut on the Public Desktop or in the all-users Start menu, one whose
+  program was already gone (an earlier install), one that starts Aogiri.exe
+  but is named LynShen (Windows offers to re-point a broken shortcut at the
+  "nearest match", which then works and keeps its name and cached icon), and
+  the taskbar pin, which keeps its file name on purpose. Once 0.6.0 had
+  removed LynShen's registry record, a later update found nothing to do.
+
+### What 0.7.0 does
+
+- **macOS** (`src-tauri/src/renamed/bundle.rs`). First thing at start, before
+  Tauri and its single-instance lock: running from `<dir>/LynShen.app` with
+  no `<dir>/Aogiri.app`, the bundle is renamed to `Aogiri.app` (one
+  `rename(2)` in the same folder) and started again with `open -n`, which
+  also has LaunchServices note the new path. The bundle keeps its file (Dock
+  items and aliases follow it), its code signature (it does not cover the
+  bundle's own name), its extended attributes (quarantine and Gatekeeper's
+  approval), and its identifier (privacy permissions are keyed on it and on
+  the signature). Not for a translocated bundle; if the rename or the start
+  fails, the app starts as before. The login item, whose program is now gone,
+  is registered again for the running executable (`repair_login_item`, any
+  platform, release builds only). When another bundle with this identifier is
+  beside the running one, the user is asked once (recorded in
+  `<app config dir>/rename-cleanup.json`) whether to move the extra copy to
+  the Trash (`NSFileManager trashItemAtURL`); the newer copy stays, under the
+  name Aogiri.app. Nothing is removed without that answer.
+- **Windows, installer** (`src-tauri/windows/hooks.nsh`). A `LynShen.lnk` is
+  the old app's when it starts a file in LynShen's install directory, or a
+  file gone from LynShen's default directory, or this product's executable.
+  The Desktop and Start-menu ones are judged even without LynShen's registry
+  record; the taskbar pin is judged the same way; an elevated install also
+  removes those on the Public Desktop and in the all-users Start menu. Where
+  LynShen was is recorded as `LegacyInstallDir` under this product's key.
+- **Windows, app** (`src-tauri/src/renamed/shortcuts.rs`). At the first start
+  after the rename, once (recorded in `rename-cleanup.json`), in the
+  background: every `.lnk` in the Desktop (known-folder API, so a Desktop
+  moved to OneDrive too), the Public Desktop, the user's and the all-users
+  Start menu (and their `LynShen` folders) and the taskbar pins. A shortcut
+  is the app's when it starts LynShen.exe from any directory LynShen was or
+  would have been installed in, or a file gone from one of them, or this
+  executable while named LynShen. Personal ones take the new name and target,
+  or go when an Aogiri shortcut is already there; one with a name of the
+  user's own keeps it and only gets the new target. Shared ones go (with
+  administrator rights only). Pins get the new target and keep their file.
+  Anything else is left alone.
+
+### What users already on 0.6.0 see with 0.7.0
+
+The update to 0.7.0 (in the app, as before) clears what 0.6.0 left: on macOS
+the app renames itself to `Aogiri.app` at the first start; on Windows the
+installer and the app's first start remove or rename the LynShen shortcuts.
+By hand: a LynShen shortcut on the Public Desktop or in the all-users Start
+menu without administrator rights (delete it); the taskbar pin keeps the name
+LynShen on hover (unpin and pin Aogiri again); a Dock item on macOS that
+still says LynShen (remove it and drag Aogiri.app to the Dock).
+
 ## Open risks
 
-1. macOS: two bundles if a user installs the Aogiri dmg over an updated
-   LynShen.app; Finder keeps the old name. Not covered by CI (no macOS
-   update test: the updater cannot be driven headless here).
-2. The Windows test runs as an administrator on a clean runner. Not covered:
-   a LynShen.exe that refuses to close (the old uninstaller fails, the hook
-   keeps the old registration and the next update retries), per-user
-   installs under a roaming profile, antivirus holding the old exe, a
-   running old app during the setup.exe (Restart Manager on the old
-   uninstaller's side only).
-3. Linux autostart and handler moves and the macOS LaunchAgent move are unit
-   tested (renamed.rs) but not exercised on a desktop session.
+1. macOS: the Dock's own item for LynShen.app follows the renamed bundle by
+   its bookmark; whether the Dock relabels it at once is not checked in CI
+   (the workflow cannot read the Dock). The question about a second copy is
+   checked by its record; the dialog itself is not clicked in CI.
+2. The Windows test runs as an administrator on a clean runner, so it can
+   remove Public Desktop shortcuts; a user without administrator rights
+   keeps those (the app logs them). Not covered: a LynShen.exe that refuses
+   to close (the old uninstaller fails, the hook keeps the old registration
+   and the next update retries), per-user installs under a roaming profile,
+   antivirus holding the old exe.
+3. Linux autostart and handler moves are unit tested (renamed.rs) but not
+   exercised on a desktop session. The macOS LaunchAgent move is checked in
+   the macOS job.
 4. The AUR package breaks at its next bump unless updated (see Linux).
 5. Gateway text still says "LynShen Desktop" until the gateway changes.
 

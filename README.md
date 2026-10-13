@@ -33,9 +33,9 @@ xattr -dr com.apple.quarantine /Applications/Aogiri.app
 
 已安装的 LynShen 0.5.x 照常提示更新，更新后应用的名字、窗口标题和图标变成 Aogiri。登录状态、对话、设置、技能、`~/.lynshen` 和 `~/Documents/LynShen` 里的文件都不动，也不需要重新授权。
 
-- **Windows（setup.exe）**：安装程序先卸载旧的 LynShen，再把 Aogiri 装到 `%LOCALAPPDATA%\Aogiri`（自选过目录的，装到旁边的 `Aogiri` 目录）。「应用和功能」里只剩 Aogiri 一项。开始菜单和桌面快捷方式、任务栏固定和开机自启都改成指向 Aogiri。
+- **Windows（setup.exe）**：安装程序先卸载旧的 LynShen，再把 Aogiri 装到 `%LOCALAPPDATA%\Aogiri`（自选过目录的，装到旁边的 `Aogiri` 目录）。「应用和功能」里只剩 Aogiri 一项。开始菜单和桌面快捷方式、任务栏固定和开机自启都改成指向 Aogiri。改名后第一次启动时，Aogiri 再查一遍桌面（包括移到 OneDrive 的桌面）、公用桌面、开始菜单和任务栏：还指向旧 LynShen、或还叫 LynShen 的快捷方式（包括自己复制的）改成 Aogiri，重复的删掉；别的快捷方式不动。公用桌面和所有用户的开始菜单需要管理员权限，没有权限时留着，需要手动删除。任务栏固定项保留原来的文件名，鼠标悬停时仍显示 LynShen，取消固定后重新固定即可。
 - **Windows（MSI）**：新的 MSI 替换旧的 LynShen，装到 `C:\Program Files\Aogiri`，旧的快捷方式和目录一并删除；开机自启在 Aogiri 第一次启动时改过来。
-- **macOS**：应用在原位置更新，文件仍叫 `/Applications/LynShen.app`，所以访达和启动台里显示的还是 LynShen，打开后是 Aogiri。不需要再从 dmg 装一份 Aogiri，否则会有两个应用。
+- **macOS**：应用在原位置更新。从 0.7.0 起，更新后第一次启动时应用把自己从 `LynShen.app` 改名为同一文件夹里的 `Aogiri.app` 并重新打开，访达、启动台和聚焦里显示 Aogiri，开机自启也改到新位置。如果旁边已经有一份 Aogiri.app（例如又从 dmg 装了一份），应用只问一次是否把多余的那份移到废纸篓；不点确认就什么都不删，移走的可以从废纸篓放回。
 - **Linux**：deb 和 rpm 包改名为 `aogiri`，更新时替换旧的 `lyn-shen` 包；命令 `LynShen` 保留，启动的是 Aogiri。AppImage 在原文件上更新，文件名不变。
 
 ## 第一次打开
@@ -203,7 +203,7 @@ Apache License 2.0，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。Copyright 202
 
 Aogiri (Chinese name 梧桐) is a desktop app for working with coding agents. One window holds several projects and sessions. Each session runs one agent: LynShen's own engine, Claude Code, Codex, or any [ACP](https://agentclientprotocol.com) agent. The project's files, git, terminal and a built-in browser sit next to the conversation. The engine, the background service and the `lynshen` CLI live in [LynShen-CLI](https://github.com/Libra1337/LynShen-CLI).
 
-Up to 0.5.x the app was called LynShen Desktop. Only the app's name changed: the engine is still LynShen, the account is still a LynShen account, and `~/.lynshen` and the `lynshen` command stay. An installed LynShen updates itself to Aogiri. On Windows the installer replaces the LynShen install and moves its shortcuts and its start at login; the Linux packages `aogiri` replace `lyn-shen` and keep a `LynShen` command; on macOS the app updates in place and its file stays `/Applications/LynShen.app`.
+Up to 0.5.x the app was called LynShen Desktop. Only the app's name changed: the engine is still LynShen, the account is still a LynShen account, and `~/.lynshen` and the `lynshen` command stay. An installed LynShen updates itself to Aogiri. On Windows the installer replaces the LynShen install and moves its shortcuts and its start at login; the Linux packages `aogiri` replace `lyn-shen` and keep a `LynShen` command; on macOS the app updates in place, and from 0.7.0 the first start after the update renames `LynShen.app` to `Aogiri.app` in the same folder and opens it again; a second copy beside it is offered once to the Trash. On Windows, Aogiri's first start also looks through the Desktop, the Public Desktop, the Start menu and the taskbar pins once, and renames or removes LynShen shortcuts that start the old or the new app; it leaves other shortcuts alone.
 
 **Install.** Get the macOS and Windows installers from the [download page](https://www.lynshen.org/download), or any platform (Linux included) from [GitHub Releases](https://github.com/Libra1337/LynShen_Agent/releases). The builds are not notarized or code-signed, so macOS and Windows block the first launch. [docs/install.md](docs/install.md) shows how to open the app. After that, the app updates itself.
 
