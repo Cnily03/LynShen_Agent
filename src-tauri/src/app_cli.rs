@@ -140,8 +140,9 @@ pub fn app_cli_version() -> Option<String> {
 
 /// Ends the daemon listening on the app's daemon port right away: for
 /// daemons too old to restart themselves once idle (`restart_when_idle`). The
-/// app starts its own on the next connection.
-#[tauri::command]
+/// app starts its own on the next connection. Off the main thread: on
+/// Windows it waits for PowerShell, which takes seconds to start.
+#[tauri::command(async)]
 pub fn replace_daemon() -> Result<(), String> {
     let port = crate::DAEMON_ADDR.rsplit(':').next().unwrap_or("7788");
     // A login service would only start the old one again.
