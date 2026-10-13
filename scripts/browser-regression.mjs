@@ -87,6 +87,39 @@ try {
   await expect(page.getByText('安装失败：GitHub returned 403 for the skill tree')).toBeVisible();
   await page.locator('.item', {hasText:'Skill creator'}).getByRole('button',{name:'安装'}).click();
   await expect(page.locator('.item', {hasText:'Skill creator'}).getByText('已安装')).toBeVisible();
+  // The engine answers from its cache: a source it could not read says so
+  // beside the skills it had.
+  await expect(page.getByText(/Composio：无法连接 GitHub，显示的是 .+ 的缓存，可稍后重试。/)).toBeVisible();
+  await expect(page.locator('.item', {hasText:'changelog-generator'})).toBeVisible();
+  // 刷新 reads every source again in the background: the catalog stays on
+  // the page meanwhile, then the refreshed one replaces it.
+  await page.locator('.market').getByRole('button',{name:'刷新'}).click();
+  await expect(page.getByText('正在从网络更新社区技能…')).toBeVisible();
+  await expect(page.locator('.item', {hasText:'Skill creator'}).getByText('已安装')).toBeVisible();
+  await expect(page.getByText('正在从网络更新社区技能…')).toHaveCount(0);
+  await expect(page.getByText(/Composio：无法连接 GitHub/)).toHaveCount(0);
+  assert.ok(await page.evaluate(() => window.__ops.some(o => o.op === 'skills_catalog' && o.refresh === true)));
+  assert.ok(await page.evaluate(() => window.__ops.some(o => o.op === 'skills_catalog' && o.wait === true)));
+  // A daemon that does not answer: the spinner gives way to a retry.
+  const stuck = await browser.newPage();
+  stuck.on('pageerror', e => errors.push(e.message));
+  await stuck.clock.install();
+  await stuck.goto(base + '?market&stall');
+  await expect(stuck.getByText('加载中…')).toBeVisible({timeout:30000});
+  await stuck.clock.fastForward(16000);
+  await expect(stuck.getByText('技能市场没有响应，可稍后重试。')).toBeVisible();
+  await expect(stuck.getByText('加载中…')).toHaveCount(0);
+  await stuck.evaluate(() => { window.__daemon.stall = false; });
+  await stuck.getByRole('button',{name:'重试'}).click();
+  await expect(stuck.locator('.item', {hasText:'MCP builder'})).toBeVisible();
+  await expect(stuck.getByText('技能市场没有响应，可稍后重试。')).toHaveCount(0);
+  await stuck.close();
+  // An engine without per-source state: its warnings show as before.
+  const older = await browser.newPage();
+  await older.goto(base + '?market&oldEngine');
+  await expect(older.getByText('Composio 暂时无法读取：GitHub API rate limit exceeded')).toBeVisible({timeout:30000});
+  await expect(older.locator('.item', {hasText:'MCP builder'})).toBeVisible();
+  await older.close();
   // An engine without the skill ops: a note, not a broken page.
   await page.goto(base + '?skills&oldEngine');
   await expect(page.getByText(/当前的 LynShen 引擎还不能在这里管理技能/)).toBeVisible();
@@ -594,5 +627,5 @@ try {
   await page.goto(base + '?skills&oldEngine');
   await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace (cache, refresh, timeout, older engine), plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation.');
 } finally { await browser.close(); await server.close(); }

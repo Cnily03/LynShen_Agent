@@ -333,14 +333,41 @@ export interface MarketSkill {
 	redistributable: boolean;
 	homepage: string;
 }
+/** One source of the catalog as the engine last read it. */
+export interface MarketSourceState {
+	/** `anthropic`, or a community repository's `owner/repo`. */
+	key: SkillSource;
+	name: string;
+	/** `bundled` (Anthropic's index), `mirror` (LynShen's), `github`; null
+	 *  before its first read. */
+	origin: 'bundled' | 'mirror' | 'github' | null;
+	/** When its skills were read (ms since the epoch); null when never. */
+	fetchedAt: number | null;
+	/** Why its last read failed; null when it worked. */
+	error: string | null;
+}
 export interface SkillCatalog {
 	skills: MarketSkill[];
+	/** `<source>: <error>` per source that failed (every engine). */
 	warnings: string[];
 	installDir: string;
+	/** Per source; engines older than the cached catalog leave it out. */
+	sources?: MarketSourceState[];
+	/** The engine is reading sources again in the background. */
+	refreshing?: boolean;
 }
-export async function fetchMarketplace(backend: string): Promise<SkillCatalog> {
+/** The catalog as the engine has it. `refresh` reads every source again in
+ *  the background; `wait` answers once that refresh has ended. Older engines
+ *  ignore both and read every source before answering. */
+export async function fetchMarketplace(
+	backend: string,
+	opts: { refresh?: boolean; wait?: boolean } = {}
+): Promise<SkillCatalog> {
 	await daemon.connect();
-	return (await daemon.request({ op: 'skills_catalog', backend })) as unknown as SkillCatalog;
+	const op: Record<string, unknown> = { op: 'skills_catalog', backend };
+	if (opts.refresh) op.refresh = true;
+	if (opts.wait) op.wait = true;
+	return (await daemon.request(op)) as unknown as SkillCatalog;
 }
 export async function installMarketplaceSkill(source: SkillSource, id: string, backend: string): Promise<string> {
 	await daemon.connect();

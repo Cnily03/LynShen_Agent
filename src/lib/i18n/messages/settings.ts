@@ -727,6 +727,11 @@ const settings = {
 			uninstallFailed: '卸载失败：{msg}',
 			needsEngine: '当前引擎不支持在这里卸载，请先更新 Aogiri',
 			sourceFailed: '{source} 暂时无法读取：{error}',
+			sourceCached: '{source}：无法连接 GitHub，显示的是 {time} 的缓存，可稍后重试。',
+			sourceEmpty: '{source}：无法连接 GitHub，暂时无法显示，可稍后重试。',
+			refreshing: '正在从网络更新社区技能…',
+			pending: '正在获取 {sources}…',
+			timeout: '技能市场没有响应，可稍后重试。',
 			licenseNotice:
 				'Anthropic 的 docx、pdf、pptx 与 xlsx 技能仅源码可见且不可再分发，Aogiri 不提供安装，可在 Anthropic 的仓库查看。'
 		},
@@ -1489,6 +1494,11 @@ const settings = {
 			uninstallFailed: 'Uninstall failed: {msg}',
 			needsEngine: 'This engine cannot uninstall here; update Aogiri first',
 			sourceFailed: '{source} cannot be read right now: {error}',
+			sourceCached: '{source}: cannot reach GitHub, so this is the copy from {time}. Try again later.',
+			sourceEmpty: '{source}: cannot reach GitHub, so there is nothing to show yet. Try again later.',
+			refreshing: 'Updating community skills…',
+			pending: 'Fetching {sources}…',
+			timeout: 'The marketplace did not answer. Try again.',
 			licenseNotice:
 				'Anthropic’s docx, pdf, pptx, and xlsx skills are source-available and not for redistribution; Aogiri does not install them. See them in Anthropic’s repository.'
 		},

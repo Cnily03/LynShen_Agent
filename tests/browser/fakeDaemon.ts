@@ -22,6 +22,24 @@ const skill = (name: string, description: string, scope: 'user' | 'shared' | 'pr
 export const daemonState = {
 	/** Answer the skill ops as a daemon older than them does. */
 	old: false,
+	/** Leave the catalog's first request unanswered (a stuck daemon). */
+	stall: false,
+	/** The engine reads the community sources again in the background. */
+	refreshing: false,
+	/** How long a `wait` request takes: the background refresh. */
+	waitMs: 600,
+	/** The catalog's sources as the engine last read them. */
+	sources: [
+		{ key: 'anthropic', name: 'Anthropic', origin: 'bundled', fetchedAt: null, error: null },
+		{ key: 'obra/superpowers', name: 'Superpowers', origin: 'mirror', fetchedAt: Date.UTC(2026, 9, 13, 1, 30), error: null },
+		{
+			key: 'ComposioHQ/awesome-claude-skills',
+			name: 'Composio',
+			origin: 'github',
+			fetchedAt: Date.UTC(2026, 9, 12, 1, 30),
+			error: 'api.github.com: connection failed (Connection refused)'
+		}
+	] as Frame[],
 	list: {
 		backend: 'lynshen',
 		skills: [
@@ -100,7 +118,22 @@ export const daemonState = {
 				redistributable: true,
 				homepage: `https://github.com/obra/superpowers/tree/HEAD/skills/${id}`
 			}))
-		) as Frame[]
+		)
+		.concat([
+			{
+				id: 'changelog-generator',
+				name: 'changelog-generator',
+				description: 'Turn the commits since the last release into a changelog for users.',
+				tags: [],
+				source: 'ComposioHQ/awesome-claude-skills',
+				sourceName: 'Composio',
+				isDefault: false,
+				installed: false,
+				license: '',
+				redistributable: true,
+				homepage: 'https://github.com/ComposioHQ/awesome-claude-skills/tree/HEAD/changelog-generator'
+			}
+		]) as Frame[]
 };
 
 function reply(op: Frame): Frame | null {
@@ -129,13 +162,24 @@ function reply(op: Frame): Frame | null {
 		case 'skill_create':
 			s.list.skills.push(skill(op.name, op.description, 'user', personal));
 			return { type: 'skill_created', path: `${personal}/${op.name}/SKILL.md` };
-		case 'skills_catalog':
-			return {
+		case 'skills_catalog': {
+			if (s.stall && !op.wait) return null;
+			if (op.refresh) s.refreshing = true;
+			// The refresh ends: every source read.
+			if (op.wait && s.refreshing) {
+				s.refreshing = false;
+				for (const source of s.sources) if (source.origin !== 'bundled') Object.assign(source, { origin: 'mirror', fetchedAt: Date.now(), error: null });
+			}
+			const failed = s.sources.filter((x) => x.error);
+			const catalog: Frame = {
 				type: 'skills_catalog',
 				skills: s.catalog,
-				warnings: ['Composio: GitHub API rate limit exceeded'],
+				warnings: s.old ? ['Composio: GitHub API rate limit exceeded'] : failed.map((x) => `${x.name}: ${x.error}`),
 				installDir: op.backend === 'claude' ? `${home}/.claude/skills` : personal
 			};
+			// An engine before the cached catalog reports no sources.
+			return s.old ? catalog : { ...catalog, sources: s.sources, refreshing: s.refreshing };
+		}
 		case 'skill_install': {
 			const item = s.catalog.find((x) => x.id === op.skill);
 			if (op.skill === 'mcp-builder') return { type: 'error', message: 'GitHub returned 403 for the skill tree' };
@@ -161,7 +205,7 @@ export function installFakeDaemon() {
 			const op = JSON.parse(text) as Frame;
 			ops.push(op);
 			const answer = reply(op);
-			if (answer) setTimeout(() => this.onmessage?.({ data: JSON.stringify({ ...answer, id: op.id }) }), 30);
+			if (answer) setTimeout(() => this.onmessage?.({ data: JSON.stringify({ ...answer, id: op.id }) }), op.wait ? daemonState.waitMs : 30);
 		}
 		close() {}
 	}

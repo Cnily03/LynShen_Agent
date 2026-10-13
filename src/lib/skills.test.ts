@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { ImportScan, InstalledSkill, MarketSkill, SkillList } from './protocol';
+import { describe, expect, it, vi } from 'vitest';
+import type { ImportScan, InstalledSkill, MarketSkill, MarketSourceState, SkillList } from './protocol';
 import { isUnknownOp } from './protocol';
 import {
 	duplicateOf,
@@ -11,12 +11,16 @@ import {
 	homeOf,
 	marketSources,
 	marketTags,
+	pendingSources,
 	problemCounts,
 	skillNameFrom,
 	sortProblems,
+	sourceProblems,
+	TimeoutError,
 	tildePath,
 	validSkillName,
 	withEnabled,
+	withTimeout,
 	without
 } from './skills';
 
@@ -140,6 +144,53 @@ describe('marketplace', () => {
 		expect(ids({ query: '', source: 'anthropic', tag: 'design' })).toEqual(['frontend-design', 'canvas']);
 		expect(ids({ query: '', source: 'installed', tag: '' })).toEqual(['frontend-design']);
 		expect(ids({ query: 'web', source: 'all', tag: '' })).toEqual(['frontend-design']);
+	});
+});
+
+describe('marketplace sources', () => {
+	const state = (key: string, extra: Partial<MarketSourceState> = {}): MarketSourceState => ({
+		key,
+		name: key.split('/')[0],
+		origin: 'github',
+		fetchedAt: 1_700_000_000_000,
+		error: null,
+		...extra
+	});
+	const sources = [
+		state('anthropic', { name: 'Anthropic', origin: 'bundled', fetchedAt: null }),
+		state('obra/superpowers', { origin: 'mirror' }),
+		state('Ikaleio/skills', { error: 'api.github.com: connection failed' }),
+		state('ComposioHQ/awesome-claude-skills', { origin: null, fetchedAt: null, error: 'timed out' }),
+		state('new/source', { origin: null, fetchedAt: null })
+	];
+
+	it('warns about each failed source, saying whether its cached skills still show', () => {
+		expect(sourceProblems(sources)).toEqual([
+			{ key: 'Ikaleio/skills', name: 'Ikaleio', kind: 'cached', fetchedAt: 1_700_000_000_000, error: 'api.github.com: connection failed' },
+			{ key: 'ComposioHQ/awesome-claude-skills', name: 'ComposioHQ', kind: 'empty', fetchedAt: null, error: 'timed out' }
+		]);
+		// An engine without per-source state: nothing here (its warnings show instead).
+		expect(sourceProblems(undefined)).toEqual([]);
+	});
+
+	it('names the sources read for the first time while the engine refreshes', () => {
+		expect(pendingSources(sources, true)).toEqual(['new']);
+		expect(pendingSources(sources, false)).toEqual([]);
+		expect(pendingSources(undefined, true)).toEqual([]);
+	});
+
+	it('gives up on an answer that does not come', async () => {
+		vi.useFakeTimers();
+		try {
+			const never = withTimeout(new Promise<never>(() => {}), 15_000);
+			const caught = never.catch((e) => e);
+			vi.advanceTimersByTime(15_000);
+			expect(await caught).toBeInstanceOf(TimeoutError);
+			await expect(withTimeout(Promise.resolve(7), 15_000)).resolves.toBe(7);
+			await expect(withTimeout(Promise.reject(new Error('refused')), 15_000)).rejects.toThrow('refused');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

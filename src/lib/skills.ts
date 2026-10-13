@@ -2,7 +2,16 @@
 // an engine lists, the load-problem summary, the marketplace filters and the
 // plugins other coding agents have. Framework-free so it is unit-testable.
 
-import type { ImportScan, ImportSource, InstalledSkill, MarketSkill, SkillList, SkillProblem, SkillScope } from './protocol';
+import type {
+	ImportScan,
+	ImportSource,
+	InstalledSkill,
+	MarketSkill,
+	MarketSourceState,
+	SkillList,
+	SkillProblem,
+	SkillScope
+} from './protocol';
 
 /** Group order on the page: the engine's own folder, the shared one, the project's. */
 export const SCOPES: SkillScope[] = ['user', 'shared', 'project'];
@@ -136,6 +145,67 @@ export function marketTags(skills: MarketSkill[], source: string): string[] {
 		for (const tag of s.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
 	}
 	return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([tag]) => tag);
+}
+
+/** How long the catalog's first answer may take before the page says so and
+ *  offers a retry (an engine with the cached catalog answers at once; an
+ *  older one reads every source first). A late answer is still shown. */
+export const CATALOG_TIMEOUT_MS = 15_000;
+/** How long to wait for a background refresh (the engine gives up on its
+ *  wait after a minute). */
+export const CATALOG_REFRESH_TIMEOUT_MS = 90_000;
+
+export class TimeoutError extends Error {
+	constructor(ms: number) {
+		super(`no answer in ${Math.round(ms / 1000)} s`);
+		this.name = 'TimeoutError';
+	}
+}
+
+/** `promise`, or a TimeoutError once `ms` have passed. */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new TimeoutError(ms)), ms);
+		promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(error) => {
+				clearTimeout(timer);
+				reject(error);
+			}
+		);
+	});
+}
+
+/** A community source whose last read failed: `cached` still shows the
+ *  skills read at `fetchedAt`, `empty` has none to show yet. */
+export interface SourceProblem {
+	key: string;
+	name: string;
+	kind: 'cached' | 'empty';
+	fetchedAt: number | null;
+	error: string;
+}
+
+/** The sources to warn about, in the catalog's order. */
+export function sourceProblems(sources: MarketSourceState[] | undefined): SourceProblem[] {
+	return (sources ?? [])
+		.filter((s) => !!s.error)
+		.map((s) => ({
+			key: s.key,
+			name: s.name,
+			kind: s.fetchedAt ? 'cached' : 'empty',
+			fetchedAt: s.fetchedAt,
+			error: s.error ?? ''
+		}));
+}
+
+/** Sources being read for the first time: no skills yet, no error yet. */
+export function pendingSources(sources: MarketSourceState[] | undefined, refreshing: boolean): string[] {
+	if (!refreshing) return [];
+	return (sources ?? []).filter((s) => s.origin !== 'bundled' && !s.fetchedAt && !s.error).map((s) => s.name);
 }
 
 // ---------- plugins of other agents ----------
