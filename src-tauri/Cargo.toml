@@ -82,8 +82,14 @@ winreg = "0.10"
 # The trial plan's device hash reads MachineGuid (device_id.rs). Already in
 # Cargo.lock through hyper-util's Windows proxy lookup.
 windows-registry = "0.6"
+# Shortcuts left from before the rename (src/renamed/shortcuts.rs): .lnk files
+# and known folders. The version and features tao already uses.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
+# The identifier and version of an old LynShen.app (src/renamed/bundle.rs).
+# Already in Cargo.lock through Tauri.
+plist = "1"

@@ -3698,6 +3698,10 @@ fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // An update keeps the bundle's path: a LynShen.app takes the new name and
+    // starts again from it before anything else runs (renamed/bundle.rs).
+    #[cfg(target_os = "macos")]
+    renamed::bundle::take_new_name();
     let builder = tauri::Builder::default();
     // 单实例插件必须最先注册：第二次启动只聚焦已有窗口；启用 deep-link feature 后
     // argv 里的 lynshen:// 链接会自动转发给 deep-link 插件（Windows/Linux）。
