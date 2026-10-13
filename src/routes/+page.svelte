@@ -123,6 +123,10 @@
 	import { agentChanges, agentChangesOf, agentChangesPanel } from '$lib/agents/agentChanges.svelte';
 	import { subagentPages, subagentOf, subagentPanel, type SubagentPlace } from '$lib/agents/subagentPages.svelte';
 	import SubagentPane from '$lib/agents/SubagentPane.svelte';
+	import FilePreview from '$lib/preview/FilePreview.svelte';
+	import { filePreviews } from '$lib/preview/store.svelte';
+	import { dropPreviewTabs, previewOf, previewPanel } from '$lib/preview/kinds';
+	import { fileName } from '$lib/attachments';
 	import StateIcon from '$lib/agents/StateIcon.svelte';
 	import { runState } from '$lib/agentTrace';
 	import { shortPath } from '$lib/agentProgress';
@@ -533,6 +537,8 @@
 		if (changes) return t('chat.team.changesTab', { name: shortPath(changes.agent) });
 		const sub = subagentOf(tab.panel);
 		if (sub) return subagentInfo(sub.sessionId, sub.agentId).label;
+		const previewed = previewOf(tab.panel);
+		if (previewed) return fileName(previewed);
 		return (ALL_PANELS as readonly string[]).includes(tab.panel) ? t(`dock.tabs.${tab.panel}`) : tab.panel;
 	}
 	function tuiReady(sid: string): boolean {
@@ -618,10 +624,10 @@
 	 *  layout with this run's sessions (migrating old dock-only layouts by
 	 *  grafting a chat leaf) and focus the active session's tile. */
 	function initTiles() {
-		tiles = reconcileLayout(
-			workspaces.active?.layout ?? null,
-			store.shownSessions.map((s) => s.id),
-			store.activeId || null
+		// A saved layout's file previews are not read again: no click asked
+		// for them in this run (preview/kinds.ts).
+		tiles = dropPreviewTabs(
+			reconcileLayout(workspaces.active?.layout ?? null, store.shownSessions.map((s) => s.id), store.activeId || null)
 		);
 		const activeLeaf = store.activeId ? leafOfTab(tiles.root, chatPanel(store.activeId)) : null;
 		focusedLeaf = activeLeaf?.id ?? leavesOf(tiles.root)[0]?.id ?? null;
@@ -714,6 +720,23 @@
 		const request = planPages.request;
 		if (!request || !tilesReady) return;
 		untrack(() => openPlanPage(request.sessionId, request.planId));
+	});
+	/** A file a sent message names, previewed beside its session's chat (a
+	 *  chip's click, preview/store.svelte.ts): shown again if open, else a
+	 *  new tab in the side column. */
+	function openFilePreview(sessionId: string, path: string) {
+		const panel = previewPanel(path);
+		const existing = findPanelTab(panel);
+		if (existing) return applyTiles(activateTab(tiles, existing.id));
+		applyTiles(openElsewhere({ id: newTabId(), panel }, { place: 'side', sessionId }));
+	}
+	$effect(() => {
+		const request = filePreviews.request;
+		if (!request || !tilesReady) return;
+		untrack(() => {
+			openFilePreview(request.sessionId, request.path);
+			filePreviews.request = null;
+		});
 	});
 	/** A worktree subagent's changes beside its session's chat: the Changes
 	 *  panel at the agent's workdir, one tab per agent. */
@@ -1723,6 +1746,8 @@
 									{#key tab.panel}
 										<SubagentPane chat={sessionMap.get(sub.sessionId)?.chat} agentId={sub.agentId} onOp={(op) => dispatch(sub.sessionId, op)} />
 									{/key}
+								{:else if previewOf(tab.panel)}
+									<FilePreview path={previewOf(tab.panel)!} root={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'goal'}<GoalPanel goal={chat?.goal ?? null} />
 								{:else if tab.panel === 'agents'}{#if chat && activeId}{#key activeId}<AgentRunsPanel {chat} onOp={(op) => activeId && dispatch(activeId, op)} />{/key}{/if}
 								{:else if tab.panel === 'team'}{#if chat && activeId}{#key activeId}<TeamPanel

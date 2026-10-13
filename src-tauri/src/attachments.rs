@@ -1,5 +1,4 @@
-//! Files pasted into the composer (Composer.svelte `onPaste`), and the files
-//! a sent message names (its chips, MessageList / SentFiles).
+//! Files pasted into the composer (Composer.svelte `onPaste`).
 //!
 //! A web view never sees the paths of files copied in Explorer, Finder or a
 //! Linux file manager, at best their bytes. The paths come from the system
@@ -136,13 +135,6 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Whether a file or folder is at `path` (a sent file's chip says when it is
-/// gone instead of failing to open it).
-#[tauri::command]
-pub fn path_exists(path: String) -> bool {
-    !path.is_empty() && Path::new(&path).exists()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,9 +199,6 @@ mod tests {
         assert_eq!(first.file_name().unwrap(), "a b.txt");
         assert_eq!(std::fs::read(&first).unwrap(), b"one");
         assert_eq!(std::fs::read(&second).unwrap(), b"two");
-        assert!(path_exists(first.display().to_string()));
-        assert!(!path_exists(dir.join("missing").display().to_string()));
-        assert!(!path_exists(String::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

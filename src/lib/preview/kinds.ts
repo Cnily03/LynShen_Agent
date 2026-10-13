@@ -202,6 +202,14 @@ export function jsonlRecords(text: string, truncated = false): JsonlRecord[] {
 	return records;
 }
 
+const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+
+/** The next zoom step above (`dir` 1) or below (-1) the scale shown. */
+export function zoomStep(scale: number, dir: 1 | -1): number {
+	if (dir > 0) return ZOOM_STEPS.find((s) => s > scale + 1e-6) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1]!;
+	return [...ZOOM_STEPS].reverse().find((s) => s < scale - 1e-6) ?? ZOOM_STEPS[0]!;
+}
+
 /** A size as people read it: `512 B`, `12.4 KB`, `3.1 MB`, `1.2 GB`. */
 export function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;

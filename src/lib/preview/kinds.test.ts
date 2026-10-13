@@ -17,6 +17,7 @@ import {
 	previewView,
 	textBytesFor,
 	TEXT_PREVIEW_BYTES,
+	zoomStep,
 	type PreviewFacts
 } from './kinds';
 import { filePreviews } from './store.svelte';
@@ -153,6 +154,17 @@ describe('text views', () => {
 		]);
 		// A file read in part: its last line may be cut off, so it goes.
 		expect(jsonlRecords(text, true).map((r) => r.line)).toEqual([1, 3, 4]);
+	});
+});
+
+describe('zoomStep', () => {
+	it('moves to the next step from any scale, within the range', () => {
+		expect(zoomStep(1, 1)).toBe(1.5);
+		expect(zoomStep(1, -1)).toBe(0.75);
+		expect(zoomStep(0.42, 1)).toBe(0.5);
+		expect(zoomStep(0.42, -1)).toBe(0.25);
+		expect(zoomStep(8, 1)).toBe(8);
+		expect(zoomStep(0.1, -1)).toBe(0.1);
 	});
 });
 
