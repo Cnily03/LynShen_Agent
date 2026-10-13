@@ -249,6 +249,30 @@ pub fn monoize_trial_claim() -> Result<Value, String> {
     )
 }
 
+/// The account's desktop plan in force (trial or paid; null without one) and
+/// this device key's funding choice (`GET /api/desktop/oauth/plan`). Errors
+/// as [`gateway_key_call`]'s (a 404: a gateway without the endpoint).
+#[tauri::command(async)]
+pub fn monoize_desktop_plan() -> Result<Value, String> {
+    gateway_key_call("GET", "/api/desktop/oauth/plan", None)
+}
+
+/// The body of `PUT /api/desktop/oauth/plan`: `plan` or `balance` only.
+fn plan_funding_request(funding: &str) -> Option<Value> {
+    matches!(funding, "plan" | "balance").then(|| json!({ "plan_funding": funding }))
+}
+
+/// Sets who pays this device key's requests in the plan's groups: `plan`
+/// (the default) or `balance` (`PUT /api/desktop/oauth/plan`). Answers the
+/// same body as [`monoize_desktop_plan`]; it applies from the next request.
+#[tauri::command(async)]
+pub fn monoize_set_plan_funding(funding: String) -> Result<Value, String> {
+    let body = plan_funding_request(&funding).ok_or_else(|| {
+        json!({ "status": null, "code": "invalid_request", "message": "plan_funding must be plan or balance" }).to_string()
+    })?;
+    gateway_key_call("PUT", "/api/desktop/oauth/plan", Some(body))
+}
+
 fn clear_session() {
     let _ = std::fs::remove_file(session_path());
 }
@@ -486,6 +510,20 @@ mod tests {
         let body = token_request("dc-1", Some("inst-1".into()), None);
         assert!(body.get("device_hash").is_none());
         assert_eq!(body["installation_id"], "inst-1");
+    }
+
+    #[test]
+    fn the_funding_choice_is_plan_or_balance() {
+        assert_eq!(
+            plan_funding_request("balance"),
+            Some(json!({ "plan_funding": "balance" }))
+        );
+        assert_eq!(
+            plan_funding_request("plan"),
+            Some(json!({ "plan_funding": "plan" }))
+        );
+        assert_eq!(plan_funding_request("both"), None);
+        assert_eq!(plan_funding_request(""), None);
     }
 
     #[test]

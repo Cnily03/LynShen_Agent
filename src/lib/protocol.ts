@@ -647,6 +647,12 @@ export const desktopInstallationId = () => invoke<string | null>('desktop_instal
 /** Claims the first-use trial plan with the device key (src/lib/trial.ts
  *  reads the answer); a refusal is a GatewayError (404: an older gateway). */
 export const claimTrial = () => gatewayCall<unknown>('monoize_trial_claim');
+/** The account's desktop plan in force and this key's funding choice (GET
+ *  /api/desktop/oauth/plan; src/lib/trial.ts reads it). 404: an older gateway. */
+export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan');
+/** Sets who pays this key's requests in the plan's groups (PUT
+ *  /api/desktop/oauth/plan); answers the same body. */
+export const setPlanFunding = (funding: 'plan' | 'balance') => gatewayCall<unknown>('monoize_set_plan_funding', { funding });
 
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with

@@ -31,6 +31,8 @@ describe('describeError', () => {
 		['failed to load configuration: Model provider `recodex` not found', 'providerMissing'],
 		['LynShen session expired. Run /login to sign in again.', 'lynshenLogin'],
 		['unexpected status 402 Payment Required: 余额不足', 'balance'],
+		['unexpected status 402 Payment Required: {"error":{"code":"plan_quota_exhausted","message":"plan quota exhausted"}}', 'planQuota'],
+		['API Error: 402 plan quota exhausted', 'planQuota'],
 		["This model's maximum context length is 258400 tokens. context_length_exceeded", 'context'],
 		['prompt is too long: 212345 tokens > 200000 maximum', 'context'],
 		['unexpected status 429 Too Many Requests: rate limit reached', 'rateLimit'],

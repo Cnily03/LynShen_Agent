@@ -628,6 +628,15 @@ try {
   await expect(acctCard.locator('.trial .win').first()).toContainText(/5 小时\s*0\.00 \/ 4\.00 积分/);
   await expect(acctCard.locator('.trial .win').last()).toContainText(/7 天\s*0\.00 \/ 10\.00 积分/);
   await expect(acctCard.locator('.trial .ends')).toHaveText(/\d+月\d+日 \d\d:\d\d 到期/);
+  // The funding choice (GET / PUT /api/desktop/oauth/plan): the plan first by
+  // default; a payer can switch to the balance.
+  const funding = acctCard.locator('.funding');
+  await expect(funding.locator('.opt.on')).toHaveText('优先用体验套餐');
+  await expect(funding).toContainText('当前时段用完时请求会失败，不会自动改用余额');
+  await funding.getByRole('button',{name:'用余额'}).click();
+  await expect(funding.locator('.opt.on')).toHaveText('用余额');
+  await expect(funding).toContainText('所有请求都从余额扣费');
+  assert.ok(await trialPage.evaluate(() => window.__calls.some((c) => c.command === 'monoize_set_plan_funding' && c.args.funding === 'balance')));
   await openTrial('?shell&trial=404', {fresh: true});
   await expect(grantCard).toHaveCount(0);
   assert.equal(await claimCount(), 1);
@@ -638,7 +647,8 @@ try {
   await trialPage.getByRole('button',{name:'账号'}).click();
   await expect(trialPage.locator('.acct-card')).toContainText('未分配订阅套餐');
   await expect(trialPage.locator('.acct-card .trial')).toHaveCount(0);
+  await expect(trialPage.locator('.acct-card .funding')).toHaveCount(0);
   await trialPage.close();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows, 404 not asked again).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows and funding choice, 404 not asked again).');
 } finally { await browser.close(); await server.close(); }

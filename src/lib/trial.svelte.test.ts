@@ -4,8 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // asks, how often, and what it then shows.
 const gateway = vi.hoisted(() => ({
 	replies: [] as (unknown | { fail: { status: number | null; code: string | null } })[],
-	user: { id: 'user-1', username: 'Ann', role: 'user' } as { id: string; username: string; role: string } | null
+	user: { id: 'user-1', username: 'Ann', role: 'user' } as { id: string; username: string; role: string } | null,
+	/** GET /api/desktop/oauth/plan: the body, or a failure (default: a gateway without it). */
+	plan: { fail: { status: 404, code: null } } as unknown,
+	funding: [] as string[]
 }));
+const answer = (v: unknown) => {
+	if (v && typeof v === 'object' && 'fail' in v) throw Object.assign(new Error('refused'), (v as { fail: object }).fail);
+	return v;
+};
 
 vi.mock('$lib/protocol', () => ({
 	desktopInstallationId: vi.fn(async () => 'inst-1'),
@@ -15,6 +22,12 @@ vi.mock('$lib/protocol', () => ({
 		if (next && typeof next === 'object' && 'fail' in next) throw Object.assign(new Error('refused'), next.fail);
 		if (next === undefined) throw Object.assign(new Error('unreachable'), { status: null, code: null });
 		return next;
+	}),
+	fetchDesktopPlan: vi.fn(async () => answer(gateway.plan)),
+	setPlanFunding: vi.fn(async (funding: string) => {
+		gateway.funding.push(funding);
+		const body = answer(gateway.plan) as { plan: unknown };
+		return { ...body, plan_funding: funding };
 	})
 }));
 
@@ -42,6 +55,8 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	gateway.replies = [];
 	gateway.user = { id: 'user-1', username: 'Ann', role: 'user' };
+	gateway.plan = { fail: { status: 404, code: null } };
+	gateway.funding = [];
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -70,15 +85,59 @@ describe('the trial runner', () => {
 		expect(all.size).toBe(1);
 	});
 
-	it('an older gateway (404) shows nothing and is not asked again, also with time passing', async () => {
+	it('a switched-off trial or an older gateway (404) shows nothing; only a sign-in hours later asks again', async () => {
 		const { trial, claimTrial } = await fresh();
-		gateway.replies = [{ fail: { status: 404, code: null } }];
+		gateway.replies = [{ fail: { status: 404, code: null } }, { status: 'disabled' }, { status: 'granted', plan: PLAN }];
 		await trial.signedIn();
 		expect(trial.grant).toBeNull();
 		expect(trial.plan).toBeNull();
+		// No timer asks again.
 		await vi.advanceTimersByTimeAsync(24 * 3_600_000);
-		await trial.signedIn();
 		expect(claimTrial).toHaveBeenCalledTimes(1);
+		// A later sign-in (or start) does: still switched off, then on.
+		await trial.signedIn();
+		expect(claimTrial).toHaveBeenCalledTimes(2);
+		await trial.signedIn();
+		expect(claimTrial).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(6 * 3_600_000);
+		await trial.signedIn();
+		expect(claimTrial).toHaveBeenCalledTimes(3);
+		expect(trial.grant).toEqual(PLAN);
+	});
+
+	it('shows the plan as the gateway has it now, with the funding choice', async () => {
+		const { trial } = await fresh();
+		const live = { ...PLAN, windows: [{ ...PLAN.windows[0], used_cny: '1.50' }, PLAN.windows[1]], active: true, trial: true };
+		gateway.plan = { plan: live, plan_funding: 'plan' };
+		gateway.replies = [{ status: 'granted', plan: PLAN }];
+		await trial.signedIn();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(trial.plan).toEqual(live);
+		expect(trial.funding).toBe('plan');
+		// A payer switches to the balance.
+		expect(await trial.setFunding('balance')).toBe('');
+		expect(gateway.funding).toEqual(['balance']);
+		expect(trial.funding).toBe('balance');
+		// A refused change keeps the choice in force and says why.
+		gateway.plan = { fail: { status: 503, code: null } };
+		expect(await trial.setFunding('plan')).toBe('refused');
+		expect(trial.funding).toBe('balance');
+		// The gateway says the plan ended: nothing shows, whatever the claim said.
+		gateway.plan = { plan: null, plan_funding: 'balance' };
+		await trial.refreshStatus();
+		expect(trial.plan).toBeNull();
+		expect(trial.funding).toBeNull();
+		trial.signedOut();
+		expect(trial.status).toBeNull();
+	});
+
+	it('keeps the claim plan when the gateway has no plan endpoint, and no choice', async () => {
+		const { trial } = await fresh();
+		gateway.replies = [{ status: 'granted', plan: PLAN }];
+		await trial.signedIn();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(trial.plan).toEqual(PLAN);
+		expect(trial.funding).toBeNull();
 	});
 
 	it('retries after a network failure, a bounded number of times', async () => {

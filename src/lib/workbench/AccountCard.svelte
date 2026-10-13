@@ -20,6 +20,7 @@
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { credits, planDate, sortedWindows, usedShare, windowLabel } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
+	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 
 	// The account card, as the LynShen Console's account menu: who is signed
 	// in, balance and plan, the last minute's usage, then settings, the
@@ -68,6 +69,8 @@
 	let live = $state<LiveUsage | null>(null);
 	onMount(() => {
 		if (!loggedIn) return;
+		// The plan's windows as they stand now, and the funding choice.
+		void trial.refreshStatus();
 		let alive = true;
 		const poll = () =>
 			fetchMonoizeLiveUsage()
@@ -175,10 +178,7 @@
 					</div>
 				{/each}
 				<span class="ends">{t('shell.account.expires', { date: planDate(trialPlan.expires_at, true) })}</span>
-				<!-- TODO(trial-funding-choice): the choice "优先用体验套餐 / 用余额" goes
-				     here once the gateway exposes a funding setting for desktop keys.
-				     The contract points at feat/phone-plans phase 1, which has none for
-				     the desktop surface (plan-surfaces.spec.md PS-N1). -->
+				<PlanFundingChoice compact />
 			</div>
 		{/if}
 

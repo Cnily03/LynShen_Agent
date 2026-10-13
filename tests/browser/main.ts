@@ -11,6 +11,7 @@ const frostAtStart = (() => {
 // first-use trial claim (a 404 is a gateway without the endpoint).
 const trialReply = new URL(location.href).searchParams.get('trial');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null;
+let planFunding = 'plan';
 const trialPlan = (used: boolean) => ({
   name: '7 天体验套餐',
   group: '国内模型分组',
@@ -43,6 +44,12 @@ Object.assign(window, {
         case 'monoize_trial_claim':
           if (trialReply === '404') throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
           return {status: 'granted', plan: trialPlan(trialReply === 'used')};
+        // GET / PUT /api/desktop/oauth/plan (an older gateway with ?trial=404).
+        case 'monoize_desktop_plan':
+        case 'monoize_set_plan_funding':
+          if (trialReply === '404' || trialReply == null) throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
+          if (command === 'monoize_set_plan_funding') planFunding = args.funding;
+          return {plan: {...trialPlan(trialReply === 'used'), trial: true, active: true}, plan_funding: planFunding};
         case 'monoize_logout': loggedIn = false; return;
         case 'monoize_oauth_start': return {user_code:'ABCDEF123456',verification_uri_complete:'https://www.lynshen.org/oauth/authorize?user_code=ABCDEF123456'};
         case 'monoize_oauth_poll': return {pending:true};

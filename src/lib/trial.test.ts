@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
 import {
+	DISABLED_RECHECK_MS,
 	RETRY_DELAYS_MS,
 	STORAGE_KEY,
 	TrialClaims,
@@ -11,6 +12,7 @@ import {
 	grantToAnnounce,
 	outcomeOfFailure,
 	outcomeOfReply,
+	parseDesktopPlan,
 	parsePlan,
 	sortedWindows,
 	usedShare,
@@ -77,6 +79,39 @@ describe('reading the gateway answer', () => {
 		expect(plan?.windows).toEqual([...PLAN.windows, { kind: 'x', quota_cny: '3', used_cny: '0', resets_at: null }]);
 		expect(parsePlan({ ...PLAN, expires_at: 'never' })).toBeNull();
 	});
+
+	it('reads the deployed reply: extra fields, a null group, and active', () => {
+		// The gateway's shape (2026-10-13 changes: groups, starts_at, active, in_flight_cny, remaining_cny, plan_funding).
+		const deployed = {
+			status: 'already_granted',
+			plan: {
+				...PLAN,
+				group: null,
+				groups: [],
+				starts_at: new Date(NOW).toISOString(),
+				active: false,
+				windows: PLAN.windows.map((w) => ({ ...w, in_flight_cny: '0.00', remaining_cny: w.quota_cny }))
+			},
+			plan_funding: 'balance'
+		};
+		const outcome = outcomeOfReply(deployed);
+		expect(outcome).toMatchObject({ kind: 'already_granted', plan: { group: '', active: false } });
+		// Ended early, or a paid desktop plan replaced it: not in force.
+		const record = { status: 'already_granted' as const, at: NOW, plan: (outcome as { plan: ReturnType<typeof parsePlan> }).plan };
+		expect(activePlan(record, NOW)).toBeNull();
+		expect(activePlan({ ...record, plan: { ...record.plan!, active: true } }, NOW)).not.toBeNull();
+	});
+
+	it('reads the plan status and the funding choice', () => {
+		expect(parseDesktopPlan({ plan: { ...PLAN, trial: true, active: true }, plan_funding: 'plan' })).toEqual({
+			plan: { ...PLAN, trial: true, active: true },
+			funding: 'plan'
+		});
+		expect(parseDesktopPlan({ plan: null, plan_funding: 'balance' })).toEqual({ plan: null, funding: 'balance' });
+		expect(parseDesktopPlan({ plan: null })).toBeNull();
+		expect(parseDesktopPlan({ plan: null, plan_funding: 'both' })).toBeNull();
+		expect(parseDesktopPlan(null)).toBeNull();
+	});
 });
 
 describe('the claim state machine', () => {
@@ -116,6 +151,29 @@ describe('the claim state machine', () => {
 			expect(activePlan(record, NOW)).toBeNull();
 			expect(grantToAnnounce(record, NOW)).toBeNull();
 		}
+	});
+
+	it('asks again about a switched-off trial (or an older gateway) only after a while', async () => {
+		for (const outcome of [{ kind: 'disabled' }, outcomeOfFailure({ status: 404 })] as ClaimOutcome[]) {
+			const storage = memory();
+			const first = claimer([outcome], storage);
+			await first.claims.run(KEY);
+			let now = NOW + DISABLED_RECHECK_MS - 1;
+			const replies: ClaimOutcome[] = [{ kind: 'granted', plan: PLAN }];
+			const claim = vi.fn(async () => replies.shift()!);
+			const later = new TrialClaims(storage, claim, () => now);
+			await later.run(KEY);
+			expect(claim).not.toHaveBeenCalled();
+			now = NOW + DISABLED_RECHECK_MS;
+			expect(await later.run(KEY)).toMatchObject({ status: 'granted', card: 'show' });
+			expect(claim).toHaveBeenCalledTimes(1);
+		}
+		// not_eligible is final.
+		const storage = memory();
+		await claimer([{ kind: 'not_eligible' }], storage).claims.run(KEY);
+		const claim = vi.fn();
+		await new TrialClaims(storage, claim, () => NOW + 30 * DAY).run(KEY);
+		expect(claim).not.toHaveBeenCalled();
 	});
 
 	it('asks again after a network failure, then stops at the answer', async () => {
@@ -227,7 +285,10 @@ describe('display helpers', () => {
 		setLocale('zh');
 		expect(windowLabel('5h')).toBe('5 小时');
 		expect(windowLabel('7d')).toBe('7 天');
-		expect(windowLabel('month')).toBe('month');
+		expect(windowLabel('month')).toBe('每月');
+		expect(windowLabel('day')).toBe('每天');
+		expect(windowLabel('12h')).toBe('12 小时');
+		expect(windowLabel('odd')).toBe('odd');
 		expect(sortedWindows(PLAN).map((w) => w.kind)).toEqual(['5h', '7d']);
 		expect(usedShare({ kind: '5h', quota_cny: '4.00', used_cny: '1.00', resets_at: null })).toBe(0.25);
 		expect(usedShare({ kind: '5h', quota_cny: '4.00', used_cny: '9.00', resets_at: null })).toBe(1);

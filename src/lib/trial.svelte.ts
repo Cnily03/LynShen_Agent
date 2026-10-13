@@ -2,8 +2,10 @@
 // installation and account, see trial.ts), and holds what the grant card and
 // the account card show. +page.svelte calls signedIn() when the LynShen
 // account is signed in (at start and after each sign-in) and signedOut()
-// when it is not.
-import { claimTrial, desktopInstallationId, monoizeSession } from '$lib/protocol';
+// when it is not. The account card and page read the plan in force and the
+// funding choice from GET /api/desktop/oauth/plan (refreshStatus) and change
+// the choice (setFunding).
+import { claimTrial, desktopInstallationId, fetchDesktopPlan, monoizeSession, setPlanFunding } from '$lib/protocol';
 import {
 	RETRY_DELAYS_MS,
 	TrialClaims,
@@ -12,7 +14,11 @@ import {
 	grantToAnnounce,
 	outcomeOfFailure,
 	outcomeOfReply,
+	parseDesktopPlan,
+	planInForce,
 	type ClaimOutcome,
+	type DesktopPlanStatus,
+	type PlanFunding,
 	type TrialPlan,
 	type TrialRecord
 } from '$lib/trial';
@@ -29,6 +35,12 @@ class Trial {
 	/** The signed-in account's record on this installation; null when signed
 	 *  out or not known yet. */
 	record = $state<TrialRecord | null>(null);
+	/** The plan in force and the funding choice as the gateway last said;
+	 *  null before that, signed out, or from a gateway without the endpoint. */
+	status = $state<DesktopPlanStatus | null>(null);
+	/** A funding change is being sent. */
+	saving = $state(false);
+	#statusGeneration = 0;
 	#key: string | null = null;
 	#claims: TrialClaims | null = null;
 	#generation = 0;
@@ -36,13 +48,45 @@ class Trial {
 	/** Timed retries in this run of the app (RETRY_DELAYS_MS). */
 	#retries = 0;
 
-	/** The trial plan in force, for the account card.
-	 *  TODO(trial-plan-status): its windows are those of the claim's answer
-	 *  (used as of the grant). Refresh them from a device-key status read once
-	 *  the gateway has one; the contract defines none, and the claim is not
-	 *  asked again to refresh. */
+	/** The desktop plan in force, for the account card and page: the
+	 *  gateway's (live windows; also a paid plan), else the trial as the claim
+	 *  answered it (an older gateway, or not read yet). */
 	get plan(): TrialPlan | null {
-		return activePlan(this.record, Date.now());
+		const now = Date.now();
+		return this.status ? planInForce(this.status.plan, now) : activePlan(this.record, now);
+	}
+	/** Who pays this key's requests in the plan's groups; null while unknown. */
+	get funding(): PlanFunding | null {
+		return this.status && this.plan ? this.status.funding : null;
+	}
+
+	/** Reads the plan in force and the funding choice again. A failure keeps
+	 *  what was known; a gateway without the endpoint (404) leaves the claim's
+	 *  plan to show. */
+	async refreshStatus(): Promise<void> {
+		const generation = ++this.#statusGeneration;
+		try {
+			const status = parseDesktopPlan(await fetchDesktopPlan());
+			if (generation === this.#statusGeneration && status) this.status = status;
+		} catch (error) {
+			const code = (error as { status?: unknown } | null)?.status;
+			if (generation === this.#statusGeneration && (code === 404 || code === 401 || code === 403)) this.status = null;
+		}
+	}
+
+	/** Sets who pays; answers what went wrong, or '' when it is done. */
+	async setFunding(funding: PlanFunding): Promise<string> {
+		const generation = ++this.#statusGeneration;
+		this.saving = true;
+		try {
+			const status = parseDesktopPlan(await setPlanFunding(funding));
+			if (generation === this.#statusGeneration && status) this.status = status;
+			return '';
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		} finally {
+			this.saving = false;
+		}
 	}
 	/** The plan the one-time grant card announces. */
 	get grant(): TrialPlan | null {
@@ -81,6 +125,7 @@ class Trial {
 		if (generation !== this.#generation) return;
 		this.record = record ?? null;
 		if (record?.status === 'network') this.#retryLater(generation);
+		else void this.refreshStatus();
 	}
 
 	#retryLater(generation: number) {
@@ -98,7 +143,9 @@ class Trial {
 		clearTimeout(this.#timer);
 		this.#key = null;
 		this.#retries = 0;
+		this.#statusGeneration++;
 		this.record = null;
+		this.status = null;
 	}
 
 	/** The grant card's "知道了": it does not show again. */

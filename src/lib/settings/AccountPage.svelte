@@ -22,6 +22,7 @@
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
 	import { trial } from '$lib/trial.svelte';
+	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 
 	let {
 		user,
@@ -62,6 +63,7 @@
 	// The last minute's usage, every 10 s while the page is open.
 	let live = $state<LiveUsage | null>(null);
 	onMount(() => {
+		void trial.refreshStatus();
 		readConfig()
 			.then((cfg) => (web = String(cfg.lynshen_web_url || web).replace(/\/+$/, '')))
 			.catch(() => {});
@@ -122,9 +124,11 @@
 			</span>
 		{/if}
 	</div>
-	<div class="tile">
+	<!-- With a desktop plan in force, the tile also holds its funding choice. -->
+	<div class="tile" class:wide={!!trial.funding}>
 		<span class="tile-label">{t('shell.account.plan')}</span>
 		<span class="mid">{plan || t('settings.accountPage.payAsYouGo')}</span>
+		<PlanFundingChoice />
 	</div>
 	<div class="tile live">
 		<span class="tile-label">{t('shell.account.liveUsage')}</span>
