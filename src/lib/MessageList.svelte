@@ -7,6 +7,7 @@
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
 	import { fade } from 'svelte/transition';
 	import Markdown from '$lib/Markdown.svelte';
+	import ReasoningBody from '$lib/ReasoningBody.svelte';
 	import Collapse from '$lib/ui/Collapse.svelte';
 	import ToolCard from '$lib/ToolCard.svelte';
 	import SubagentCard from '$lib/agents/SubagentCard.svelte';
@@ -40,7 +41,7 @@
 	import { lastTurnStart, turnEnds, turnText } from '$lib/turnText';
 	import { contextItems, type ContextItem } from '$lib/ui/contextMenu';
 	import { streamText } from '$lib/streamText';
-	import { streamPlain, type PlainSource } from '$lib/streamPlain';
+	import type { PlainSource } from '$lib/streamPlain';
 	import { hasText, liveRead } from '$lib/liveText';
 
 	let {
@@ -658,14 +659,10 @@
 				</div>
 				<Collapse open={!m.collapsed}>
 					<div class="reason-body">
-						{#if m === streamingReasoning}
-							<!-- While it streams: plain text (no per-frame Markdown),
-							     in blocks written once (streamPlain); it renders as
-							     Markdown once finished. -->
-							<div class="stream" use:streamPlain={shownText(m)}></div>
-						{:else}
-							<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
-						{/if}
+						<!-- Plain text while it streams (no per-frame Markdown), in
+						     blocks written once; Markdown once finished, taking
+						     over from the plain text a few chunks each frame. -->
+						<ReasoningBody source={shownText(m)} text={m.text} live={m === streamingReasoning} onFile={(href) => onFile?.(href, m.text)} />
 					</div>
 				</Collapse>
 			</div>

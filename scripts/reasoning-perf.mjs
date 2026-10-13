@@ -12,7 +12,10 @@
 // collected); at the end, the heap after a forced GC. A cost per frame that
 // grows from window to window grows with the text's length. Then the turn
 // ends: `turnEndMs` is the time to the second frame after it, the time the
-// finished message took to render.
+// finished message took to show; `turnSettledMs` the time until no part of
+// it shows as plain text any more (a long reasoning turns into Markdown
+// over frames), and `longestFrameAfterMs` the longest frame from the second
+// until then.
 //
 // --per-frame: deltas per animation frame. --words: words per delta (about
 //   4 characters each; more reaches a long text sooner).
@@ -239,12 +242,28 @@ try {
 	}
 	const seconds = (Date.now() - t0) / 1000;
 	const heapAfterGc = await gcHeap();
-	const turnEndMs = await page.evaluate(
+	const turnEnd = await page.evaluate(
 		() =>
 			new Promise((done) => {
 				const t = performance.now();
 				window.__perf.deliver({ type: 'status', message: 'ready' });
-				requestAnimationFrame(() => requestAnimationFrame(() => done(performance.now() - t)));
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => {
+						const shown = performance.now() - t;
+						// Then until no part of it shows as plain text, and the
+						// longest frame on the way.
+						let last = performance.now();
+						let longest = 0;
+						const frame = (now) => {
+							longest = Math.max(longest, now - last);
+							last = now;
+							const plain = [...document.querySelectorAll('.reason-body .stream')].some((e) => e.textContent);
+							if (plain) requestAnimationFrame(frame);
+							else done({ shown, settled: performance.now() - t, longest });
+						};
+						requestAnimationFrame(frame);
+					})
+				);
 			})
 	);
 	await page.waitForTimeout(300);
@@ -258,7 +277,9 @@ try {
 			perFrame: PER_FRAME,
 			wordsPerDelta: WORDS,
 			seconds,
-			turnEndMs: Math.round(turnEndMs),
+			turnEndMs: Math.round(turnEnd.shown),
+			turnSettledMs: Math.round(turnEnd.settled),
+			longestFrameAfterMs: Math.round(turnEnd.longest),
 			...(cdp
 				? { peakHeapMB: +(peak / 1e6).toFixed(1), heapAfterGcMB: +(heapAfterGc / 1e6).toFixed(1), heapAfterTurnMB: +(finalHeap / 1e6).toFixed(1) }
 				: { peakFootprintMB: peak, processPeakMB: footprintMB('WebContent', true), footprintAfterTurnMB: footprintMB(), gpuProcessAfterTurnMB: footprintMB('GPU') }),

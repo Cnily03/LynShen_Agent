@@ -7,6 +7,9 @@ const LIST_ITEM = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/;
 
 export type Block = { key: string; text: string };
 
+/** Where a chunk starts in the whole text: its key begins with it. */
+export const blockStart = (b: Block) => Number(b.key.slice(0, b.key.indexOf(':')));
+
 /** Where a streaming reply splits into its finished part (rendered as
  *  Markdown) and the tail still being written (plain text): after the last
  *  blank line. The split never lands inside an open code fence: the whole
