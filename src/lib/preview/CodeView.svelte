@@ -46,7 +46,9 @@
 		if (!h) return;
 		untrack(() => {
 			if (!view) view = new EditorView({ parent: h, state: stateOf(doc) });
-			else view.setState(stateOf(doc));
+			// The same text read again keeps its place.
+			else if (view.state.doc.toString() !== doc) view.setState(stateOf(doc));
+			else return;
 			const v = view;
 			void languageFor(file).then(({ support }) => {
 				if (view === v && support) v.dispatch({ effects: lang.reconfigure(support) });

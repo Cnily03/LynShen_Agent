@@ -57,8 +57,11 @@ describe('the allowed-path rule', () => {
 		expect(filePreviews.open('s1', '/tmp/y.log', ['/tmp/y.log'])).toBe(true);
 		expect(filePreviews.asked('/tmp/y.log')).toBe(true);
 		expect(filePreviews.request).toMatchObject({ sessionId: 's1', path: '/tmp/y.log', n: 1 });
+		expect(filePreviews.clicks('/tmp/y.log')).toBe(1);
 		filePreviews.open('s1', '/tmp/y.log', ['/tmp/y.log']);
 		expect(filePreviews.request?.n).toBe(2);
+		expect(filePreviews.clicks('/tmp/y.log')).toBe(2);
+		expect(filePreviews.clicks('/tmp/x.log')).toBe(0);
 	});
 });
 

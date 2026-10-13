@@ -54,9 +54,11 @@
 	let read = $state<{ facts: PreviewFacts } | { error: unknown } | undefined>();
 	let imageFailed = $state(false);
 	let seq = 0;
-	async function load() {
+	/** Reads the file; `again`: what shows stays until the new read is in
+	 *  (a chip clicked again, the file perhaps changed). */
+	async function load(again = false) {
 		const n = ++seq;
-		read = undefined;
+		if (!again) read = undefined;
 		imageFailed = false;
 		try {
 			const facts = await previewFile(path, textBytesFor(path));
@@ -66,8 +68,14 @@
 		}
 	}
 	const asked = $derived(filePreviews.asked(path));
+	const clicks = $derived(filePreviews.clicks(path));
+	let loaded = false;
 	$effect(() => {
-		if (asked) untrack(() => void load());
+		if (!clicks) return;
+		untrack(() => {
+			void load(loaded);
+			loaded = true;
+		});
 	});
 
 	const view = $derived(asked ? previewView(path, read, imageFailed) : null);
@@ -166,12 +174,12 @@
 			<h3>{t('preview.missingTitle')}</h3>
 			<p>{t('preview.missingBody')}</p>
 			<p class="path selectable">{path}</p>
-			<Button variant="secondary" size="sm" onclick={load}>{t('preview.retry')}</Button>
+			<Button variant="secondary" size="sm" onclick={() => load()}>{t('preview.retry')}</Button>
 		</div>
 	{:else if view.view === 'error'}
 		<div class="failed">
 			<Notice>{t('preview.readFailed', { error: view.message })}</Notice>
-			<Button variant="secondary" size="sm" onclick={load}>{t('preview.retry')}</Button>
+			<Button variant="secondary" size="sm" onclick={() => load()}>{t('preview.retry')}</Button>
 		</div>
 	{:else if view.view === 'card' && facts}
 		<FileCard {facts} reason={view.reason} icon={Icon} onReveal={reveal} onOpen={openDefault} />

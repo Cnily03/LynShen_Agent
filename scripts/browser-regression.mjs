@@ -533,6 +533,8 @@ try {
   await tabbed.locator('button.ufile', {hasText:'chatWidth.ts'}).click();
   await expect(preview.locator('.name')).toHaveText('chatWidth.ts');
   await expect(tabbed.locator('.ltab', {hasText:'chatWidth.ts'})).toHaveCount(1);
+  // ... and reads the file again (it may have changed).
+  await expect.poll(() => tabbed.evaluate((code) => window.__calls.filter((c) => c.command === 'preview_file' && c.args.path === code).length, code)).toBe(2);
   // An archive: a card, whose buttons open it outside the app.
   const zip = '/Users/me/Downloads/lynshen-desktop-0.5.1.zip';
   await tabbed.locator('button.ufile', {hasText:'lynshen-desktop-0.5.1.zip'}).click();

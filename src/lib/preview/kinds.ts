@@ -23,7 +23,7 @@ export const IMAGE_PREVIEW_BYTES = 40 * 1024 * 1024;
  *  crawl on a line of a megabyte (a minified bundle, a one-line JSON). */
 export const LINE_MAX = 5000;
 /** Markdown up to this length is rendered; a longer file shows its source. */
-export const MARKDOWN_RENDER_MAX = 512 * 1024;
+export const MARKDOWN_RENDER_MAX = 256 * 1024;
 /** JSON Lines records shown at a time ("show more" adds as many). */
 export const JSONL_PAGE = 200;
 
