@@ -6,7 +6,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import { terminalLook, useTerminalInput, useWebgl } from './terminal';
 	import { ptyOpen, ptyWrite, ptyResize, ptyClose } from '$lib/protocol';
-	import { terminalRequests, typedCommand } from '$lib/sandbox/terminal.svelte';
+	import { cleanCommand, terminalRequests, typedCommand } from '$lib/sandbox/terminal.svelte';
 	import { copyText } from '$lib/clipboard';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -89,8 +89,9 @@
 			ptyWrite(id, text);
 			term.focus();
 		} else {
-			// Several lines and a shell that would run each one: copy instead.
-			void copyText(command).then(() => toast.info(t('shell.sandbox.terminalCopied')));
+			// Several lines and a shell that would run each one: copy instead
+			// (cleaned the same way: no control character goes with it).
+			void copyText(cleanCommand(command)).then(() => toast.info(t('shell.sandbox.terminalCopied')));
 		}
 	}
 

@@ -10,7 +10,7 @@ import {
 	TERMINAL_FEEDBACK,
 	type SandboxRequest
 } from './request';
-import { typedCommand } from './terminal.svelte';
+import { cleanCommand, typedCommand } from './terminal.svelte';
 
 const request = (fields: Record<string, unknown>): SandboxRequest => {
 	const req = parseSandboxRequest({ type: 'approval_request', call_id: 'c1', name: 'bash', ...fields });
@@ -217,6 +217,28 @@ describe('typedCommand', () => {
 
 	it('types several lines only as a bracketed paste', () => {
 		expect(typedCommand('sudo a\nsudo b', false)).toBeNull();
+		expect(typedCommand('sudo a\rsudo b', false)).toBeNull();
 		expect(typedCommand('sudo a\r\nsudo b', true)).toBe('\u001b[200~sudo a\nsudo b\u001b[201~');
+	});
+
+	it('pastes even one line where the shell takes a bracketed paste', () => {
+		expect(typedCommand('sudo port install jq', true)).toBe('\u001b[200~sudo port install jq\u001b[201~');
+	});
+
+	it('never lets the command end the paste or send a control key', () => {
+		// the end marker inside the command, then a line that would run
+		const typed = typedCommand('echo a\u001b[201~\nrm -rf ~', true) ?? '';
+		expect(typed).toBe('\u001b[200~echo a[201~\nrm -rf ~\u001b[201~');
+		expect(typed.split('\u001b[201~')).toHaveLength(2);
+		// 8-bit CSI, Ctrl-C, Ctrl-J (a newline is only ever \n), Ctrl-M, Ctrl-O, Ctrl-D, DEL, ESC
+		const nasty = 'sudo a\u009b201~\u0003\u000f\u0004\u007f\u001bOM\u0085b';
+		expect(typedCommand(nasty, false)).toBe('sudo a201~OMb');
+		expect(typedCommand(nasty, true)).toBe('\u001b[200~sudo a201~OMb\u001b[201~');
+		for (const raw of ['a\u0000b', 'a\u0008b', 'a\u001ab', 'a\u001cb', 'a\u0090b'])
+			expect(typedCommand(raw, false)).toBe('ab');
+	});
+
+	it('copies a command of several lines cleaned the same way', () => {
+		expect(cleanCommand('sudo a\u001b[201~\r\nsudo\tb\u0003\n')).toBe('sudo a[201~\nsudo b');
 	});
 });

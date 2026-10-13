@@ -41,19 +41,30 @@ class TerminalRequests {
 
 export const terminalRequests = new TerminalRequests();
 
-/** What may be typed into a shell without running anything: no carriage
- *  return or other control characters, no trailing newline. A command of
- *  several lines is typed only where the shell takes a bracketed paste (it
- *  then waits for Enter); null when it cannot be typed safely. */
+/** A command as it may reach a shell: line breaks as `\n`, tabs as spaces
+ *  (a tab asks the shell to complete), no trailing space or line break, and
+ *  no other control character: no ESC (it would end a bracketed paste early,
+ *  `\x1b[201~`, or start a key sequence), no C0 control (Ctrl-C, Ctrl-J…),
+ *  no DEL and no C1 control (8-bit CSI and the like). */
+export function cleanCommand(command: string): string {
+	return (
+		command
+			.replace(/\r\n?/g, '\n')
+			.replace(/\t/g, ' ')
+			// eslint-disable-next-line no-control-regex
+			.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, '')
+			.replace(/\s+$/, '')
+	);
+}
+
+/** What may be typed into a shell without running anything (never with
+ *  Enter). Where the shell takes a bracketed paste (it turned the mode on),
+ *  the command goes as one, so its line editor inserts it as text and waits
+ *  for Enter; elsewhere only a command of one line is typed. null when it
+ *  cannot be typed safely (several lines and no bracketed paste) or is empty. */
 export function typedCommand(command: string, bracketedPaste: boolean): string | null {
-	const text = command
-		.replace(/\r\n?/g, '\n')
-		// A tab would ask the shell to complete.
-		.replace(/\t/g, ' ')
-		// eslint-disable-next-line no-control-regex
-		.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
-		.replace(/\s+$/, '');
+	const text = cleanCommand(command);
 	if (!text) return null;
-	if (!text.includes('\n')) return text;
-	return bracketedPaste ? `\u001b[200~${text}\u001b[201~` : null;
+	if (bracketedPaste) return `\u001b[200~${text}\u001b[201~`;
+	return text.includes('\n') ? null : text;
 }
