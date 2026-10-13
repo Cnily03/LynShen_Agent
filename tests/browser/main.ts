@@ -87,6 +87,7 @@ if (panels || shell) {
   const { installFakeDaemon, daemonState } = await import('./fakeDaemon');
   installFakeDaemon();
   daemonState.old = params.has('oldEngine');
+  daemonState.stall = params.has('stall');
 }
 // ?remote: the phone remote page's conversation (Remote.svelte), in a
 // browser, not the app.

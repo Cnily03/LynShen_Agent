@@ -4,6 +4,13 @@
 	// the page's search box narrows it, and each skill installs into or
 	// uninstalls from the chosen engine's personal folder. A failed install or
 	// uninstall shows on its own item.
+	//
+	// The engine answers at once from its cache and reads stale sources again
+	// in the background (`refreshing`); the page shows what it has, then asks
+	// again with `wait` for the refreshed catalog. A source that cannot be
+	// read is a warning of its own. A first answer that takes too long (an
+	// older engine reads every source first) turns into an error with a retry;
+	// if it still comes, it is shown.
 	import { onMount, untrack } from 'svelte';
 	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimpleIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
@@ -17,16 +24,31 @@
 		isUnknownOp,
 		uninstallSkill,
 		type MarketSkill,
-		type SkillBackend
+		type MarketSourceState,
+		type SkillBackend,
+		type SkillCatalog
 	} from '$lib/protocol';
-	import { filterMarket, homeOf, marketKey, marketSources, marketTags, tildePath } from '$lib/skills';
+	import {
+		CATALOG_REFRESH_TIMEOUT_MS,
+		CATALOG_TIMEOUT_MS,
+		filterMarket,
+		homeOf,
+		marketKey,
+		marketSources,
+		marketTags,
+		pendingSources,
+		sourceProblems,
+		tildePath,
+		withTimeout
+	} from '$lib/skills';
+	import { when } from '$lib/time';
 	import { openExternal } from '$lib/openExternal';
 	import { confirm } from '$lib/ui/confirm.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import Chip from '$lib/ui/Chip.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
-	import { t } from '$lib/i18n';
+	import { getLocale, t } from '$lib/i18n';
 
 	let {
 		backend,
@@ -41,9 +63,14 @@
 	} = $props();
 
 	let skills = $state<MarketSkill[]>([]);
+	/** The first answer is awaited. */
 	let loading = $state(true);
+	/** The engine is reading sources again; a `wait` request is out. */
+	let refreshing = $state(false);
 	let error = $state('');
 	let warnings = $state<string[]>([]);
+	/** Per-source state; undefined from an engine that does not report it. */
+	let sourceStates = $state<MarketSourceState[] | undefined>(undefined);
 	let installDir = $state('');
 	let source = $state('all');
 	let tag = $state('');
@@ -63,24 +90,58 @@
 			: [{ key: source, name: '', items: shown }]
 	);
 	const restricted = $derived(shown.some((s) => !s.redistributable));
+	const problems = $derived(sourceProblems(sourceStates));
+	const pending = $derived(pendingSources(sourceStates, refreshing));
 
-	async function load() {
+	/** Answers for an earlier engine or load are dropped. */
+	let generation = 0;
+
+	function show(catalog: SkillCatalog) {
+		skills = catalog.skills;
+		warnings = catalog.warnings ?? [];
+		sourceStates = catalog.sources;
+		installDir = catalog.installDir;
+		if (source !== 'all' && source !== 'installed' && !catalog.skills.some((s) => s.source === source)) source = 'all';
+	}
+
+	/** The catalog as the engine has it; `refresh` reads every source again. */
+	async function load(refresh = false) {
+		const run = ++generation;
 		loading = true;
+		refreshing = false;
 		error = '';
-		warnings = [];
-		try {
-			const catalog = await fetchMarketplace(backend);
-			skills = catalog.skills;
-			warnings = catalog.warnings;
-			installDir = catalog.installDir;
-			if (source !== 'all' && source !== 'installed' && !catalog.skills.some((s) => s.source === source)) source = 'all';
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		} finally {
+		const timer = setTimeout(() => {
+			if (run !== generation || !loading) return;
 			loading = false;
+			error = t('settings.marketplace.timeout');
+		}, CATALOG_TIMEOUT_MS);
+		try {
+			const catalog = await fetchMarketplace(backend, { refresh });
+			if (run !== generation) return;
+			show(catalog);
+			error = '';
+			if (catalog.refreshing) void follow(run);
+		} catch (e) {
+			if (run === generation) error = t('settings.marketplace.loadFailed', { error: e instanceof Error ? e.message : String(e) });
+		} finally {
+			clearTimeout(timer);
+			if (run === generation) loading = false;
 		}
 	}
-	onMount(load);
+
+	/** Waits for the engine's background refresh, then shows its result. */
+	async function follow(run: number) {
+		refreshing = true;
+		try {
+			const catalog = await withTimeout(fetchMarketplace(backend, { wait: true }), CATALOG_REFRESH_TIMEOUT_MS);
+			if (run === generation) show(catalog);
+		} catch {
+			// What is shown stays; each source's own state says the rest.
+		} finally {
+			if (run === generation) refreshing = false;
+		}
+	}
+	onMount(() => void load());
 	// The target engine changed: its folder decides what counts as installed.
 	let loadedFor = untrack(() => backend);
 	$effect(() => {
@@ -134,7 +195,22 @@
 		}
 	}
 
-	/** `Ikaleio: <error>` from the daemon → a sentence naming the source. */
+	const REASONS = {
+		network: 'settings.marketplace.reasonNetwork',
+		limited: 'settings.marketplace.reasonLimited',
+		missing: 'settings.marketplace.reasonMissing',
+		other: 'settings.marketplace.reasonOther'
+	} as const;
+
+	function problemText(p: (typeof problems)[number]) {
+		const reason = t(REASONS[p.reason]);
+		return p.kind === 'cached' && p.fetchedAt
+			? t('settings.marketplace.sourceCached', { source: p.name, reason, time: when(p.fetchedAt) })
+			: t('settings.marketplace.sourceEmpty', { source: p.name, reason });
+	}
+
+	/** `Ikaleio: <error>` from an engine without per-source state → a
+	 *  sentence naming the source. */
 	function warningText(w: string) {
 		if (w.includes('401') || w.toLowerCase().includes('unauth')) return t('settings.marketplace.needLogin');
 		const at = w.indexOf(': ');
@@ -145,17 +221,37 @@
 <div class="market">
 	<div class="intro">
 		<p>{installDir ? t('settings.marketplace.intro', { path: tildePath(installDir, homeOf({ dirs: [{ scope: 'user', path: installDir }] })) }) : ''}</p>
-		<IconButton size="sm" title={t('settings.skills.refresh')} disabled={loading} onclick={load}>
-			{#if loading}<CircleNotchIcon size={16} class="spin" />{:else}<ArrowsClockwiseIcon size={16} />{/if}
+		<IconButton size="sm" title={t('settings.skills.refresh')} disabled={loading || refreshing} onclick={() => load(true)}>
+			{#if loading || refreshing}<CircleNotchIcon size={16} class="spin" />{:else}<ArrowsClockwiseIcon size={16} />{/if}
 		</IconButton>
 	</div>
 
 	{#if error}
-		<Notice>{t('settings.marketplace.loadFailed', { error })}</Notice>
+		<Notice>
+			<span class="err-line">
+				<span>{error}</span>
+				<Button size="sm" variant="secondary" onclick={() => load()}>{t('common.retry')}</Button>
+			</span>
+		</Notice>
 	{/if}
-	{#each warnings as w (w)}
-		<Notice tone="warn">{warningText(w)}</Notice>
-	{/each}
+	{#if refreshing}
+		<p class="refreshing" role="status">
+			<CircleNotchIcon size={13} class="spin" />
+			{pending.length ? t('settings.marketplace.pending', { sources: pending.join(getLocale() === 'zh' ? '、' : ', ') }) : t('settings.marketplace.refreshing')}
+		</p>
+	{/if}
+	{#if sourceStates}
+		{#each problems as p (p.key)}
+			<Notice tone="warn">
+				{problemText(p)}
+				<span class="detail">{p.error}</span>
+			</Notice>
+		{/each}
+	{:else}
+		{#each warnings as w (w)}
+			<Notice tone="warn">{warningText(w)}</Notice>
+		{/each}
+	{/if}
 
 	{#if skills.length}
 		<div class="filters">
@@ -249,6 +345,27 @@
 		color: var(--dim);
 		font-size: var(--fs-xs);
 		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+	.err-line {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 4px 12px;
+	}
+	.refreshing {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		color: var(--dim);
+		font-size: var(--fs-xs);
+	}
+	.detail {
+		display: block;
+		margin-top: 2px;
+		color: var(--dim2);
+		font-size: var(--fs-2xs);
 		overflow-wrap: anywhere;
 	}
 	.filters {
