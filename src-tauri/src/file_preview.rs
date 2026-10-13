@@ -197,10 +197,12 @@ fn decode(bytes: &[u8], encoding: Encoding, cut: bool) -> (String, bool) {
         Encoding::Utf16Le | Encoding::Utf16Be => {
             let body = bytes.get(2..).unwrap_or_default();
             let mut units: Vec<u16> = body
-                .chunks_exact(2)
-                .map(|p| match encoding {
-                    Encoding::Utf16Le => u16::from_le_bytes([p[0], p[1]]),
-                    _ => u16::from_be_bytes([p[0], p[1]]),
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| match encoding {
+                    Encoding::Utf16Le => u16::from_le_bytes(pair),
+                    _ => u16::from_be_bytes(pair),
                 })
                 .collect();
             if cut && units.last().is_some_and(|u| (0xD800..0xDC00).contains(u)) {
