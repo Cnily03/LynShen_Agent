@@ -388,6 +388,9 @@ const shell = {
 			connecting: '连接中…',
 			resizeSidebar: '调整侧栏宽度',
 			openingSession: '正在打开会话…',
+			// The phone's notification for an approval that came while the page was in the background.
+			approvalPush: '等你确认',
+			approvalPushBody: '{title}：{what}',
 			loadingModels: '正在读取模型…',
 			reconnect: '重新连接',
 			reconnecting: '连接中断，正在自动重连…',
@@ -1393,6 +1396,8 @@ const shell = {
 			connecting: 'Connecting…',
 			resizeSidebar: 'Resize the sidebar',
 			openingSession: 'Opening the session…',
+			approvalPush: 'Waiting for you',
+			approvalPushBody: '{title}: {what}',
 			loadingModels: 'Loading models…',
 			reconnect: 'Reconnect',
 			reconnecting: 'Connection lost; reconnecting…',

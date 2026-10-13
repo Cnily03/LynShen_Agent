@@ -394,7 +394,7 @@
 	{:else if sbx && choices}
 		<div class="sbx-lines">
 			{#if sbx.justification}
-				<div class="sline" title={sbx.justification}><span class="sk">{t('shell.sandbox.reason')}</span><span class="sv">{sbx.justification}</span></div>
+				<div class="sline reason" title={sbx.justification}><span class="sk">{t('shell.sandbox.reason')}</span><span class="sv">{sbx.justification}</span></div>
 			{/if}
 			{#if sbx.command}
 				<button class="sline cmdline" class:open={cmdOpen} title={sbx.command} aria-expanded={cmdOpen} onclick={() => (cmdOpen = !cmdOpen)}
@@ -829,6 +829,15 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* The reason is why to allow it: it wraps (a phone has no tooltip), up to three lines. */
+	.reason .sv {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 	code.sv {
 		font-family: var(--font-mono);

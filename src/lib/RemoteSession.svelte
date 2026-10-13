@@ -49,7 +49,9 @@
 	import { useHost } from '$lib/remote/connection.svelte';
 	import { confirm } from '$lib/ui/confirm.svelte';
 	import { BACKEND_LABELS, caps } from '$lib/backends';
-	import { buildSetApprovalModeOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
+	import { approvalModeKeys, buildSetApprovalModeOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
+	import { commandsIsolated, firstLine } from '$lib/sandbox/request';
+	import { notifyHere } from '$lib/remote/push';
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import { t } from '$lib/i18n';
 	import { imageViewer } from '$lib/ui/imageViewer.svelte';
@@ -438,25 +440,33 @@
 		});
 	});
 
-	// The approval mode, as on the desktop: claude adds plan and auto; an
-	// agent's session follows the agent (changed on its page).
-	const APPROVAL_MODES: Record<string, PopMenuItem> = {
-		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: t('chat.approvalAskDesc'), icon: HandIcon },
-		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc'), icon: ClipboardTextIcon },
-		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: t('chat.approvalAutoDesc'), icon: ShieldCheckIcon },
-		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: t('chat.approvalEditsDesc'), icon: NotePencilIcon },
-		all: { key: 'all', label: t('chat.approvalAll'), desc: t('chat.approvalAllDesc'), icon: ShieldWarningIcon, tone: 'warn' }
-	};
+	// The approval mode, as on the desktop: claude adds plan and auto; a
+	// LynShen session has 谨慎 / 计划 / 自动 / 全自动 over its sandbox; an
+	// agent's session follows the agent (changed on its page). This page
+	// cannot tell the computer's system: commands count as isolated until
+	// its engine says otherwise.
 	const isAgent = $derived(!!(agent || chat.agent || view?.agent));
+	const sandboxed = $derived(bcaps.sandbox && !isAgent);
+	const isolated = $derived(commandsIsolated(chat.sandbox, false));
+	const modeDesc = (key: 'Ask' | 'Auto' | 'All') =>
+		t(sandboxed ? `chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}` : `chat.approval${key}Desc`);
+	const APPROVAL_MODES: Record<string, PopMenuItem> = $derived({
+		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: modeDesc('Ask'), icon: HandIcon },
+		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc'), icon: ClipboardTextIcon },
+		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: modeDesc('Auto'), icon: ShieldCheckIcon },
+		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: t('chat.approvalEditsDesc'), icon: NotePencilIcon },
+		all: { key: 'all', label: t('chat.approvalAll'), desc: modeDesc('All'), icon: ShieldWarningIcon, tone: 'warn' }
+	});
 	/** Picked before the first message: applied once the session is open. */
 	let draftMode = $state<ApprovalMode | null>(null);
 	const shownMode = $derived(draftMode ?? chat.approvalMode);
 	const APPROVAL = $derived(
-		(isAgent ? ['ask', 'edits', 'auto', 'all'] : bcaps.extendedApprovalModes ? ['ask', 'plan', 'auto', 'edits', 'all'] : bcaps.planMode ? ['ask', 'plan', 'edits', 'all'] : ['ask', 'edits', 'all']).map(
-			(k) => ({ ...APPROVAL_MODES[k], checked: shownMode === k, disabled: isAgent })
-		)
+		approvalModeKeys(bcaps, isAgent).map((k) => ({ ...APPROVAL_MODES[k], checked: shownMode === k, disabled: isAgent }))
 	);
-	const approvalCurrent = $derived(APPROVAL.find((a) => a.checked) ?? APPROVAL_MODES.ask);
+	const approvalCurrent = $derived(APPROVAL.find((a) => a.checked) ?? APPROVAL_MODES[shownMode] ?? APPROVAL_MODES.ask);
+	const modeMenuTitle = $derived(
+		isAgent ? t('chat.approvalAgent') : sandboxed && !isolated ? t('chat.sandbox.openHint') : t('chat.approvalQuestion')
+	);
 	let approvalOpen = $state(false);
 	function applyMode(mode: ApprovalMode) {
 		chat.approvalMode = mode;
@@ -614,6 +624,24 @@
 		send(op);
 		chat.pendingApproval = null;
 	}
+	// 等你确认: a request that comes while this page is in the background
+	// (the phone locked, another app in front) notifies here, when the user
+	// turned notifications on. Once per request.
+	let notifiedCall = '';
+	$effect(() => {
+		const request = chat.pendingApproval;
+		if (!request || request.callId === notifiedCall || request.questions?.length) return;
+		notifiedCall = request.callId;
+		if (typeof document === 'undefined' || document.visibilityState !== 'hidden') return;
+		const sbx = request.sandbox;
+		const what = firstLine(sbx?.command || request.summary) || request.name;
+		const kind = sbx ? t(`shell.sandbox.kind.${sbx.kind}`) : '';
+		void notifyHere(
+			t('shell.remote.approvalPush'),
+			t('shell.remote.approvalPushBody', { title: [hostName, title].filter(Boolean).join(' · '), what: kind ? `${kind} · ${what}` : what }),
+			untrack(() => session ?? chat.sessionId)
+		).catch(() => {});
+	});
 
 	const opening = $derived(!draft && !connected && !exited);
 </script>
@@ -697,7 +725,7 @@
 		{#if chat.pendingApproval}
 			<div class="approval">
 				{#key chat.pendingApproval.callId}
-					<ApprovalCard approval={chat.pendingApproval} onRespond={respond} ruleScopes={caps(chat).ruleScopes} />
+					<ApprovalCard approval={chat.pendingApproval} onRespond={respond} ruleScopes={caps(chat).ruleScopes} remote />
 				{/key}
 			</div>
 		{/if}
@@ -809,7 +837,7 @@
 							</button>
 							{#if approvalOpen}
 								<PopMenu
-									title={isAgent ? t('chat.approvalAgent') : t('chat.approvalQuestion')}
+									title={modeMenuTitle}
 									items={APPROVAL}
 									placement="up-left"
 									onSelect={pickMode}
