@@ -5,20 +5,34 @@ and registry entries gone, shortcuts and autostart carried over, user data
 untouched. See docs/rename-aogiri-notes.md.
 
 It installs and removes software for the current user and writes to the
-registry, so run it only on a throwaway Windows machine (the "Rename upgrade"
-workflow runs it on a GitHub runner):
+registry, the hosts file and the certificate store, so run it only on a
+throwaway Windows machine (the "Rename upgrade" workflow runs it on a GitHub
+runner):
 
   pwsh scripts/windows-rename-upgrade-check.ps1 `
-    -OldSetup LynShen_0.5.0_x64-setup.exe -NewSetup Aogiri_0.5.1_x64-setup.exe `
-    -OldMsi LynShen_0.5.0_x64_en-US.msi -NewMsi Aogiri_0.5.1_x64_en-US.msi
+    -OldSetup LynShen_0.5.1_x64-setup.exe -NewSetup Aogiri_0.7.0_x64-setup.exe `
+    -OldMsi LynShen_0.5.1_x64_en-US.msi -NewMsi Aogiri_0.7.0_x64_en-US.msi `
+    -NewSetupSig Aogiri_0.7.0_x64-setup.exe.sig -NewMsiSig Aogiri_0.7.0_x64_en-US.msi.sig `
+    -UpdaterPubkey (Get-Content test-updater.key.pub) -NewVersion 0.7.0
 
 The MSI parameters are optional; the MSI scenarios need an elevated shell.
+With the .sig files, the "inapp-" scenarios update the way users do: the old
+app runs, finds the update on a local feed, downloads and verifies it, and
+starts the installer itself (scripts/rename-inapp-update.mjs, Node 22).
+-UpdaterPubkey is for installers signed with a test key: the installed old app
+is made to trust that key instead of the release key.
 #>
 param(
   [Parameter(Mandatory)] [string]$OldSetup,
   [Parameter(Mandatory)] [string]$NewSetup,
   [string]$OldMsi,
   [string]$NewMsi,
+  # The updater signatures of the new installers (enable the in-app scenarios).
+  [string]$NewSetupSig,
+  [string]$NewMsiSig,
+  # The public key (tauri signer, base64) the .sig files are made with, when
+  # it is not the release key.
+  [string]$UpdaterPubkey,
   [string]$OldName = 'LynShen',
   [string]$NewName = 'Aogiri',
   [string]$Publisher = 'LynShen Innovations INC.',
@@ -35,6 +49,8 @@ $OldSetup = (Resolve-Path $OldSetup).Path
 $NewSetup = (Resolve-Path $NewSetup).Path
 if ($OldMsi) { $OldMsi = (Resolve-Path $OldMsi).Path }
 if ($NewMsi) { $NewMsi = (Resolve-Path $NewMsi).Path }
+if ($NewSetupSig) { $NewSetupSig = (Resolve-Path $NewSetupSig).Path }
+if ($NewMsiSig) { $NewMsiSig = (Resolve-Path $NewMsiSig).Path }
 
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $ApprovedKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
@@ -52,6 +68,26 @@ $TaskbarPins = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\
 $DefaultOldDir = Join-Path $env:LOCALAPPDATA $OldName
 $DefaultNewDir = Join-Path $env:LOCALAPPDATA $NewName
 $TestRoot = 'C:\RenameTest'
+# The Desktop as the user had it when this started; scenarios move it.
+$OriginalDesktop = $Desktop
+$FolderIdDesktop = [Guid]'B4BFCC3A-DB2C-424C-B029-7FE99A87C641'
+Add-Type -Namespace RenameCheck -Name KnownFolder -MemberDefinition @'
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+public static extern int SHSetKnownFolderPath(ref Guid id, uint flags, IntPtr token, string path);
+'@
+
+# The in-app update: a local https feed the old app is pointed at.
+$Repo = Split-Path $PSScriptRoot
+$UpdateScript = Join-Path $PSScriptRoot 'rename-inapp-update.mjs'
+$FeedPort = 8443
+$DevToolsPort = 9222
+$FeedRoot = Join-Path ([IO.Path]::GetTempPath()) 'rename-feed'
+$FeedDir = Join-Path $FeedRoot 'v1\public\releases\desktop'
+$HostsFile = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+$HostsMark = '# rename-upgrade-check'
+# The key the released apps verify updates with (unchanged since 0.4.x).
+$ReleasePubkey = (Get-Content (Join-Path $Repo 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).plugins.updater.pubkey
+$script:Feed = $null
 
 $script:Failures = @()
 $script:Scenario = ''
@@ -123,6 +159,184 @@ function Get-CommandExe([string]$Command) {
   return $Command
 }
 
+# Every shortcut to either app, wherever Windows keeps them: the user's Desktop
+# (wherever it was moved), the Public Desktop, the user's and the all-users
+# Start menu with their folders, and the taskbar pins. A shortcut counts when
+# its name or its target has either product name in it.
+function Get-AppShortcuts {
+  $places = @(
+    @('desktop', $script:Desktop, 0),
+    @('Public Desktop', $CommonDesktop, 0),
+    @('Start-menu', $StartMenu, 1),
+    @('all-users Start-menu', $CommonStartMenu, 1),
+    @('taskbar pin', $TaskbarPins, 0)
+  )
+  $names = "(?i)($([regex]::Escape($OldName))|$([regex]::Escape($NewName)))"
+  foreach ($place in $places) {
+    $label, $folder, $depth = $place
+    if (-not (Test-Path -LiteralPath $folder)) { continue }
+    foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -Recurse -Depth $depth -ErrorAction SilentlyContinue) {
+      $target = "$(Get-ShortcutTarget $file.FullName)"
+      if ($file.BaseName -notmatch $names -and $target -notmatch "\\$names(\\|\.exe$)") { continue }
+      [pscustomobject]@{ Place = $label; Path = $file.FullName; Name = $file.BaseName; Target = $target }
+    }
+  }
+}
+
+# No shortcut is left that starts the old app (its executable, or anything in
+# a directory it was installed in) or that is named after it and starts the
+# new one. A taskbar pin keeps its file, which is how Explorer finds it, so it
+# only has to start the new executable. Other shortcuts are not the app's.
+function Check-NoOldShortcuts([string[]]$OldExes, [string[]]$OldDirectories, [string]$NewDirectory) {
+  $newExe = Join-Path $NewDirectory "$NewName.exe"
+  $links = @(Get-AppShortcuts)
+  foreach ($link in $links) { Note "$($link.Place): $($link.Path) -> '$($link.Target)'" }
+  $left = 0
+  foreach ($link in $links) {
+    $target = $link.Target
+    $toOld = $OldExes -contains $target
+    foreach ($directory in $OldDirectories) {
+      if ($target -and $target.StartsWith("$directory\", [StringComparison]::OrdinalIgnoreCase)) { $toOld = $true }
+    }
+    $named = $link.Name -like "*$OldName*"
+    if ($link.Place -eq 'taskbar pin') {
+      if ($named -or $toOld) { Check ($target -eq $newExe) "the taskbar pin '$($link.Name)' starts the new executable (is '$target')" }
+      continue
+    }
+    if ($toOld) {
+      Check $false "no $($link.Place) shortcut starts the old app: '$($link.Path)' -> '$target'"
+      $left++
+    } elseif ($named -and $target -eq $newExe) {
+      Check $false "no $($link.Place) shortcut is named after $($OldName): '$($link.Path)'"
+      $left++
+    }
+  }
+  if ($left -eq 0) { Check $true "no shortcut starts $OldName or is named after it" }
+}
+
+# Moves the user's Desktop the way OneDrive's folder backup or the folder's
+# Location tab do: through the known-folder API (files are not moved along).
+function Set-DesktopFolder([string]$Path) {
+  New-Item -ItemType Directory -Force -Path $Path | Out-Null
+  $id = $FolderIdDesktop
+  $result = [RenameCheck.KnownFolder]::SHSetKnownFolderPath([ref]$id, 0, [IntPtr]::Zero, $Path)
+  if ($result -ne 0) { throw "SHSetKnownFolderPath returned $result" }
+  $script:Desktop = [Environment]::GetFolderPath('Desktop')
+  if ($script:Desktop -ne $Path) { throw "the Desktop is $($script:Desktop), not $Path" }
+}
+
+# Test builds are signed with a test key; the installed old app is made to
+# trust it. The key is a fixed-length string in its executable.
+function Set-UpdaterPubkey([string]$Exe, [string]$Pubkey) {
+  $Pubkey = $Pubkey.Trim()
+  if ($Pubkey.Length -ne $ReleasePubkey.Length) { throw "the test key has $($Pubkey.Length) characters, the release key $($ReleasePubkey.Length)" }
+  $bytes = [IO.File]::ReadAllBytes($Exe)
+  $text = [Text.Encoding]::Latin1.GetString($bytes)
+  $replacement = [Text.Encoding]::ASCII.GetBytes($Pubkey)
+  $count = 0
+  $at = $text.IndexOf($ReleasePubkey, [StringComparison]::Ordinal)
+  while ($at -ge 0) {
+    $replacement.CopyTo($bytes, $at)
+    $count++
+    $at = $text.IndexOf($ReleasePubkey, $at + 1, [StringComparison]::Ordinal)
+  }
+  if ($count -eq 0) { throw "the release key is not in $Exe" }
+  [IO.File]::WriteAllBytes($Exe, $bytes)
+  Note "the old app trusts the test key ($count place(s) in $Exe)"
+}
+
+# A local https feed laid out as the release publishes it: latest.json with
+# the setup.exe and the MSI, the generic Windows entry being the MSI.
+function Start-UpdateFeed {
+  if ($script:Feed) { return }
+  Remove-Item -LiteralPath $FeedRoot -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $FeedDir | Out-Null
+  $base = "https://localhost:$FeedPort/v1/public/releases/desktop"
+  Copy-Item -LiteralPath $NewSetup -Destination $FeedDir
+  $setup = [ordered]@{ signature = (Get-Content -LiteralPath $NewSetupSig -Raw).Trim(); url = "$base/$(Split-Path $NewSetup -Leaf)" }
+  $platforms = [ordered]@{ 'windows-x86_64-nsis' = $setup; 'windows-x86_64' = $setup }
+  if ($NewMsi -and $NewMsiSig) {
+    Copy-Item -LiteralPath $NewMsi -Destination $FeedDir
+    $msi = [ordered]@{ signature = (Get-Content -LiteralPath $NewMsiSig -Raw).Trim(); url = "$base/$(Split-Path $NewMsi -Leaf)" }
+    $platforms['windows-x86_64-msi'] = $msi
+    $platforms['windows-x86_64'] = $msi
+  }
+  $manifest = [ordered]@{ version = $NewVersion; notes = 'Rename upgrade check'; pub_date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); platforms = $platforms }
+  $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $FeedDir 'latest.json')
+
+  # A certificate for localhost from a throwaway CA the machine trusts.
+  $ca = New-SelfSignedCertificate -Subject 'CN=Rename Upgrade Check CA' -CertStoreLocation 'Cert:\CurrentUser\My' `
+    -KeyUsage CertSign, CRLSign, DigitalSignature -TextExtension @('2.5.29.19={critical}{text}ca=1&pathlength=0') -NotAfter (Get-Date).AddDays(2)
+  $leaf = New-SelfSignedCertificate -Subject 'CN=localhost' -DnsName 'localhost' -Signer $ca -CertStoreLocation 'Cert:\CurrentUser\My' `
+    -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.1') -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(2)
+  $caFile = Join-Path $FeedRoot 'ca.cer'
+  Export-Certificate -Cert $ca -FilePath $caFile | Out-Null
+  Import-Certificate -FilePath $caFile -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+  $pfx = Join-Path $FeedRoot 'localhost.pfx'
+  $password = ConvertTo-SecureString 'rename-check' -AsPlainText -Force
+  Export-PfxCertificate -Cert $leaf -FilePath $pfx -Password $password -CryptoAlgorithmOption AES256_SHA256 | Out-Null
+
+  $log = Join-Path $FeedRoot 'feed.log'
+  $arguments = "`"$UpdateScript`" serve `"$FeedRoot`" `"$pfx`" rename-check $FeedPort"
+  $script:Feed = Start-Process -FilePath 'node' -ArgumentList $arguments -NoNewWindow -PassThru `
+    -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+  # The release feeds are out of reach: the update can only come from here.
+  Add-Content -LiteralPath $HostsFile -Value "`r`n127.0.0.1 www.lynshen.org $HostsMark`r`n127.0.0.1 api.lynshen.org $HostsMark"
+  $up = Wait-Until {
+    try { (Invoke-WebRequest "$base/latest.json" -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 } catch { $false }
+  } 30
+  if (-not $up) { throw "the update feed did not come up: $(Get-Content "$log.err" -Raw)" }
+  Note "update feed at $base (version $NewVersion)"
+}
+
+function Stop-UpdateFeed {
+  if (-not $script:Feed) { return }
+  try { $script:Feed.Kill() } catch { }
+  $script:Feed = $null
+  $lines = Get-Content -LiteralPath $HostsFile | Where-Object { $_ -notlike "*$HostsMark*" }
+  Set-Content -LiteralPath $HostsFile -Value $lines
+  Get-ChildItem 'Cert:\LocalMachine\Root', 'Cert:\CurrentUser\My' |
+    Where-Object { $_.Subject -in @('CN=Rename Upgrade Check CA', 'CN=localhost') } | Remove-Item -ErrorAction SilentlyContinue
+}
+
+# The update the way users get it: the old app is running, finds the update
+# on the feed, downloads and verifies it, and on "restart and install" starts
+# the installer itself and exits (scripts/rename-inapp-update.mjs). The
+# installer then starts the new app.
+function Invoke-InAppUpdate([string]$OldExe) {
+  Start-UpdateFeed
+  if ($UpdaterPubkey) { Set-UpdaterPubkey $OldExe $UpdaterPubkey }
+  $config = Join-Path $HOME '.lynshen\config.json'
+  New-Item -ItemType Directory -Force -Path (Split-Path $config) | Out-Null
+  Set-Content -LiteralPath $config -Value "{`"desktop_update_url`": `"https://localhost:$FeedPort`"}"
+  $feedLog = Join-Path $FeedRoot 'feed.log'
+  $seen = @(Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue).Count
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DevToolsPort"
+  try {
+    Write-Host "  run   $OldExe (then update it from inside)"
+    $app = Start-Process -FilePath $OldExe -PassThru
+    $null = $app.Handle
+    & node $UpdateScript update $DevToolsPort $NewVersion 2>&1 | ForEach-Object { Note "app   $_" }
+    $code = $LASTEXITCODE
+  } finally {
+    Remove-Item Env:\WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
+  }
+  Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue | Select-Object -Skip $seen | ForEach-Object { Note "feed  $_" }
+  Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+  if ($code -ne 0) { throw "the app did not install the update (rename-inapp-update.mjs exited with $code)" }
+  Check (Wait-Until { $app.HasExited } 30) "the old app exited to install the update"
+  # The setup.exe runs from %TEMP% as <app>-<version>-installer.exe; the MSI
+  # through msiexec. Either starts the new app when it is done.
+  $installed = Wait-Until {
+    (@(Get-Process | Where-Object { $_.Name -like '*-installer' }).Count -eq 0) -and
+    (@(Get-AppEntries | Where-Object { $_.DisplayName -eq $NewName -and $_.DisplayVersion -eq $NewVersion }).Count -eq 1) -and
+    (@(Get-Process -Name $NewName -ErrorAction SilentlyContinue).Count -gt 0)
+  } 300
+  Check $installed "the installer finished and started $NewName.exe"
+  # What the new app does when it first starts (src-tauri/src/renamed.rs).
+  Start-Sleep -Seconds 10
+}
+
 function Stop-App {
   foreach ($name in @($OldName, $NewName)) {
     Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
@@ -179,6 +393,7 @@ function Check-UserData {
 # Removes every trace of both products, so each scenario starts clean.
 function Reset-Machine {
   Stop-App
+  if ($script:Desktop -ne $OriginalDesktop) { Set-DesktopFolder $OriginalDesktop }
   foreach ($entry in @(Get-AppEntries)) {
     if ($entry.UninstallString -match 'msiexec') {
       Invoke-Program 'msiexec.exe' @('/x', $entry.KeyName, '/quiet', '/norestart') | Out-Null
@@ -202,11 +417,14 @@ function Reset-Machine {
     Remove-ItemProperty -LiteralPath $RunKey -Name $name -ErrorAction SilentlyContinue
     Remove-ItemProperty -LiteralPath $ApprovedKey -Name $name -ErrorAction SilentlyContinue
     foreach ($folder in @($StartMenu, $Desktop, $TaskbarPins, $CommonDesktop)) {
-      Remove-Item -LiteralPath (Join-Path $folder "$name.lnk") -Force -ErrorAction SilentlyContinue
+      Get-ChildItem -LiteralPath $folder -Filter "*$name*.lnk" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath (Join-Path $CommonStartMenu $name) -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA $name) -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($folder in @($StartMenu, $CommonStartMenu, $env:LOCALAPPDATA)) {
+      Remove-Item -LiteralPath (Join-Path $folder $name) -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
+  # What the app records once it has tidied up after the rename (renamed.rs).
+  Remove-Item -LiteralPath (Join-Path $env:APPDATA 'com.lynshen.desktop\rename-cleanup.json') -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath 'HKCU:\Software\Classes\lynshen' -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $TestRoot -Recurse -Force -ErrorAction SilentlyContinue
   $left = @(Get-AppEntries)
@@ -332,6 +550,7 @@ Scenario 'update-default' {
   Check ((Get-RegDefault "$VendorKey\$NewName") -eq $DefaultNewDir) "install location recorded for the next update"
   Check-Shortcut $StartMenu $DefaultNewDir 'Start-menu'
   Check-Shortcut $Desktop $DefaultNewDir 'desktop'
+  Check-NoOldShortcuts @((Join-Path $old "$OldName.exe")) @($old) $DefaultNewDir
   Check-DeepLink $DefaultNewDir
   Check-Autostart $DefaultNewDir
   $pin = Get-ShortcutTarget (Join-Path $TaskbarPins "$OldName.lnk")
@@ -367,6 +586,78 @@ Scenario 'update-default' {
   Check (-not (Test-Path -LiteralPath (Join-Path $Desktop "$NewName.lnk"))) "uninstall: desktop shortcut removed"
 }
 
+if ($NewSetupSig -and $NewVersion) {
+  # --- The update as users get it: from the running old app, which finds the
+  #     update, downloads and verifies it, starts the installer and exits.
+  Scenario 'inapp-update' {
+    $old = Install-Old
+    $oldExe = Join-Path $old "$OldName.exe"
+    Enable-OldAutostart $old
+    New-Shortcut (Join-Path $TaskbarPins "$OldName.lnk") $oldExe
+    Check ((Get-ShortcutTarget (Join-Path $Desktop "$OldName.lnk")) -eq $oldExe) "before: $OldName has a desktop shortcut"
+
+    Invoke-InAppUpdate $oldExe
+
+    Check-Installed $DefaultNewDir
+    Check-OldGone $old
+    Check-Shortcut $StartMenu $DefaultNewDir 'Start-menu'
+    Check-Shortcut $Desktop $DefaultNewDir 'desktop'
+    Check-NoOldShortcuts @($oldExe) @($old) $DefaultNewDir
+    Check-DeepLink $DefaultNewDir
+    Check-Autostart $DefaultNewDir
+    $path = (Get-Process -Name $NewName -ErrorAction SilentlyContinue | Select-Object -First 1).Path
+    Check ($path -eq (Join-Path $DefaultNewDir "$NewName.exe")) "the app runs again, from the new directory (is '$path')"
+  }
+
+  # --- The same with the Desktop moved elsewhere, as OneDrive's folder backup
+  #     does (OneDrive\Desktop) or the folder's Location tab.
+  Scenario 'inapp-update-moved-desktop' {
+    Set-DesktopFolder (Join-Path $TestRoot 'OneDrive\Desktop')
+    $old = Install-Old
+    $oldExe = Join-Path $old "$OldName.exe"
+    Check ((Get-ShortcutTarget (Join-Path $Desktop "$OldName.lnk")) -eq $oldExe) "before: the $OldName desktop shortcut is on the moved Desktop ($Desktop)"
+
+    Invoke-InAppUpdate $oldExe
+
+    Check-Installed $DefaultNewDir
+    Check-OldGone $old
+    Check-Shortcut $Desktop $DefaultNewDir 'desktop'
+    Check-NoOldShortcuts @($oldExe) @($old) $DefaultNewDir
+  }
+}
+
+# --- Shortcuts that start the app but that its installer did not make: a copy
+#     the user made, one on the Public Desktop (all users) left by an MSI
+#     install whose files are gone, and one named after the app that is not
+#     the app's (it stays). In-app update when the signatures are given.
+Scenario 'leftover-shortcuts' {
+  $chosen = Join-Path $TestRoot "My Apps\$OldName"
+  $old = Install-Old $chosen
+  $oldExe = Join-Path $old "$OldName.exe"
+  $msiExe = Join-Path $env:ProgramFiles "$OldName\$OldName.exe"
+  New-Shortcut (Join-Path $Desktop "$OldName - 快捷方式.lnk") $oldExe
+  New-Shortcut (Join-Path $CommonDesktop "$OldName.lnk") $msiExe
+  $notes = Join-Path $TestRoot "$OldName notes.txt"
+  Set-Content -LiteralPath $notes -Value 'not the app'
+  New-Shortcut (Join-Path $Desktop "$OldName notes.lnk") $notes
+  $expected = Join-Path $TestRoot "My Apps\$NewName"
+
+  if ($NewSetupSig -and $NewVersion) {
+    Invoke-InAppUpdate $oldExe
+  } else {
+    $code = Invoke-Program $NewSetup @('/P', '/UPDATE', '/R', '/ARGS')
+    Check ($code -eq 0) "installer exit code 0 (is $code)"
+    Wait-Until { @(Get-Process -Name $NewName -ErrorAction SilentlyContinue).Count -gt 0 } 45 | Out-Null
+    Start-Sleep -Seconds 10
+  }
+
+  Check-Installed $expected
+  Check-OldGone $old
+  Check-Shortcut $Desktop $expected 'desktop'
+  Check-NoOldShortcuts @($oldExe, $msiExe) @($old, (Split-Path $msiExe)) $expected
+  Check ((Get-ShortcutTarget (Join-Path $Desktop "$OldName notes.lnk")) -eq $notes) "a shortcut that is not the app's stays"
+}
+
 # --- A user who chose the install location, deleted the desktop shortcut and
 #     switched autostart off in Task Manager.
 Scenario 'update-custom-location' {
@@ -385,6 +676,7 @@ Scenario 'update-custom-location' {
   Check ((Get-RegDefault "$VendorKey\$NewName") -eq $expected) "install location recorded for the next update"
   Check-Shortcut $StartMenu $expected 'Start-menu'
   Check (-not (Test-Path -LiteralPath (Join-Path $Desktop "$NewName.lnk"))) "no desktop shortcut made: the user had removed it"
+  Check-NoOldShortcuts @((Join-Path $old "$OldName.exe")) @($old) $expected
   Check-DeepLink $expected
   Check ($null -eq (Get-RegValue $RunKey $NewName)) "autostart stays off: it was switched off in Task Manager"
 
@@ -413,6 +705,7 @@ Scenario 'update-in-place' {
   Check (-not (Test-Path -LiteralPath $DefaultNewDir)) "nothing installed in the default location"
   Check-Shortcut $StartMenu $chosen 'Start-menu'
   Check-Shortcut $Desktop $chosen 'desktop'
+  Check-NoOldShortcuts @((Join-Path $old "$OldName.exe")) @() $chosen
   Check-Autostart $chosen
 }
 
@@ -451,6 +744,7 @@ if ($OldMsi -and $NewMsi) {
     Check ($target -eq (Join-Path $new "$NewName.exe")) "desktop shortcut points at the new executable (is '$target')"
     $target = Get-ShortcutTarget (Join-Path $CommonStartMenu "$NewName\$NewName.lnk")
     Check ($target -eq (Join-Path $new "$NewName.exe")) "Start-menu shortcut points at the new executable (is '$target')"
+    Check-NoOldShortcuts @((Join-Path $old "$OldName.exe")) @($old) $new
 
     $running = Wait-Until { @(Get-Process -Name $NewName -ErrorAction SilentlyContinue).Count -gt 0 } 45
     Check $running "the app is running again as $NewName.exe"
@@ -460,6 +754,24 @@ if ($OldMsi -and $NewMsi) {
       $moved = Wait-Until { ($null -eq (Get-RegValue $RunKey $OldName)) -and ($null -ne (Get-RegValue $RunKey $NewName)) } 30
       Check $moved "the running app moved the autostart value to its own name"
       if ($moved) { Check-Autostart $new }
+    }
+  }
+
+  if ($NewMsiSig -and $NewVersion) {
+    # --- An MSI install updated from the running app (the updater takes the
+    #     MSI for it, by the bundle type in its executable).
+    Scenario 'inapp-msi-update' {
+      $code = Invoke-Program 'msiexec.exe' @('/i', "`"$OldMsi`"", '/quiet', '/norestart')
+      if ($code -ne 0) { throw "msiexec returned $code installing the $OldName MSI" }
+      $old = Join-Path $programFiles $OldName
+      $oldExe = Join-Path $old "$OldName.exe"
+
+      Invoke-InAppUpdate $oldExe
+
+      $new = Join-Path $programFiles $NewName
+      Check-Installed $new 'HKEY_LOCAL_MACHINE'
+      Check (-not (Test-Path -LiteralPath $old)) "old install directory gone: $old"
+      Check-NoOldShortcuts @($oldExe) @($old) $new
     }
   }
 
@@ -479,6 +791,7 @@ if ($OldMsi -and $NewMsi) {
 Write-Host ""
 $script:Scenario = 'cleanup'
 Reset-Machine
+Stop-UpdateFeed
 if ($script:Failures.Count -gt 0) {
   Write-Host "$($script:Failures.Count) check(s) failed:" -ForegroundColor Red
   $script:Failures | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
