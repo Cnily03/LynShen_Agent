@@ -1,5 +1,6 @@
 import { mount } from 'svelte';
 import '../../src/lib/app.css';
+import { imageSrc, previewFacts } from './previewFiles';
 
 const calls: { command: string; args: any }[] = [];
 // The window frost choice in storage as the page loads (see set_window_frost).
@@ -13,6 +14,8 @@ Object.assign(window, {
     metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
     transformCallback: () => 1,
     unregisterCallback: () => {},
+    // The asset protocol: the stand-in screenshot for a sent PNG.
+    convertFileSrc: (path: string) => (path.endsWith('.png') ? imageSrc() : `asset://localhost/${encodeURIComponent(path)}`),
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
       switch (command) {
@@ -54,6 +57,8 @@ Object.assign(window, {
           {source:'codex', from:'figma', name:'figma', transport:'http', command:null, args:null, url:'https://mcp.figma.com/mcp', present:false, entry:{name:'figma', transport:'http', enabled:true}},
           {source:'claude', from:'/Users/me/code/app', name:'db', transport:'stdio', command:'db-mcp', args:[], url:null, present:false, entry:{name:'db', transport:'stdio', enabled:true}}
         ]};
+        // A sent file's preview (?shell&preview, previewFiles.ts).
+        case 'preview_file': return previewFacts(args.path, args.maxBytes);
         default: return null;
       }
     }

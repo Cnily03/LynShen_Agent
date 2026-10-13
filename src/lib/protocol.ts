@@ -1,6 +1,7 @@
 import { t } from '$lib/i18n';
 import { invoke } from '@tauri-apps/api/core';
 import type { McpServerEntry } from './mcp';
+import type { PreviewFacts } from './preview/kinds';
 import { DaemonClient, type DaemonEndpoint, type EngineSpec, type SocketLike } from './daemon';
 import { buildBackendOpts } from './backends/settings';
 
@@ -784,9 +785,14 @@ export function clipboardFilePaths(): Promise<string[]> {
 	return invoke<string[]>('clipboard_file_paths').then((paths) => paths ?? []);
 }
 
-// Whether a file or folder is still at `path`.
-export function pathExists(path: string): Promise<boolean> {
-	return invoke<boolean>('path_exists', { path });
+/** A sent file's facts and the start of its text, for its preview tab
+ *  (src-tauri/src/file_preview.rs); rejects with `missing` when it is gone. */
+export function previewFile(path: string, maxBytes: number): Promise<PreviewFacts> {
+	return invoke<PreviewFacts>('preview_file', { path, maxBytes });
+}
+/** Opens a previewed file with its default app (refused for a program). */
+export function openFileDefault(path: string): Promise<void> {
+	return invoke('open_file_default', { path });
 }
 
 // First-run environment check + best-effort dependency install (setup wizard).

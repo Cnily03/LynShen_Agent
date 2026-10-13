@@ -112,7 +112,7 @@
 		/** A file link in a message; `context` is that message's text. */
 		onFile?: (href: string, context?: string) => void;
 		/** Opens a file a user message sent (absent: its chip only shows it). */
-		onAttachment?: (path: string) => void;
+		onAttachment?: (path: string, files: string[]) => void;
 		/** Remove a message the user closed (error notices). */
 		onDismiss?: (m: Msg) => void;
 		/** The session's engine, for reading its errors. */

@@ -427,9 +427,10 @@ try {
   await expect(page.locator('.composer-wrap .chip-name')).toHaveCount(0);
   // The engine is sent what it always was.
   assert.equal(await page.evaluate(() => window.__paneChat().messages.findLast((m) => m.kind === 'user').text), `帮我看看谁发的消息更多\n\nAttached files (read these):\n${doc}`);
-  // Its chip looks the file up before opening it (the stand-in says it is gone).
+  // Its chip asks for a preview (opened by the page shell: ?shell&preview
+  // below), never for the file's folder.
   await sentRow.locator('.ufile').click();
-  await expect.poll(() => page.evaluate((doc) => window.__calls.some((c) => c.command === 'path_exists' && c.args.path === doc), doc)).toBe(true);
+  await page.waitForTimeout(200);
   assert.equal(await page.evaluate(() => window.__calls.some((c) => c.command === 'plugin:opener|reveal_item_in_dir')), false);
   // Copied, it is what was typed and the file's path, without the header.
   await sentRow.hover();
@@ -492,6 +493,73 @@ try {
   await expect(rows.last().locator('.bubble')).toHaveCount(0);
   await expect(rows.last().locator('.ufile .uname')).toHaveText('only.txt');
   await expect(page.locator('.list')).not.toContainText('Attached files');
+  // A chip opens its file in a tab beside the conversation, inside the
+  // project or not, and never shows it in Finder / Explorer: code in a code
+  // view, JSON Lines as records, an archive as a card with the two ways to
+  // open it outside the app, a file that is gone as a state of its own.
+  // (Before, a chip showed the file in its folder.)
+  const tabbed = await browser.newPage({viewport:{width:1440,height:900}});
+  tabbed.on('pageerror', e => errors.push(e.message));
+  await tabbed.goto(base + '?shell&preview');
+  await expect(tabbed.locator('button.ufile').first()).toBeVisible({timeout:30000});
+  const preview = tabbed.locator('.preview:visible');
+  const reveals = () => tabbed.evaluate(() => window.__calls.filter((c) => c.command === 'plugin:opener|reveal_item_in_dir').length);
+  const previewed = (path) => tabbed.evaluate((path) => window.__calls.some((c) => c.command === 'preview_file' && c.args.path === path), path);
+  const code = '/Users/me/code/lynshen-desktop/src/lib/chatWidth.ts';
+  await tabbed.locator('button.ufile', {hasText:'chatWidth.ts'}).click();
+  await expect(preview.locator('.name')).toHaveText('chatWidth.ts');
+  await expect(preview.locator('.cm-content')).toContainText('export function chatColumnWidth');
+  assert.ok(await previewed(code));
+  // Beside the conversation, which stays in view.
+  const chatBox = await tabbed.locator('.chatpane').boundingBox();
+  const previewBox = await preview.boundingBox();
+  assert.ok(chatBox && previewBox && chatBox.x + chatBox.width <= previewBox.x + 1, 'the preview covers the conversation');
+  // A chat file inside the project can move to the editor.
+  await expect(preview.getByRole('button',{name:'在编辑器中打开'})).toBeVisible();
+  // JSON Lines: one record per line, a click lays one out; its source a click away.
+  const jsonl = '/Users/me/Documents/私聊_墨竹.jsonl';
+  await tabbed.locator('button.ufile', {hasText:'私聊_墨竹.jsonl'}).click();
+  await expect(preview.locator('.name')).toHaveText('私聊_墨竹.jsonl');
+  await expect(preview.getByText('1,284 条记录')).toBeVisible();
+  await expect(preview.locator('.rrow')).toHaveCount(200);
+  await preview.locator('.rrow').first().click();
+  await expect(preview.locator('.pretty')).toContainText('"from": "墨竹"');
+  await preview.getByRole('button',{name:'再显示 200 条'}).click();
+  await expect(preview.locator('.rrow')).toHaveCount(400);
+  await preview.getByRole('button',{name:'源文件',exact:true}).click();
+  await expect(preview.locator('.cm-content')).toContainText('"id":90210');
+  // Two files, two tabs; the first one's chip shows its tab again.
+  await expect(tabbed.locator('.ltab', {hasText:'chatWidth.ts'})).toHaveCount(1);
+  await tabbed.locator('button.ufile', {hasText:'chatWidth.ts'}).click();
+  await expect(preview.locator('.name')).toHaveText('chatWidth.ts');
+  await expect(tabbed.locator('.ltab', {hasText:'chatWidth.ts'})).toHaveCount(1);
+  // ... and reads the file again (it may have changed).
+  await expect.poll(() => tabbed.evaluate((code) => window.__calls.filter((c) => c.command === 'preview_file' && c.args.path === code).length, code)).toBe(2);
+  // An archive: a card, whose buttons open it outside the app.
+  const zip = '/Users/me/Downloads/lynshen-desktop-0.5.1.zip';
+  await tabbed.locator('button.ufile', {hasText:'lynshen-desktop-0.5.1.zip'}).click();
+  await expect(preview.getByText('这种文件无法在应用内预览。')).toBeVisible();
+  await expect(preview.locator('.facts')).toContainText('46.0 MB');
+  assert.equal(await reveals(), 0, 'a chip showed its file in the folder');
+  await preview.locator('.card').getByRole('button',{name:'在文件夹中显示'}).click();
+  await expect.poll(() => tabbed.evaluate(() => window.__calls.findLast((c) => c.command === 'plugin:opener|reveal_item_in_dir')?.args.paths[0])).toBe(zip);
+  await preview.locator('.card').getByRole('button',{name:'用默认应用打开'}).click();
+  await expect.poll(() => tabbed.evaluate(() => window.__calls.findLast((c) => c.command === 'open_file_default')?.args.path)).toBe(zip);
+  // A PDF: a card too (the web view cannot show one everywhere).
+  await tabbed.locator('button.ufile', {hasText:'2026 Q3 经营分析.pdf'}).click();
+  await expect(preview.getByText('应用内无法可靠地显示 PDF，请用系统应用查看。')).toBeVisible();
+  // An image: fitted, with zoom.
+  await tabbed.locator('button.ufile', {hasText:'评审截图 2026-10-13.png'}).click();
+  await expect(preview.locator('img')).toBeVisible();
+  const fitted = await preview.locator('.pct').textContent();
+  await preview.getByRole('button',{name:'放大'}).click();
+  await expect(preview.locator('.pct')).not.toHaveText(fitted ?? '');
+  // Gone: said in the tab, the folder and app actions off.
+  await tabbed.locator('button.ufile', {hasText:'error-log-1013.txt'}).click();
+  await expect(preview.getByText('找不到这个文件')).toBeVisible();
+  await expect(preview.locator('.head').getByRole('button',{name:'在文件夹中显示'})).toBeDisabled();
+  assert.equal(await tabbed.evaluate(() => window.__calls.filter((c) => c.command === 'preview_file').every((c) => c.args.path.startsWith('/Users/me/'))), true);
+  await tabbed.close();
   // The phone page reads the history the same way; its chips only show the
   // files, and a quoted message brings its files back to its message box.
   const phone = await browser.newPage({viewport:{width:390,height:844}});
@@ -526,5 +594,5 @@ try {
   await page.goto(base + '?skills&oldEngine');
   await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation.');
 } finally { await browser.close(); await server.close(); }

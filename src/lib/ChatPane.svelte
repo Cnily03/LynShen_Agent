@@ -38,7 +38,6 @@
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import { open } from '@tauri-apps/plugin-dialog';
-	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { treeRows } from '$lib/tree';
 	import { buildSetApprovalModeOp, needsClaudeYoloRespawn, toEngineMode, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import type { PlanAction } from '$lib/PlanCard.svelte';
@@ -55,7 +54,6 @@
 		resolveFileRef,
 		readConfig,
 		writeConfig,
-		pathExists,
 		type Op
 	} from '$lib/protocol';
 	import { buildModelRows, splitRoute, stripGroupSuffix, toolModels, type ToolModel } from '$lib/composer/modelRows';
@@ -102,7 +100,8 @@
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
 	import { parseDelivery } from '$lib/delivery';
-	import { fileName, isInside, sentLabel, splitAttachments, withFiles, withVideo } from '$lib/attachments';
+	import { sentLabel, splitAttachments, withFiles, withVideo } from '$lib/attachments';
+	import { filePreviews } from '$lib/preview/store.svelte';
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import RequirementTag from '$lib/requirements/RequirementTag.svelte';
 	import { statusLabel } from '$lib/requirements/labels';
@@ -1189,23 +1188,12 @@
 		input = takeBack(text);
 		composerEl?.focus();
 	}
-	// A file a message sent: in the editor when it is in the project and reads
-	// as text, shown in Finder / Explorer otherwise. One that is gone says so.
-	async function openAttachment(path: string) {
-		if (!(await pathExists(path).catch(() => false))) {
-			toast.error(t('chat.attachmentMissing', { name: fileName(path) }));
-			return;
-		}
-		const cwd = project?.path;
-		if (cwd && isInside(path, cwd)) {
-			try {
-				await editorStore.open(path, cwd);
-				return;
-			} catch {
-				/* binary or too large: the file manager shows it */
-			}
-		}
-		revealItemInDir(path).catch((e) => toast.error(t('chat.fileOpenFailed', { path, error: String(e) })));
+	// A file a message sent: previewed in a tab beside the conversation
+	// (preview/FilePreview.svelte), whatever it is and wherever it lies; the
+	// tab says when it is gone and offers its folder and its default app.
+	// Only a file in that message's list (`files`) is previewed.
+	function openAttachment(path: string, files: string[]) {
+		filePreviews.open(session.id, path, files);
 	}
 	// A quoted passage drops in at the caret as a chip naming its opening words.
 	function citeText(text: string) {

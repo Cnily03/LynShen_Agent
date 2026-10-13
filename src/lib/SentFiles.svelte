@@ -2,21 +2,11 @@
 	// The files and videos a user message sent, as chips above its bubble (the
 	// bubble shows only what was typed; see attachments.ts). A chip names the
 	// file and its folder; the full path is its tooltip. With `onOpen` a chip
-	// opens the file; without (the phone page) it only shows it.
-	import FileIcon from 'phosphor-svelte/lib/FileIcon';
-	import FileTextIcon from 'phosphor-svelte/lib/FileTextIcon';
-	import FileCodeIcon from 'phosphor-svelte/lib/FileCodeIcon';
-	import FilePdfIcon from 'phosphor-svelte/lib/FilePdfIcon';
-	import FileImageIcon from 'phosphor-svelte/lib/FileImageIcon';
-	import FileXlsIcon from 'phosphor-svelte/lib/FileXlsIcon';
-	import FileDocIcon from 'phosphor-svelte/lib/FileDocIcon';
-	import FilePptIcon from 'phosphor-svelte/lib/FilePptIcon';
-	import FileZipIcon from 'phosphor-svelte/lib/FileZipIcon';
-	import FileAudioIcon from 'phosphor-svelte/lib/FileAudioIcon';
-	import FileVideoIcon from 'phosphor-svelte/lib/FileVideoIcon';
-	import FolderIcon from 'phosphor-svelte/lib/FolderIcon';
+	// opens the file (with the message's list of files: only those may be
+	// previewed); without (the phone page) it only shows it.
 	import FilmStripIcon from 'phosphor-svelte/lib/FilmStripIcon';
-	import { fileKind, fileName, folderOf, type FileKind, type SentVideo } from '$lib/attachments';
+	import { fileKind, fileName, folderOf, type SentVideo } from '$lib/attachments';
+	import { FILE_ICONS } from '$lib/fileIcons';
 	import { t } from '$lib/i18n';
 
 	let {
@@ -26,23 +16,9 @@
 	}: {
 		files: string[];
 		videos?: SentVideo[];
-		onOpen?: (path: string) => void;
+		onOpen?: (path: string, files: string[]) => void;
 	} = $props();
 
-	const ICONS: Record<FileKind, typeof FileIcon> = {
-		folder: FolderIcon,
-		code: FileCodeIcon,
-		text: FileTextIcon,
-		pdf: FilePdfIcon,
-		image: FileImageIcon,
-		table: FileXlsIcon,
-		doc: FileDocIcon,
-		slides: FilePptIcon,
-		archive: FileZipIcon,
-		audio: FileAudioIcon,
-		video: FileVideoIcon,
-		file: FileIcon
-	};
 	/** The name of the folder the file is in (the tooltip has the whole path). */
 	function folderLabel(path: string): string {
 		const dir = folderOf(path);
@@ -52,10 +28,10 @@
 
 <div class="ufiles">
 	{#each files as path, i (i)}
-		{@const Icon = ICONS[fileKind(path)]}
+		{@const Icon = FILE_ICONS[fileKind(path)]}
 		{@const folder = folderLabel(path)}
 		{#if onOpen}
-			<button type="button" class="ufile" title={path} aria-label={t('chat.openAttachment', { name: fileName(path) })} onclick={() => onOpen(path)}>
+			<button type="button" class="ufile" title={path} aria-label={t('chat.openAttachment', { name: fileName(path) })} onclick={() => onOpen(path, files)}>
 				<Icon size={13} aria-hidden="true" /><span class="uname">{fileName(path)}</span>{#if folder}<span class="udir">{folder}</span>{/if}
 			</button>
 		{:else}

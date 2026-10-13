@@ -10,9 +10,18 @@
 	//                           window frost on in storage it shows through)
 	//   &empty                  a conversation with no message yet
 	//   &attach                 messages sent with files (chips above the bubble)
+	//   &preview                the same with files to preview: a chip opens its
+	//                           file in a tab beside the conversation
+	//                           (previewFiles.ts stands in for the files)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import Mosaic from '../../src/lib/workbench/Mosaic.svelte';
+	import FilePreview from '../../src/lib/preview/FilePreview.svelte';
+	import { filePreviews } from '../../src/lib/preview/store.svelte';
+	import { previewOf, previewPanel } from '../../src/lib/preview/kinds';
+	import { activateTab, leafOfTab, leavesOf, singleLeafLayout, type TileLayout } from '../../src/lib/workbench/tiles';
+	import { chatPanel, chatTab, openElsewhere } from '../../src/lib/workbench/canvas';
 	import ChatPane from '../../src/lib/ChatPane.svelte';
 	import Sidebar from '../../src/lib/Sidebar.svelte';
 	import TitleBar from '../../src/lib/shell/TitleBar.svelte';
@@ -23,7 +32,7 @@
 	import { daemon } from '../../src/lib/protocol';
 	import { prefs } from '../../src/lib/prefs.svelte';
 	import { setLocale } from '../../src/lib/i18n';
-	import { withFiles, withVideo } from '../../src/lib/attachments';
+	import { fileName, withFiles, withVideo } from '../../src/lib/attachments';
 
 	const mode = new URL(location.href).searchParams;
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
@@ -80,7 +89,19 @@
 	].join('\n');
 
 	const feed = (ev: Record<string, unknown>) => session.chat.handle(ev as never);
-	if (mode.has('attach')) {
+	if (mode.has('preview')) {
+		const reply = (text: string) => {
+			feed({ type: 'status', message: 'streaming' });
+			feed({ type: 'assistant_delta', delta: text });
+			feed({ type: 'status', message: 'ready' });
+		};
+		feed({ type: 'user_message', content: withFiles('帮我看看谁发的消息更多', ['/Users/me/Documents/私聊_墨竹.jsonl']) });
+		reply('墨竹发了 642 条，你发了 642 条：一样多。');
+		feed({ type: 'user_message', content: withFiles('列宽的算法在这里，顺便看下评审截图和发布包', ['/Users/me/code/lynshen-desktop/src/lib/chatWidth.ts', '/Users/me/Desktop/评审截图 2026-10-13.png', '/Users/me/Downloads/lynshen-desktop-0.5.1.zip']) });
+		reply('列宽按对话区的 75% 算，最窄 640px、最宽 1120px。');
+		feed({ type: 'user_message', content: withFiles('对比口径', ['/Users/me/code/lynshen-desktop/docs/metrics.md', '/Users/me/Documents/季度报告/2026 Q3 经营分析.pdf', '/Users/me/Downloads/error-log-1013.txt']) });
+		reply('报告按月活，metrics.md 已改成月活。');
+	} else if (mode.has('attach')) {
 		// As the engine echoes them: the files listed after the text (attachments.ts).
 		const reply = (text: string) => {
 			feed({ type: 'status', message: 'streaming' });
@@ -108,6 +129,22 @@
 		feed({ type: 'assistant_delta', delta: '已改好：默认是「自适应」，可以在 设置 → 通用 → 对话宽度 里换成「标准」或「铺满」。' });
 		feed({ type: 'status', message: 'ready' });
 	}
+
+	// The canvas of ?shell&preview: the conversation, and a tab beside it
+	// for each file a chip opens (as +page.svelte places it).
+	let tiles = $state<TileLayout>(singleLeafLayout([chatTab(session.id)]));
+	$effect(() => {
+		const request = filePreviews.request;
+		if (!request) return;
+		untrack(() => {
+			const panel = previewPanel(request.path);
+			const open = leavesOf(tiles.root).flatMap((l) => l.tabs).find((tab) => tab.panel === panel);
+			tiles = open
+				? activateTab(tiles, open.id)
+				: openElsewhere(tiles, { id: `p-${panel}`, panel }, { place: 'side', chatLeaf: leafOfTab(tiles.root, chatPanel(session.id))?.id ?? null });
+			filePreviews.request = null;
+		});
+	});
 
 	onMount(() => {
 		// What a frosted window shows behind the page: the lightest and the
@@ -149,7 +186,19 @@
 				footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
 			/>
 			<div class="canvas" data-testid="canvas">
-				<ChatPane {session} {store} isActive />
+				{#if mode.has('preview')}
+					<Mosaic hideSoloBar layout={tiles} onchange={(next) => (tiles = next)} label={(tab) => (previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : session.chat.title || '对话')}>
+						{#snippet panel(tab)}
+							{#if previewOf(tab.panel)}
+								<FilePreview path={previewOf(tab.panel)!} root={first.path} />
+							{:else}
+								<ChatPane {session} {store} isActive />
+							{/if}
+						{/snippet}
+					</Mosaic>
+				{:else}
+					<ChatPane {session} {store} isActive />
+				{/if}
 			</div>
 		</div>
 	</div>
