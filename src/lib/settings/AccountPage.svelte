@@ -1,8 +1,10 @@
 <script lang="ts">
 	// Settings → 账户 for a signed-in LynShen Console account: who it is (with
 	// the avatar the website has, which 更换头像 changes there too), the
-	// money (balance, what was granted and topped up, the plan), the last
-	// minute's usage, and the places the account is managed.
+	// money (balance and its currency, what was granted and topped up, the
+	// plan with its windows and who pays), the last minute's usage, and the
+	// places the account is managed. The account card in the sidebar shows a
+	// short summary and opens this page for the rest.
 	import { onMount, untrack } from 'svelte';
 	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
 	import SquaresFourIcon from 'phosphor-svelte/lib/SquaresFourIcon';
@@ -29,6 +31,7 @@
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
 	import { trial } from '$lib/trial.svelte';
 	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
+	import PlanUsage from '$lib/PlanUsage.svelte';
 
 	let {
 		user,
@@ -158,10 +161,12 @@
 			</span>
 		{/if}
 	</div>
-	<!-- With a desktop plan in force, the tile also holds its funding choice. -->
-	<div class="tile" class:wide={!!trial.funding}>
+	<!-- With a desktop plan in force, the tile also holds its windows (the
+	     account card shows one line and opens this page) and the funding choice. -->
+	<div class="tile" class:wide={!!trialPlan || !!trial.funding} id="account-plan">
 		<span class="tile-label">{t('shell.account.plan')}</span>
 		<span class="mid">{plan || t('settings.accountPage.payAsYouGo')}</span>
+		{#if trialPlan}<PlanUsage plan={trialPlan} />{/if}
 		<PlanFundingChoice />
 	</div>
 	<div class="tile live">

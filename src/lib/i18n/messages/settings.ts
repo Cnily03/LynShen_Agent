@@ -317,6 +317,8 @@ const settings = {
 		},
 		account: {
 			keyPlaceholder: '请输入 API Key',
+			loading: '正在读取账户…',
+			readFailed: '无法读取账户信息：{msg}',
 			groupUnresolved: '分组未确定',
 			oauthLogin: '在浏览器中授权 {provider}',
 			oauthHint: '使用订阅账户授权。授权在浏览器中完成；API Key 也可单独配置。',
@@ -1135,6 +1137,8 @@ const settings = {
 		},
 		account: {
 			keyPlaceholder: 'Enter API Key',
+			loading: 'Reading your account…',
+			readFailed: 'Could not read your account: {msg}',
 			groupUnresolved: 'Group unresolved',
 			oauthLogin: 'Authorize {provider} in browser',
 			oauthHint: 'Authorize your subscription account in the browser, or configure an API key separately.',

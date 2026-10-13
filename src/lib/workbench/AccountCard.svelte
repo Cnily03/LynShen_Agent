@@ -1,32 +1,30 @@
 <script lang="ts">
-	import { popOut } from '$lib/ui/motion';
 	import { onMount } from 'svelte';
+	import { popOut } from '$lib/ui/motion';
 	import ArrowCircleDownIcon from 'phosphor-svelte/lib/ArrowCircleDownIcon';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import CoinsIcon from 'phosphor-svelte/lib/CoinsIcon';
 	import GearIcon from 'phosphor-svelte/lib/GearIcon';
-	import MonitorIcon from 'phosphor-svelte/lib/MonitorIcon';
-	import MoonIcon from 'phosphor-svelte/lib/MoonIcon';
-	import PulseIcon from 'phosphor-svelte/lib/PulseIcon';
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
 	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
-	import SunIcon from 'phosphor-svelte/lib/SunIcon';
 	import UserIcon from 'phosphor-svelte/lib/UserIcon';
 	import Button from '$lib/ui/Button.svelte';
 	import { accountAvatar } from '$lib/accountAvatar.svelte';
+	import { account } from '$lib/accountSession.svelte';
 	import { t } from '$lib/i18n';
-	import { fetchMonoizeLiveUsage, monoizeLogout, type LiveUsage, type MonoizeUser } from '$lib/protocol';
-	import { prefs } from '$lib/prefs.svelte';
-	import { setTheme, themeState, type ThemePref } from '$lib/theme.svelte';
+	import { monoizeLogout, type MonoizeUser } from '$lib/protocol';
 	import { shortcutLabel } from '$lib/shortcuts';
-	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
-	import { credits, planDate, sortedWindows, usedShare, windowLabel } from '$lib/trial';
+	import { avatarInitial, roleBadgeKey } from '$lib/account';
+	import { credits, planDate, tightestWindow, windowLabel } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
-	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 
-	// The account card, as the LynShen Console's account menu: who is signed
-	// in, balance and plan, the last minute's usage, then settings, the
-	// currency and theme switches and logging out. Fixed to the window (the
-	// sidebar would clip it); the footer owns opening and closing.
+	// The account card, a short menu as in Claude, Codex or Linear: who is
+	// signed in, one line for the plan (its tightest window and its end) and
+	// one for the balance, both opening Settings → 账户, then settings and
+	// logging out. The rest (the plan's windows, who pays, the last minute's
+	// usage, the currency) lives in Settings → 账户, the theme in Settings →
+	// 外观. Fixed to the window (the sidebar would clip it); the footer owns
+	// opening and closing.
 	let {
 		loggedIn,
 		user,
@@ -38,11 +36,15 @@
 		width,
 		side,
 		onSignIn,
+		onAccount,
 		onSettings,
 		onUpdate,
 		onLoggedOut
 	}: {
+		/** Signed in (or, before the sign-in is read, the account kept from the
+		 *  last run): never the logged-out card while that is not known. */
 		loggedIn: boolean;
+		/** The account; null while it is read. */
 		user: MonoizeUser | null;
 		/** The balance as shown (in the chosen currency); null while loading. */
 		balance: string | null;
@@ -53,47 +55,25 @@
 		width: number;
 		/** Above the account row, or right of the collapsed rail's avatar. */
 		side: 'top' | 'right';
-		/** Settings → Account. */
+		/** Settings → Account (signed out: to sign in). */
 		onSignIn: () => void;
+		/** Settings → Account: the plan and balance lines. */
+		onAccount?: () => void;
 		onSettings: () => void;
 		onUpdate: () => void;
 		onLoggedOut: () => void;
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user?.role));
-	const plan = $derived(user?.billing_plan?.name?.trim() || '');
-	// The first-use trial plan in force (trial.svelte.ts): its windows and end.
-	const trialPlan = $derived(loggedIn ? trial.plan : null);
-
-	// The last minute's usage, every 10 s while the card is open (as the
-	// console polls it).
-	let live = $state<LiveUsage | null>(null);
+	const billingPlan = $derived(user?.billing_plan?.name?.trim() || '');
+	// The desktop plan in force (trial.svelte.ts): its name, the window with
+	// the least left, and its end.
+	const plan = $derived(loggedIn ? trial.plan : null);
+	const tight = $derived(plan ? tightestWindow(plan) : null);
+	// The plan's windows as they stand now.
 	onMount(() => {
-		if (!loggedIn) return;
-		// The plan's windows as they stand now, and the funding choice.
-		void trial.refreshStatus();
-		let alive = true;
-		const poll = () =>
-			fetchMonoizeLiveUsage()
-				.then((v) => alive && (live = v))
-				.catch(() => alive && (live = null));
-		poll();
-		const timer = setInterval(poll, 10_000);
-		return () => {
-			alive = false;
-			clearInterval(timer);
-		};
+		if (loggedIn) void trial.refreshStatus();
 	});
-
-	const THEMES: { value: ThemePref; icon: typeof SunIcon; key: string }[] = [
-		{ value: 'light', icon: SunIcon, key: 'settings.themeLight' },
-		{ value: 'dark', icon: MoonIcon, key: 'settings.themeDark' },
-		{ value: 'system', icon: MonitorIcon, key: 'settings.themeSystem' }
-	];
-	const CURRENCIES = [
-		{ value: 'CNY', label: '¥ CNY' },
-		{ value: 'USD', label: '$ USD' }
-	] as const;
 
 	// The sidebar contains its layout and paint, which would make it the box
 	// a fixed element is placed in: the card lives under <body>. The wrapper
@@ -119,8 +99,10 @@
 			busy = false;
 		}
 		logoutError = '';
+		account.signedOut();
 		onLoggedOut();
 	}
+	const openAccount = () => (onAccount ?? onSignIn)();
 </script>
 
 <div class="acct-root">
@@ -145,51 +127,40 @@
 				<span class="name">{loggedIn ? (user?.username ?? 'LynShen') : t('shell.notLoggedIn')}</span>
 				{#if loggedIn && badge}<span class="badge">{t(badge)}</span>{/if}
 			</div>
-			<span class="sub">{loggedIn ? (user?.email || 'LynShen Console') : t('shell.account.signInHint')}</span>
+			<span class="sub">{loggedIn ? (user ? user.email || 'LynShen Console' : t('settings.account.loading')) : t('shell.account.signInHint')}</span>
 		</div>
 	</div>
 
 	{#if loggedIn}
-		<div class="sec facts">
-			<div class="kv">
-				<span>{t('shell.account.balance')}</span>
-				<span class="amount">
-					<CoinsIcon size={14} />
-					<span class="num">{balance ?? (balanceFailed ? '—' : t('common.loading'))}</span>
+		<div class="sec lines">
+			{#if plan}
+				<button class="line plan" onclick={openAccount} title={t('shell.account.planDetails')}>
+					<span class="line-top">
+						<span class="lname">{plan.name.trim() || t('shell.trial.label')}</span>
+						<span class="lval">{t('shell.account.expires', { date: planDate(plan.expires_at) })}</span>
+						<CaretRightIcon size={12} />
+					</span>
+					{#if tight}
+						<span class="meter" aria-hidden="true"><span class:full={tight.share >= 1} style:width="{tight.share * 100}%"></span></span>
+						<span class="lsub">{t('shell.account.windowLeft', { window: windowLabel(tight.window.kind), n: credits(tight.left, true) })}</span>
+					{/if}
+				</button>
+			{:else if billingPlan}
+				<button class="line" onclick={openAccount}>
+					<span class="line-top">
+						<span class="lkey">{t('shell.account.plan')}</span>
+						<span class="lval strong">{billingPlan}</span>
+						<CaretRightIcon size={12} />
+					</span>
+				</button>
+			{/if}
+			<button class="line" onclick={openAccount}>
+				<span class="line-top">
+					<span class="lkey">{t('shell.account.balance')}</span>
+					<span class="lval strong amount"><CoinsIcon size={13} /><span class="num">{balance ?? (balanceFailed ? '—' : t('common.loading'))}</span></span>
+					<CaretRightIcon size={12} />
 				</span>
-			</div>
-			<div class="kv">
-				<span>{t('shell.account.plan')}</span>
-				{#if trialPlan}<span class="plan">{trialPlan.name.trim() || t('shell.trial.label')}</span>
-				{:else if plan}<span class="plan">{plan}</span>{:else}<span class="none">{t('shell.account.noPlan')}</span>{/if}
-			</div>
-		</div>
-
-		{#if trialPlan}
-			<div class="sec trial" aria-label={t('shell.trial.label')}>
-				{#each sortedWindows(trialPlan) as w (w.kind)}
-					{@const share = usedShare(w)}
-					<div class="win">
-						<div class="kv">
-							<span>{windowLabel(w.kind)}</span>
-							<span class="num used">{t('shell.trial.used', { used: credits(w.used_cny, true), quota: credits(w.quota_cny, true) })}</span>
-						</div>
-						<div class="meter" aria-hidden="true"><span class:full={share >= 1} style:width="{share * 100}%"></span></div>
-						{#if w.resets_at}<span class="reset">{t('shell.trial.resets', { time: planDate(w.resets_at, true) })}</span>{/if}
-					</div>
-				{/each}
-				<span class="ends">{t('shell.account.expires', { date: planDate(trialPlan.expires_at, true) })}</span>
-				<PlanFundingChoice compact />
-			</div>
-		{/if}
-
-		<div class="sec live">
-			<div class="live-head"><PulseIcon size={12} /><span>{t('shell.account.liveUsage')}</span></div>
-			<div class="tiles">
-				<div class="tile"><span class="v">{liveCount(live?.rpm)}</span><span class="k">{t('shell.account.rpm')}</span></div>
-				<div class="tile"><span class="v">{liveCount(live?.tpm)}</span><span class="k">{t('shell.account.tpm')}</span></div>
-				<div class="tile"><span class="v">{cacheHitText(live?.cache_hit_rate)}</span><span class="k">{t('shell.account.cacheHit')}</span></div>
-			</div>
+			</button>
 		</div>
 	{:else}
 		<div class="sec">
@@ -209,29 +180,6 @@
 				<span class="pop-label grow">{t('shell.updateAvailable')}</span>
 			</button>
 		{/if}
-	</div>
-
-	<div class="sec rows">
-		{#if loggedIn}
-			<div class="ctl">
-				<span>{t('shell.account.currency')}</span>
-				<div class="seg" role="group" aria-label={t('shell.account.currency')}>
-					{#each CURRENCIES as c (c.value)}
-						<button class="opt" class:on={prefs.balanceCurrency === c.value} aria-pressed={prefs.balanceCurrency === c.value} onclick={() => prefs.setBalanceCurrency(c.value)}>{c.label}</button>
-					{/each}
-				</div>
-			</div>
-		{/if}
-		<div class="ctl">
-			<span>{t('shell.account.theme')}</span>
-			<div class="seg" role="group" aria-label={t('shell.account.theme')}>
-				{#each THEMES as th (th.value)}
-					<button class="opt icon" class:on={themeState.pref === th.value} aria-pressed={themeState.pref === th.value} title={t(th.key)} aria-label={t(th.key)} onclick={() => setTheme(th.value)}>
-						<th.icon size={14} />
-					</button>
-				{/each}
-			</div>
-		</div>
 	</div>
 
 	{#if loggedIn}
@@ -349,72 +297,86 @@
 	.sec.rows {
 		padding: 4px 0;
 	}
-	.facts {
+	.sec.lines {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 2px;
+		padding: 4px 0;
 	}
-	.kv {
+	/* The plan and balance lines: one row each, a fill on hover, opening
+	   Settings → 账户. */
+	.line {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		width: 100%;
+		padding: 8px 10px 8px 12px;
+		border: none;
+		border-radius: var(--r-md);
+		background: none;
+		color: var(--dim);
+		font: inherit;
+		font-size: var(--fs-xs);
+		text-align: left;
+		cursor: pointer;
+		transition: background var(--t-fast) var(--ease-out);
+	}
+	.line:hover {
+		background: var(--surface2);
+	}
+	.line-top {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		min-height: 22px;
-		color: var(--dim);
-		font-size: var(--fs-xs);
+		gap: 8px;
+		min-width: 0;
+	}
+	.line-top > :global(svg) {
+		flex-shrink: 0;
+		color: var(--dim2);
+	}
+	.lname {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text);
+		font-size: var(--fs-sm);
+		font-weight: 500;
+	}
+	.lkey {
+		flex: 1;
+		white-space: nowrap;
+	}
+	.lval {
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
+	.strong {
+		color: var(--text);
+		font-weight: 500;
 	}
 	.amount {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		min-width: 0;
-		color: var(--text);
-		font-weight: 500;
 	}
 	.amount > :global(svg) {
-		flex-shrink: 0;
 		color: var(--warn);
 	}
 	.num {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		font-family: var(--font-mono);
 		font-variant-numeric: tabular-nums;
 	}
-	.plan {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--text);
-		font-weight: 500;
-	}
-	.none {
-		color: var(--dim);
-	}
-	/* The trial plan's windows, as the console's wallet: used / quota and a bar. */
-	.trial {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-	.win {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-	.win .kv {
-		min-height: 18px;
-	}
-	.used {
-		color: var(--text);
-	}
 	.meter {
-		height: 4px;
+		display: block;
+		height: 3px;
 		overflow: hidden;
 		border-radius: var(--r-full);
 		background: var(--surface2);
+	}
+	.line:hover .meter {
+		background: color-mix(in oklab, var(--text) 10%, transparent);
 	}
 	.meter > span {
 		display: block;
@@ -425,45 +387,7 @@
 	.meter > span.full {
 		background: var(--warn);
 	}
-	.reset,
-	.ends {
-		color: var(--dim);
-		font-size: var(--fs-2xs);
-	}
-	.live-head {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding-bottom: 6px;
-		color: var(--dim);
-		font-size: var(--fs-2xs);
-		font-weight: 500;
-	}
-	.live-head > :global(svg) {
-		color: var(--ok);
-	}
-	.tiles {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 4px;
-	}
-	.tile {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1px;
-		padding: 6px 4px;
-		border-radius: var(--r-sm);
-		background: var(--surface2);
-	}
-	.tile .v {
-		color: var(--text);
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
-		font-weight: 500;
-		font-variant-numeric: tabular-nums;
-	}
-	.tile .k {
+	.lsub {
 		color: var(--dim);
 		font-size: var(--fs-2xs);
 	}
@@ -478,63 +402,9 @@
 	.danger .pop-label {
 		color: var(--err);
 	}
-	.ctl {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		min-height: 40px;
-		padding: 0 6px 0 12px;
-		color: var(--dim);
-		font-size: var(--fs-xs);
-	}
-	/* A compact pill switch, as the console's (Segmented is sized for settings rows). */
-	.seg {
-		display: inline-flex;
-		gap: 2px;
-		padding: 3px;
-		border-radius: var(--r-full);
-		background: var(--surface2);
-	}
-	.opt {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 60px;
-		height: 24px;
-		padding: 0 8px;
-		border: none;
-		border-radius: var(--r-full);
-		background: none;
-		color: var(--dim);
-		font: inherit;
-		font-size: var(--fs-2xs);
-		font-weight: 500;
-		cursor: pointer;
-		transition:
-			background var(--t-fast) var(--ease-out),
-			color var(--t-fast) var(--ease-out),
-			box-shadow var(--t-fast) var(--ease-out);
-	}
-	.opt.icon {
-		min-width: 32px;
-		padding: 0;
-	}
-	.opt:hover {
-		color: var(--text);
-	}
-	.opt.on {
-		background: var(--panel);
-		color: var(--text);
-		box-shadow: var(--shadow-sm);
-	}
 	.err {
 		margin: 2px 12px 6px;
 		color: var(--err);
 		font-size: var(--fs-xs);
-	}
-	.kv span:first-child {
-		flex-shrink: 0;
-		white-space: nowrap;
 	}
 </style>

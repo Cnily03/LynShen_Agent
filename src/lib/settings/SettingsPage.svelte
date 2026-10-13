@@ -55,7 +55,6 @@
 		fetchMonoizeBalance,
 		fetchMonoizeModels,
 		monoizeLogout,
-		monoizeSession,
 		monoizeMarketplace,
 		setBackgroundImage,
 		clearBackgroundImage,
@@ -66,6 +65,7 @@
 		monoizeModelEntries
 	} from '$lib/protocol';
 	import { monoizeEntries } from '$lib/providers/monoize';
+	import { account } from '$lib/accountSession.svelte';
 	import { dispatch } from '$lib/backends/router';
 	import { caps } from '$lib/backends';
 	import { prefs, TURN_STAT_KEYS, BACKGROUND_STRENGTHS, vibrancySupported } from '$lib/prefs.svelte';
@@ -673,7 +673,9 @@
 	// ---------- Monoize account: login / register / model square ----------
 	// 登录成功后由 Rust 侧自动创建仅客户端使用的 key（providers.monoize），
 	// 界面不展示也不可复制；退出登录时在网关侧吊销。
-	let monoizeUser = $state<MonoizeUser | null>(null);
+	// The account as last read (accountSession.svelte.ts): kept from the last
+	// run, so the page never shows 未登录 while this run's read is under way.
+	const monoizeUser = $derived<MonoizeUser | null>(account.user);
 	let monoizeLogoutError = $state('');
 	let squareOpen = $state(false);
 	let squareModels = $state<MonoizeMarketplaceModel[] | null>(null);
@@ -681,12 +683,7 @@
 	let squareSyncMsg = $state('');
 
 	async function loadMonoizeSession() {
-		try {
-			const s = await monoizeSession();
-			monoizeUser = s.logged_in && s.session ? s.session.user : null;
-		} catch {
-			monoizeUser = null;
-		}
+		await account.read();
 	}
 
 	async function doMonoizeLogout() {
@@ -697,7 +694,7 @@
 			return;
 		}
 		monoizeLogoutError = '';
-		monoizeUser = null;
+		account.signedOut();
 		squareModels = null;
 		keyed = (await readAuthProviders()) ?? [];
 		loadBalances();
@@ -705,7 +702,7 @@
 		onAccountLogout?.();
 	}
 	async function onMonoizeAuthorized(user: MonoizeUser) {
-		monoizeUser = user;
+		account.signedIn(user);
 		keyed = (await readAuthProviders()) ?? [];
 		loadBalances();
 		editing = null;
@@ -1050,6 +1047,18 @@
 							onInvite={() => (section = 'invite')}
 							onDevices={() => (section = 'devices')}
 						/>
+					{:else if account.state === 'loading'}
+						<!-- Being read: neither the account nor 未登录 yet. -->
+						<div class="acct-wait" role="status" aria-live="polite">
+							<CircleNotchIcon size={16} class="spin" />
+							<span>{t('settings.account.loading')}</span>
+						</div>
+					{:else if account.state === 'error'}
+						<SettingsSection>
+							<SettingsRow id="account-login" title={t('settings.page.lynshenAccount')} description={t('settings.account.readFailed', { msg: account.error })}>
+								<Button size="sm" onclick={() => void account.read()}>{t('common.retry')}</Button>
+							</SettingsRow>
+						</SettingsSection>
 					{:else}
 						<SettingsSection>
 							<SettingsRow id="account-login" title={t('settings.page.lynshenAccount')} description={t('settings.account.notLoggedIn')}>
@@ -1829,6 +1838,18 @@
 		font-size: var(--fs-2xs);
 		color: var(--dim2);
 		flex-shrink: 0;
+	}
+	/* Settings → 账户 while the account is read: the page's first line, quiet. */
+	.acct-wait {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 96px;
+		padding: 20px;
+		border-radius: var(--r-xl);
+		background: var(--panel);
+		color: var(--dim);
+		font-size: var(--fs-sm);
 	}
 	.optlock {
 		font-size: var(--fs-2xs);

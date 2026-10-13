@@ -5,6 +5,7 @@ import { setLocale } from '$lib/i18n';
 // The account card with a trial plan in force (trial.svelte.ts stands in).
 vi.mock('$lib/trial.svelte', () => ({
 	trial: {
+		refreshStatus: async () => {},
 		plan: {
 			name: '7 天体验套餐',
 			group: '国内模型分组',
@@ -33,15 +34,26 @@ const props = (loggedIn: boolean) => ({
 const text = (html: string) => html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 describe('the account card', () => {
-	it('shows the trial plan: both windows, shortest first, and its end', async () => {
+	it('shows the plan on one line: its name, the tightest window and its end, then the balance', async () => {
 		setLocale('zh');
 		const { default: AccountCard } = await import('./AccountCard.svelte');
 		const shown = text(render(AccountCard, { props: props(true) }).body);
-		expect(shown).toContain('套餐 7 天体验套餐');
-		expect(shown).toMatch(/5 小时 1\.00 \/ 4\.00 积分 .*7 天 2\.50 \/ 10\.00 积分/);
-		expect(shown).toMatch(/10月13日 \d\d:00 恢复/);
-		expect(shown).toMatch(/10月20日 \d\d:40 到期/);
-		expect(shown).not.toContain('未分配订阅套餐');
+		expect(shown).toContain('7 天体验套餐 10月20日 到期');
+		// 7 天: 25% used; 5 小时: 25% used: the shorter one on a tie.
+		expect(shown).toContain('5 小时额度剩 3.00 积分');
+		expect(shown).toContain('余额 12.30 CNY');
+		expect(shown).toContain('设置');
+		expect(shown).toContain('退出登录');
+		// The rest is in Settings → 账户 / 外观.
+		for (const gone of ['最近 60 秒', '计费方式', '显示货币', '主题', '7 天 2.50']) expect(shown).not.toContain(gone);
+	});
+
+	it('reads as loading, not logged out, while the account is read', async () => {
+		const { default: AccountCard } = await import('./AccountCard.svelte');
+		const shown = text(render(AccountCard, { props: { ...props(true), user: null, balance: null } }).body);
+		expect(shown).toContain('正在读取账户…');
+		expect(shown).not.toContain('未登录');
+		expect(shown).not.toContain('登录 LynShen 账号');
 	});
 
 	it('shows no plan while signed out', async () => {
@@ -49,5 +61,6 @@ describe('the account card', () => {
 		const shown = text(render(AccountCard, { props: props(false) }).body);
 		expect(shown).not.toContain('体验套餐');
 		expect(shown).not.toContain('积分');
+		expect(shown).toContain('登录 LynShen 账号');
 	});
 });

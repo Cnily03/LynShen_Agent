@@ -886,8 +886,8 @@ const shell = {
 			rpm: 'RPM',
 			tpm: 'TPM',
 			cacheHit: '缓存命中',
-			currency: '显示货币',
-			theme: '主题',
+			windowLeft: '{window}额度剩 {n} 积分',
+			planDetails: '在设置中查看套餐和余额',
 			logout: '退出登录',
 			roles: { admin: '管理员', superAdmin: '超级管理员' }
 		},
@@ -1898,8 +1898,8 @@ const shell = {
 			rpm: 'RPM',
 			tpm: 'TPM',
 			cacheHit: 'Cache hit',
-			currency: 'Currency',
-			theme: 'Theme',
+			windowLeft: '{window}: {n} credits left',
+			planDetails: 'See the plan and balance in Settings',
 			logout: 'Log out',
 			roles: { admin: 'Admin', superAdmin: 'Super admin' }
 		},
