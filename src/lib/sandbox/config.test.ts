@@ -98,6 +98,13 @@ describe('patches', () => {
 		expect(Object.keys(patch.projects as object)).toEqual(['/abs/project/root']);
 	});
 
+	it('keeps a project entry that still has a key this page does not know, an empty list too', () => {
+		const cfg = { projects: { '/p': { command_rules: [{ prefix: 'make', action: 'allow' }], network_hosts: [] } } };
+		expect(removeRulePatch(cfg, '/p', { prefix: 'make', action: 'allow' })).toEqual({
+			projects: { '/p': { command_rules: [], network_hosts: [] } }
+		});
+	});
+
 	it('edits a rule in place and keeps its other fields', () => {
 		const was = { prefix: 'npm install', action: 'allow' as const };
 		expect(updateRulePatch(CFG(), '/abs/project/root', was, { prefix: 'npm ci', action: 'ask' })).toMatchObject({

@@ -104,17 +104,19 @@ export function readSandboxSettings(cfg: Json, project = ''): SandboxSettings {
 	};
 }
 
+const LIST_KEYS = ['sandbox_directories', 'command_rules'];
+
 /** The patch that replaces one list (`sandbox_directories` or
  *  `command_rules`) of a scope: the top-level key, or `projects` with that
  *  project's entry changed and every other project and key kept. A project
- *  left with nothing is dropped. */
+ *  left with nothing (no other key, these two lists empty) is dropped. */
 function listPatch(cfg: Json, scope: Scope, key: 'sandbox_directories' | 'command_rules', next: unknown[]): Json {
 	if (scope === GLOBAL) return { [key]: next };
 	const projects: Json = isObject(cfg.projects) ? { ...cfg.projects } : {};
 	const name = projectKey(cfg, scope);
 	const entry: Json = isObject(projects[name]) ? { ...(projects[name] as Json) } : {};
 	entry[key] = next;
-	const empty = Object.values(entry).every((v) => Array.isArray(v) && v.length === 0);
+	const empty = Object.entries(entry).every(([k, v]) => LIST_KEYS.includes(k) && Array.isArray(v) && v.length === 0);
 	if (empty) delete projects[name];
 	else projects[name] = entry;
 	return { projects };
