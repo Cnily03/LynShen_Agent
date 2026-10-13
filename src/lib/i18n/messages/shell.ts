@@ -844,6 +844,19 @@ const shell = {
 			logout: '退出登录',
 			roles: { admin: '管理员', superAdmin: '超级管理员' }
 		},
+		// The first-use trial plan (src/lib/trial.ts): the one-time grant card
+		// and the plan in the account card. 1 积分 = ¥1.
+		trial: {
+			label: '体验套餐',
+			grantTitle: '已赠送 {days} 天体验套餐',
+			domestic: '国内模型',
+			total: '共 {n} 积分',
+			perWindow: '每 {window}最多 {n} 积分',
+			until: '到期 {date}',
+			ok: '知道了',
+			used: '{used} / {quota} 积分',
+			resets: '{time} 恢复'
+		},
 		sidebarCollapse: '收起侧栏',
 		sidebarExpand: '展开侧栏',
 		settings: '设置',
@@ -1788,6 +1801,17 @@ const shell = {
 			theme: 'Theme',
 			logout: 'Log out',
 			roles: { admin: 'Admin', superAdmin: 'Super admin' }
+		},
+		trial: {
+			label: 'Trial plan',
+			grantTitle: '{days}-day trial plan added',
+			domestic: 'Domestic models',
+			total: '{n} credits in all',
+			perWindow: 'at most {n} per {window}',
+			until: 'ends {date}',
+			ok: 'Got it',
+			used: '{used} / {quota} credits',
+			resets: 'Resets {time}'
 		},
 		sidebarCollapse: 'Collapse sidebar',
 		sidebarExpand: 'Expand sidebar',

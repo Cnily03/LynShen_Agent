@@ -18,6 +18,8 @@
 	import { setTheme, themeState, type ThemePref } from '$lib/theme.svelte';
 	import { shortcutLabel } from '$lib/shortcuts';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
+	import { credits, planDate, sortedWindows, usedShare, windowLabel } from '$lib/trial';
+	import { trial } from '$lib/trial.svelte';
 
 	// The account card, as the LynShen Console's account menu: who is signed
 	// in, balance and plan, the last minute's usage, then settings, the
@@ -58,6 +60,8 @@
 
 	const badge = $derived(roleBadgeKey(user?.role));
 	const plan = $derived(user?.billing_plan?.name?.trim() || '');
+	// The first-use trial plan in force (trial.svelte.ts): its windows and end.
+	const trialPlan = $derived(loggedIn ? trial.plan : null);
 
 	// The last minute's usage, every 10 s while the card is open (as the
 	// console polls it).
@@ -152,9 +156,31 @@
 			</div>
 			<div class="kv">
 				<span>{t('shell.account.plan')}</span>
-				{#if plan}<span class="plan">{plan}</span>{:else}<span class="none">{t('shell.account.noPlan')}</span>{/if}
+				{#if trialPlan}<span class="plan">{trialPlan.name.trim() || t('shell.trial.label')}</span>
+				{:else if plan}<span class="plan">{plan}</span>{:else}<span class="none">{t('shell.account.noPlan')}</span>{/if}
 			</div>
 		</div>
+
+		{#if trialPlan}
+			<div class="sec trial" aria-label={t('shell.trial.label')}>
+				{#each sortedWindows(trialPlan) as w (w.kind)}
+					{@const share = usedShare(w)}
+					<div class="win">
+						<div class="kv">
+							<span>{windowLabel(w.kind)}</span>
+							<span class="num used">{t('shell.trial.used', { used: credits(w.used_cny, true), quota: credits(w.quota_cny, true) })}</span>
+						</div>
+						<div class="meter" aria-hidden="true"><span class:full={share >= 1} style:width="{share * 100}%"></span></div>
+						{#if w.resets_at}<span class="reset">{t('shell.trial.resets', { time: planDate(w.resets_at, true) })}</span>{/if}
+					</div>
+				{/each}
+				<span class="ends">{t('shell.account.expires', { date: planDate(trialPlan.expires_at, true) })}</span>
+				<!-- TODO(trial-funding-choice): the choice "优先用体验套餐 / 用余额" goes
+				     here once the gateway exposes a funding setting for desktop keys.
+				     The contract points at feat/phone-plans phase 1, which has none for
+				     the desktop surface (plan-surfaces.spec.md PS-N1). -->
+			</div>
+		{/if}
 
 		<div class="sec live">
 			<div class="live-head"><PulseIcon size={12} /><span>{t('shell.account.liveUsage')}</span></div>
@@ -358,6 +384,43 @@
 	}
 	.none {
 		color: var(--dim);
+	}
+	/* The trial plan's windows, as the console's wallet: used / quota and a bar. */
+	.trial {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.win {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.win .kv {
+		min-height: 18px;
+	}
+	.used {
+		color: var(--text);
+	}
+	.meter {
+		height: 4px;
+		overflow: hidden;
+		border-radius: var(--r-full);
+		background: var(--surface2);
+	}
+	.meter > span {
+		display: block;
+		height: 100%;
+		border-radius: inherit;
+		background: var(--accent);
+	}
+	.meter > span.full {
+		background: var(--warn);
+	}
+	.reset,
+	.ends {
+		color: var(--dim);
+		font-size: var(--fs-2xs);
 	}
 	.live-head {
 		display: flex;

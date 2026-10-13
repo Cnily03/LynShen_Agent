@@ -641,6 +641,13 @@ export const fetchDevices = () => gatewayCall<DeviceOverview>('monoize_devices')
 export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) =>
 	gatewayCall<{ balance_nano_usd: string }>('monoize_buy_seat', { kind, days, requestId });
 
+/** This installation's id (DA-4a), which the trial claim is keyed by; null
+ *  when it could not be stored. */
+export const desktopInstallationId = () => invoke<string | null>('desktop_installation_id');
+/** Claims the first-use trial plan with the device key (src/lib/trial.ts
+ *  reads the answer); a refusal is a GatewayError (404: an older gateway). */
+export const claimTrial = () => gatewayCall<unknown>('monoize_trial_claim');
+
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with
  *  the device key); null when unavailable (signed out, an older gateway), and

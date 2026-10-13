@@ -56,6 +56,8 @@
 	import { teamSwitch } from '$lib/agents/teamSwitch.svelte';
 	import { checkDaemonVersion } from '$lib/daemonVersion';
 	import UpdatePrompt from '$lib/UpdatePrompt.svelte';
+	import TrialGrantCard from '$lib/TrialGrantCard.svelte';
+	import { trial } from '$lib/trial.svelte';
 	import { browser, type WebRef } from '$lib/browser.svelte';
 	import { prefs } from '$lib/prefs.svelte';
 	import { fmtTokens } from '$lib/usageStats';
@@ -389,8 +391,16 @@
 					}
 				}
 				providers = p;
+				syncTrial(p);
 			})
 			.catch(() => {});
+	}
+
+	/** The first-use trial plan follows the LynShen sign-in (its device key):
+	 *  claimed once per installation and account (trial.svelte.ts). */
+	function syncTrial(p: string[]) {
+		if (p.includes('monoize')) void trial.signedIn();
+		else trial.signedOut();
 	}
 
 	// All configured providers (builtin + custom) with their models, so the in-chat
@@ -1479,6 +1489,7 @@
 						}
 					}
 					providers = p;
+					syncTrial(p);
 					// A configured provider is not proof that onboarding was completed.
 					if (!localStorage.getItem('lynshen-setup-done')) showSetup = true;
 				})
@@ -1835,6 +1846,8 @@
 
 
 	<UpdatePrompt />
+	<!-- Over the workbench, not over the first-run pages. -->
+	{#if !showSetup}<TrialGrantCard />{/if}
 	{#if showSetup}
 		<Welcome
 			sessionId={activeId}
