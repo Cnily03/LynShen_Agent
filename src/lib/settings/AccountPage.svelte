@@ -21,6 +21,7 @@
 	import { openExternal } from '$lib/openExternal';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
+	import { trial } from '$lib/trial.svelte';
 
 	let {
 		user,
@@ -50,7 +51,9 @@
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
-	const plan = $derived(user.billing_plan?.name?.trim() || '');
+	// The first-use trial plan in force names the plan as well (trial.svelte.ts).
+	const trialPlan = $derived(trial.plan);
+	const plan = $derived(trialPlan ? trialPlan.name.trim() || t('shell.trial.label') : user.billing_plan?.name?.trim() || '');
 	const money = (amount: string | undefined) =>
 		balance && amount != null ? shownBalanceText(amount, balance.currency, prefs.balanceCurrency) : '—';
 
