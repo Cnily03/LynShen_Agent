@@ -27,6 +27,8 @@
 	import { openExternal } from '$lib/openExternal';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
+	import { trial } from '$lib/trial.svelte';
+	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 
 	let {
 		user,
@@ -56,7 +58,9 @@
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
-	const plan = $derived(user.billing_plan?.name?.trim() || '');
+	// The first-use trial plan in force names the plan as well (trial.svelte.ts).
+	const trialPlan = $derived(trial.plan);
+	const plan = $derived(trialPlan ? trialPlan.name.trim() || t('shell.trial.label') : user.billing_plan?.name?.trim() || '');
 	const money = (amount: string | undefined) =>
 		balance && amount != null ? shownBalanceText(amount, balance.currency, prefs.balanceCurrency) : '—';
 
@@ -65,6 +69,7 @@
 	// The last minute's usage, every 10 s while the page is open.
 	let live = $state<LiveUsage | null>(null);
 	onMount(() => {
+		void trial.refreshStatus();
 		readConfig()
 			.then((cfg) => (web = String(cfg.lynshen_web_url || web).replace(/\/+$/, '')))
 			.catch(() => {});
@@ -153,9 +158,11 @@
 			</span>
 		{/if}
 	</div>
-	<div class="tile">
+	<!-- With a desktop plan in force, the tile also holds its funding choice. -->
+	<div class="tile" class:wide={!!trial.funding}>
 		<span class="tile-label">{t('shell.account.plan')}</span>
 		<span class="mid">{plan || t('settings.accountPage.payAsYouGo')}</span>
+		<PlanFundingChoice />
 	</div>
 	<div class="tile live">
 		<span class="tile-label">{t('shell.account.liveUsage')}</span>

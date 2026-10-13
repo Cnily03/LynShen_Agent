@@ -74,6 +74,9 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		if (/lynshen/i.test(text) || backend === 'lynshen') return info('lynshenAuth', 'restart');
 		return info('toolAuth', undefined, tool || undefined);
 	}
+	// A desktop plan's window is used up (the key pays with the plan, which
+	// never falls back to the balance): not a balance problem.
+	if (/plan[_ ]quota[_ ]exhausted/i.test(text)) return info('planQuota', 'account');
 	if (status === 402 || /insufficient[_ ](balance|quota|funds)|余额不足|quota exceeded|billing/i.test(text))
 		return info('balance', 'account');
 	if (/context[_ ]length|context window|prompt is too long|maximum context|too many tokens|input.*exceeds|上下文/i.test(text))

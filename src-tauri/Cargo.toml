@@ -79,6 +79,9 @@ windows-version = "0.1"
 # 改名前注册在 Run 键里的开机自启项，启动时挪到新名字下（src/renamed.rs）。
 # 与 auto-launch 用的是同一个版本，不多带一份。
 winreg = "0.10"
+# The trial plan's device hash reads MachineGuid (device_id.rs). Already in
+# Cargo.lock through hyper-util's Windows proxy lookup.
+windows-registry = "0.6"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"

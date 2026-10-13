@@ -747,6 +747,62 @@ try {
   await expect(page.getByRole('heading',{name:'发现新版本 Aogiri 9.9.9'})).toBeVisible();
   await page.goto(base + '?skills&oldEngine');
   await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
+  // The first-use trial plan against a stubbed gateway: one claim per
+  // installation and account; a grant shows its card until 知道了, then never
+  // again; the account card shows both windows; an older gateway (404) shows
+  // nothing and is not asked again.
+  const trialPage = await browser.newPage({viewport:{width:1440,height:860}});
+  trialPage.on('pageerror', e => errors.push(e.message));
+  const claimCount = () => trialPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_trial_claim').length);
+  const openTrial = async (query, {fresh} = {fresh: false}) => {
+    await trialPage.goto(base + query);
+    if (fresh) {
+      await trialPage.evaluate(() => localStorage.removeItem('lynshen-trial-claims'));
+      await trialPage.reload();
+    }
+    await expect(trialPage.locator('.composer')).toBeVisible({timeout:30000});
+    await trialPage.evaluate(() => window.__trialDone);
+  };
+  const grantCard = trialPage.getByRole('region',{name:'体验套餐'});
+  await openTrial('?shell&trial', {fresh: true});
+  await expect(grantCard.getByRole('heading',{name:'已赠送 7 天体验套餐'})).toBeVisible();
+  await expect(grantCard).toContainText(/国内模型分组 · 共 10 积分 · 每 5 小时最多 4 积分 · 到期 \d+月\d+日/);
+  assert.equal(await claimCount(), 1);
+  await trialPage.evaluate(() => window.__trial.signedIn());
+  assert.equal(await claimCount(), 1, 'the trial was claimed twice');
+  await grantCard.getByRole('button',{name:'知道了'}).click();
+  await expect(grantCard).toHaveCount(0);
+  await openTrial('?shell&trial');
+  await expect(grantCard).toHaveCount(0);
+  assert.equal(await claimCount(), 0, 'the trial was claimed again after a restart');
+  await trialPage.getByRole('button',{name:'账号'}).click();
+  const acctCard = trialPage.locator('.acct-card');
+  await expect(acctCard).toContainText('7 天体验套餐');
+  await expect(acctCard.locator('.trial .win')).toHaveCount(2);
+  await expect(acctCard.locator('.trial .win').first()).toContainText(/5 小时\s*0\.00 \/ 4\.00 积分/);
+  await expect(acctCard.locator('.trial .win').last()).toContainText(/7 天\s*0\.00 \/ 10\.00 积分/);
+  await expect(acctCard.locator('.trial .ends')).toHaveText(/\d+月\d+日 \d\d:\d\d 到期/);
+  // The funding choice (GET / PUT /api/desktop/oauth/plan): the plan first by
+  // default; a payer can switch to the balance.
+  const funding = acctCard.locator('.funding');
+  await expect(funding.locator('.opt.on')).toHaveText('优先用体验套餐');
+  await expect(funding).toContainText('当前时段用完时请求会失败，不会自动改用余额');
+  await funding.getByRole('button',{name:'用余额'}).click();
+  await expect(funding.locator('.opt.on')).toHaveText('用余额');
+  await expect(funding).toContainText('所有请求都从余额扣费');
+  assert.ok(await trialPage.evaluate(() => window.__calls.some((c) => c.command === 'monoize_set_plan_funding' && c.args.funding === 'balance')));
+  await openTrial('?shell&trial=404', {fresh: true});
+  await expect(grantCard).toHaveCount(0);
+  assert.equal(await claimCount(), 1);
+  await trialPage.evaluate(() => window.__trial.signedIn());
+  assert.equal(await claimCount(), 1, 'a 404 was asked again');
+  await openTrial('?shell&trial=404');
+  assert.equal(await claimCount(), 0, 'a 404 was asked again after a restart');
+  await trialPage.getByRole('button',{name:'账号'}).click();
+  await expect(trialPage.locator('.acct-card')).toContainText('未分配订阅套餐');
+  await expect(trialPage.locator('.acct-card .trial')).toHaveCount(0);
+  await expect(trialPage.locator('.acct-card .funding')).toHaveCount(0);
+  await trialPage.close();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows and funding choice, 404 not asked again).');
 } finally { await browser.close(); await server.close(); }
