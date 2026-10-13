@@ -1,7 +1,7 @@
 ---
 name: lynshen-desktop-design
 description: Presentation rules for the LynShen Desktop app window (Tauri + Svelte) — the workbench canvas, side navigators, full-panel pages such as settings and the workbench overview, the first-run welcome page, popovers and dialogs. For a dense developer tool used for hours at a time, in Chinese and English, in light and dark themes.
-version: 2026-10-13
+version: 2026-10-14
 ---
 
 # LynShen Desktop design.md
@@ -65,6 +65,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - Strokes are `--hairline`. Use `--border` only for inputs and buttons. [SHOULD]
 - Radii use `--r-*` only: rows and tabs `--r-md`, cards and menus `--r-lg`, chat bubbles `--r-xl`, composer `--r-2xl`, pills `--r-full`. [MUST]
 - Window frost ("窗口磨砂": macOS vibrancy, Windows Mica) is off by default. When it is off, no native effect is applied, and on Windows the window is opaque, not transparent. [MUST] — Decision 2026-10-13: user feedback that the frost does not match the interface; on Windows a transparent window with Acrylic lags behind the pointer while it is dragged.
+- Glass (Settings → 通用 → 玻璃透明度) thins floating surfaces: the composer, cards and toasts follow `--float-tint`. Menus and popovers (`.pop`) stay solid `--panel` at every level, so text behind them never shows between their rows. [MUST] — Decision 2026-10-14: review of the mode menu, where the transcript's hints showed through it (in WebKit even a 98% fill let them through).
 - When window frost is on, only `--rail` and `--sidebar` let it show. Their fills stay opaque enough that the contrast rule above holds over a white and over a black backdrop. The canvas, panels and the title bar text stay opaque. On Windows the effect is Mica (Windows 11); there is no Acrylic fallback. [SHOULD]
 
 ### Controls and states

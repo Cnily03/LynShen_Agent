@@ -976,6 +976,11 @@ try {
       await expect(menu.locator('.pop-label')).toHaveText(MODE_LABELS[lang]);
       await expect(menu.locator('.key')).toHaveText(['1', '2', '3', '4', '5']);
       await expect(menu.getByRole('menuitemradio',{checked:true})).toContainText(MODE_LABELS[lang][3]);
+      // Under glass (on by default) the menu stays solid: nothing behind it
+      // shows between its rows.
+      assert.ok(await mp.evaluate(() => 'glass' in document.documentElement.dataset), 'glass is off in the fixture');
+      const fill = await menu.evaluate((m) => getComputedStyle(m).backgroundColor);
+      assert.ok(!/\/\s*0?\.\d+\)$|rgba\(.*,\s*0?\.\d+\)$/.test(fill), `the mode menu is see-through: ${fill}`);
       const fits = async (what) => {
         // The menu fits itself to the window as its size changes (next frame).
         await menu.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
