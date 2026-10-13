@@ -1810,6 +1810,8 @@
 					onAccountLogout={afterAccountLogout}
 					onFeedback={() => (showFeedback = true)}
 					onAddFolders={addImportedFolders}
+					project={activeProject && !activeProject.chats ? activeProject.path : ''}
+					sessions={store.allSessions}
 					onClose={closeSettings}
 				/>
 			{/if}
