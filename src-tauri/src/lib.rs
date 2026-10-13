@@ -18,6 +18,7 @@ mod autostart;
 mod backend;
 mod browser;
 mod capture;
+mod file_preview;
 mod claude_history;
 mod installer;
 mod main_window;
@@ -3824,6 +3825,8 @@ pub fn run() {
             attachments::save_temp_file,
             attachments::clipboard_file_paths,
             attachments::path_exists,
+            file_preview::preview_file,
+            file_preview::open_file_default,
             check_environment,
             install_dependency,
             check_dependencies,
