@@ -1,5 +1,7 @@
 <script lang="ts">
-	// Choose an installed coding agent. Installation is on the environment step.
+	// Choose the coding agent new conversations use. An agent that is not
+	// installed shows its install right under it (with Node first where npm
+	// installs it): the only place the first run asks for tools.
 	import { onMount } from 'svelte';
 	import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircleIcon';
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
@@ -9,22 +11,27 @@
 	import BackendIcon from '$lib/BackendIcon.svelte';
 
 	import { deps, recheckDeps } from '$lib/deps.svelte';
+	import Dependencies from '$lib/Dependencies.svelte';
+	import { agentNeeds } from './flow';
 	import { t } from '$lib/i18n';
 
 	let {
 		selected = $bindable(),
 		ready = $bindable(false),
-		onOpenSettings,
-		onInstall
-	}: { selected: BackendId; ready?: boolean; onOpenSettings: () => void; onInstall: () => void } = $props();
+		onOpenSettings
+	}: { selected: BackendId; ready?: boolean; onOpenSettings: () => void } = $props();
 
 	let status = $state<Partial<Record<BackendId, BackendStatus | 'checking'>>>({});
 
 	function check(id: BackendId) {
 		status[id] = 'checking';
 		checkBackend(id, loadBackendSettings().paths[id]?.trim() || undefined)
-			.then((s) => (status[id] = s))
-			.catch(() => (status[id] = { found: false }));
+			.then((s) => {
+				status[id] = s;
+			})
+			.catch(() => {
+				status[id] = { found: false };
+			});
 	}
 
 	function pick(id: BackendId) {
@@ -70,13 +77,13 @@
 					{:else if st.found}
 						<span class="ok"><CheckCircleIcon size={13} /> {versionLabel(st) || t('settings.backend.found')}</span>
 					{:else}
-						<span class="warn"><WarningCircleIcon size={13} /> {t('settings.backend.notFound')}</span>
+						<span class="warn"><WarningCircleIcon size={13} /> {t('setup.welcome.agent.notInstalled')}</span>
 					{/if}
 				</span>
 			</button>
-			{#if st && st !== 'checking' && !st.found && dep && !dep.present}
+			{#if selected === id && st && st !== 'checking' && !st.found && dep && !dep.present && agentNeeds(id, deps.list).length}
 				<div class="install">
-					<button class="link" onclick={onInstall}>{t('setup.welcome.agent.installFirst')}</button>
+					<Dependencies ids={agentNeeds(id, deps.list)} heading={false} />
 				</div>
 			{/if}
 
@@ -188,7 +195,7 @@
 	}
 	/* Under the text column: radio + gap + tile + gap. */
 	.install {
-		padding: 0 16px 12px 90px;
+		padding: 0 16px 14px 90px;
 	}
 
 	.more {
