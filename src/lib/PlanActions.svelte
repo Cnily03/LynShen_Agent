@@ -10,7 +10,7 @@
 
 	let {
 		id,
-		defaultMode = 'edits',
+		defaultMode = 'auto',
 		placement = 'up-left',
 		onAction
 	}: {
@@ -20,18 +20,19 @@
 		onAction: (id: string, action: PlanAction) => void;
 	} = $props();
 
-	const MODES: ApprovalMode[] = ['ask', 'edits', 'auto', 'all'];
-	const LABEL: Record<string, string> = { ask: 'approvalAsk', edits: 'approvalEdits', auto: 'approvalAuto', all: 'approvalAll' };
-	let mode = $state<ApprovalMode>('edits');
+	// Plans are LynShen's: its sandbox modes (自动改文件 is part of 自动 there).
+	const MODES: ApprovalMode[] = ['ask', 'auto', 'all'];
+	const LABEL: Record<string, string> = { ask: 'approvalAsk', auto: 'approvalAuto', all: 'approvalAll' };
+	let mode = $state<ApprovalMode>('auto');
 	$effect.pre(() => {
-		mode = MODES.includes(defaultMode) ? defaultMode : 'edits';
+		mode = MODES.includes(defaultMode) ? defaultMode : 'auto';
 	});
 	let menuOpen = $state(false);
 	const items = $derived<PopMenuItem[]>(
 		MODES.map((m) => ({
 			key: m,
 			label: t(`chat.${LABEL[m]}`),
-			desc: t(`chat.${LABEL[m]}Desc`),
+			desc: t(`chat.${LABEL[m]}DescSandbox`),
 			checked: m === mode,
 			...(m === 'all' ? { tone: 'warn' as const } : {})
 		}))

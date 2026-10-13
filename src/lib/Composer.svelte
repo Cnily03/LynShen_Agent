@@ -44,7 +44,9 @@
 	import { stripGroupSuffix, type ModelRow } from '$lib/composer/modelRows';
 	import type { ChatState } from '$lib/chat.svelte';
 	import { imageViewer } from '$lib/ui/imageViewer.svelte';
-	import { buildApproveOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
+	import { approvalModeKeys, buildApproveOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
+	import { commandsIsolated, onWindows } from '$lib/sandbox/request';
+	import ShieldSlashIcon from 'phosphor-svelte/lib/ShieldSlashIcon';
 	import { caps, BACKEND_LABELS, type BackendId } from '$lib/backends';
 
 	let {
@@ -364,29 +366,41 @@
 	});
 
 	// Claude and Codex expose two extra native modes (plan / auto) between ask
-	// and edits (extendedApprovalModes); LynShen adds plan to the shared three.
+	// and edits (extendedApprovalModes). A LynShen session has 谨慎 / 计划 /
+	// 自动 / 全自动 over its sandbox (approvalModeKeys), described as they work
+	// there: with the sandbox's boundary, or, where commands run without
+	// isolation (Windows, full access), without it.
+	const sandboxed = $derived(bcaps.sandbox && !chat.agent);
+	const isolated = $derived(commandsIsolated(chat.sandbox, onWindows()));
+	const sandboxDesc = (key: 'Ask' | 'Auto' | 'All') => t(`chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}`);
 	const APPROVAL_MODES = $derived<Record<string, ModeItem>>({
-		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: t('chat.approvalAskDesc') },
+		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: sandboxed ? sandboxDesc('Ask') : t('chat.approvalAskDesc') },
 		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc') },
-		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: t('chat.approvalAutoDesc') },
+		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: sandboxed ? sandboxDesc('Auto') : t('chat.approvalAutoDesc') },
 		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: t('chat.approvalEditsDesc') },
-		all: { key: 'all', label: t('chat.approvalAll'), desc: t('chat.approvalAllDesc'), tone: 'warn' }
+		all: { key: 'all', label: t('chat.approvalAll'), desc: sandboxed ? sandboxDesc('All') : t('chat.approvalAllDesc'), tone: 'warn' }
 	});
 	// An agent's session shows the agent's four modes, read-only: they are
 	// changed on its Agent page. The recommended mode: auto where the engine
 	// has it, else auto-edit.
 	const APPROVAL = $derived.by(() => {
-		const keys = chat.agent
-			? ['ask', 'edits', 'auto', 'all']
-			: bcaps.extendedApprovalModes
-				? ['ask', 'plan', 'auto', 'edits', 'all']
-				: bcaps.planMode
-					? ['ask', 'plan', 'edits', 'all']
-					: ['ask', 'edits', 'all'];
+		const keys = approvalModeKeys(bcaps, !!chat.agent);
 		const recommended = keys.includes('auto') ? 'auto' : 'edits';
 		return keys.map((k) => ({ ...APPROVAL_MODES[k], recommended: k === recommended }));
 	});
-	const approvalCurrent = $derived(APPROVAL.find((a) => a.key === chat.approvalMode) ?? APPROVAL_MODES.ask);
+	// A LynShen session whose commands run without isolation says so beside
+	// the mode, with the engine's fix when its sandbox cannot start.
+	const isolationNote = $derived(
+		bcaps.sandbox && !isolated
+			? [t('chat.sandbox.openHint'), chat.sandbox?.unavailable ?? ''].filter(Boolean).join('\n')
+			: ''
+	);
+	const modeNote = $derived(
+		chat.agent ? t('chat.approvalAgent') : bcaps.sandbox && chat.sandbox?.mode === 'full-access' ? t('chat.sandbox.fullAccessNote') : ''
+	);
+	// A mode the picker does not list (自动改文件 reported by a LynShen engine)
+	// still shows under its own name.
+	const approvalCurrent = $derived(APPROVAL.find((a) => a.key === chat.approvalMode) ?? APPROVAL_MODES[chat.approvalMode] ?? APPROVAL_MODES.ask);
 	function toggleApproval() {
 		if (!showApproval) {
 			if (modelPopoverVisible) closeModelPopover();
@@ -975,12 +989,17 @@
 					<ModeMenu
 						items={APPROVAL}
 						current={chat.approvalMode}
-						note={chat.agent ? t('chat.approvalAgent') : ''}
+						note={modeNote}
 						disabled={!!chat.agent}
 						onSelect={setApproval}
 						onClose={() => (showApproval = false)}
 					/>
 				{/if}
+			</span>
+		{/if}
+		{#if isolationNote}
+			<span class="fbtn static isolation" role="note" title={isolationNote} aria-label={isolationNote}>
+				<ShieldSlashIcon size={13} aria-hidden="true" /><span class="iso-label">{t('chat.sandbox.open')}</span>
 			</span>
 		{/if}
 		{#if gitBranch}
@@ -1336,6 +1355,23 @@
 	}
 	.fbtn.mode.warn {
 		color: var(--warn);
+	}
+	/* Commands without isolation: quiet, the icon in the caution colour. */
+	.fbtn.isolation {
+		flex-shrink: 1;
+		gap: 4px;
+		padding: 0 4px;
+		font-size: var(--fs-xs);
+		color: var(--dim);
+	}
+	.fbtn.isolation > :global(svg) {
+		flex: none;
+		color: var(--warn);
+	}
+	.iso-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.fbtn.branch {
 		gap: 5px;

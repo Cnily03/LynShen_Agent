@@ -92,6 +92,10 @@ export interface BackendCaps {
 	agentTrace: boolean;
 	/** What the context holds, by category (`context_usage` → `context_breakdown`). */
 	contextBreakdown: boolean;
+	/** The LynShen sandbox: the composer's 谨慎 / 计划 / 自动 / 全自动, the
+	 *  notice when commands run without isolation, the sandbox approval card
+	 *  (kind, reason, scopes) and the escalation records. */
+	sandbox: boolean;
 }
 
 /** Normalized events are the existing lynshen AgentEvent dialect — adapters

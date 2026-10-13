@@ -35,7 +35,9 @@ export const LYNSHEN_CAPS: BackendCaps = {
 	// drops the refusal and the spawn calls report the agents).
 	agentTrace: true,
 	// An older engine refuses context_usage: the panel shows the total only.
-	contextBreakdown: true
+	contextBreakdown: true,
+	// An older engine sends no sandbox fields: the card stays the plain one.
+	sandbox: true
 };
 
 /** Wire protocol version this desktop speaks (`hello.protocol`). */

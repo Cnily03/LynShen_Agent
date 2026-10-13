@@ -13,6 +13,7 @@
 	import SubagentCard from '$lib/agents/SubagentCard.svelte';
 	import AttemptGroupCard from '$lib/agents/AttemptGroupCard.svelte';
 	import AgentMessageLine from '$lib/agents/AgentMessageLine.svelte';
+	import EscalationLine from '$lib/sandbox/EscalationLine.svelte';
 	import PlanCard, { type PlanAction } from '$lib/PlanCard.svelte';
 	import CompactionCard from '$lib/CompactionCard.svelte';
 	import type { ApprovalMode } from '$lib/approval';
@@ -491,7 +492,7 @@
 		if (m.kind === 'tool') return !!(m.name || m.output);
 		if (m.kind === 'plan') return !!(m.title || m.text);
 		if (m.kind === 'agent_message') return !!m.summary;
-		if (m.kind === 'compaction') return true;
+		if (m.kind === 'compaction' || m.kind === 'escalation') return true;
 		return !!m.text && hasText(m, m.text);
 	}
 
@@ -720,6 +721,8 @@
 			<PlanCard id={m.id} title={m.title} text={m.text} status={m.status} actionable={m === lastShown} defaultMode={planMode} onAction={onPlan} onOpen={onOpenPlan} />
 		{:else if m.kind === 'agent_message'}
 			<AgentMessageLine from={m.from} to={m.to} summary={m.summary} />
+		{:else if m.kind === 'escalation'}
+			<EscalationLine record={m.record} />
 		{:else if m.kind === 'error'}
 			<ErrorNotice text={m.text} {backend} {provider} onAction={onErrorAction} onDismiss={onDismiss ? () => onDismiss(m) : undefined} />
 				{/if}

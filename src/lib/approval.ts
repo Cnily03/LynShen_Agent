@@ -53,6 +53,30 @@ export function buildSetApprovalModeOp(mode: ApprovalMode): {
 	return { op: 'set_approval_mode', mode: toEngineMode(mode) };
 }
 
+/** The modes a session's picker offers, in order. An agent's session shows
+ *  the agent's four (changed on its page); a LynShen session the sandbox
+ *  four (谨慎 / 计划 / 自动 / 全自动: 自动改文件 is part of 自动 there);
+ *  claude and codex add their native plan and auto modes. */
+export function approvalModeKeys(
+	c: { sandbox: boolean; extendedApprovalModes: boolean; planMode: boolean },
+	agent = false
+): ApprovalMode[] {
+	if (agent) return ['ask', 'edits', 'auto', 'all'];
+	if (c.sandbox) return ['ask', 'plan', 'auto', 'all'];
+	if (c.extendedApprovalModes) return ['ask', 'plan', 'auto', 'edits', 'all'];
+	if (c.planMode) return ['ask', 'plan', 'edits', 'all'];
+	return ['ask', 'edits', 'all'];
+}
+
+/** A new session's mode from the one saved last (any backend's). LynShen
+ *  sessions start in 自动 and keep only 全自动 from before; the others keep
+ *  自动改文件 or 全自动 and otherwise start in 谨慎. Plan is never carried
+ *  over. */
+export function initialApprovalMode(saved: string | null, sandbox: boolean): ApprovalMode {
+	if (sandbox) return saved === 'all' ? 'all' : 'auto';
+	return saved === 'edits' || saved === 'all' ? saved : 'ask';
+}
+
 /** Whether a claude approval-mode change to `mode` must go through an engine
  *  respawn (spawned with `--permission-mode bypassPermissions` + `--resume`)
  *  rather than a live `set_permission_mode` control frame: claude does not honor
@@ -122,6 +146,12 @@ export interface ApproveOp {
 	/** AskUserQuestion answers, keyed by the full question text → picked label(s).
 	 *  Fed back to the model as the tool result via the permission response. */
 	answers?: Record<string, string>;
+	/** LynShen sandbox: how far the allow reaches (once when absent). */
+	scope?: 'once' | 'session' | 'project';
+	/** LynShen sandbox: allow and make this directory writable. */
+	add_dir?: { path: string; persist: 'session' | 'project' };
+	/** LynShen sandbox: with a deny, what the model should do instead. */
+	feedback?: string;
 }
 
 /** A claude AskUserQuestion prompt (the model asking the user to choose). */

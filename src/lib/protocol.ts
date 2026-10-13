@@ -60,9 +60,19 @@ export type Op =
 			always?: boolean;
 			always_scope?: 'session' | 'project' | 'user' | 'rule';
 			answers?: Record<string, string>;
+			// LynShen sandbox (sandbox/request.ts): how far an allow reaches, a
+			// directory made writable with it, and a deny's instructions.
+			scope?: 'once' | 'session' | 'project';
+			add_dir?: { path: string; persist: 'session' | 'project' };
+			feedback?: string;
 	  }
 	// Engine-level auto-approval policy; acknowledged by an `approval_mode` event.
 	| { op: 'set_approval_mode'; mode: 'read-only' | 'plan' | 'auto' | 'auto-edit' | 'full-auto' }
+	// LynShen sandbox: what commands may touch, and the writable directories
+	// besides the workspace; each is acknowledged by a `sandbox` event.
+	| { op: 'set_sandbox'; mode: 'read-only' | 'workspace-write' | 'full-access'; network?: boolean }
+	| { op: 'add_directory'; path: string; mode: 'ro' | 'rw'; persist: 'session' | 'project' | 'global' }
+	| { op: 'remove_directory'; path: string; persist: 'session' | 'project' | 'global' }
 	// MCP server management (engine config is global; any live session's engine
 	// can answer). Each op is acknowledged by an `mcp_servers` event.
 	| { op: 'mcp_list' }

@@ -229,6 +229,45 @@ const shell = {
 		allowSelected: '允许选中 ({n})',
 		hunkCount: '{n} 个改动块',
 		noneSelectedHint: '未勾选任何改动块 — 等同于拒绝',
+		// A LynShen sandbox request (ApprovalCard): its title by kind, its
+		// lines and the answers the engine allows.
+		sandbox: {
+			kind: {
+				edit: '允许修改文件',
+				command: '允许执行命令',
+				escalation: '越出沙箱运行命令',
+				outside_write: '写入工作目录以外的文件',
+				elevation: '需要管理员权限',
+				rule: '规则要求确认',
+				tool: '允许使用工具'
+			},
+			mustAsk: '必须确认',
+			mustAskHint: '这类操作在任何模式下都会问你，全自动也一样',
+			reason: '原因',
+			command: '命令',
+			writes: '写入',
+			cwd: '目录',
+			sessionPrefix: '本会话允许「{prefix}」开头的命令',
+			sessionEdits: '本会话不再询问改文件',
+			always: '始终允许',
+			alwaysHint: '以后「{prefix}」开头的命令不再询问。规则保存在 设置 → 权限与沙箱，可以在那里删除。',
+			dirSession: '本会话可写「{dir}」',
+			dirProject: '加入可写目录「{dir}」',
+			dirProjectHint: '把 {dir} 加入本项目的可写目录，以后写这里不再询问。可在 设置 → 权限与沙箱 中移除。',
+			denyTell: '拒绝并告诉它怎么做',
+			denySend: '拒绝并发送',
+			feedbackPlaceholder: '告诉它该怎么做，可以留空',
+			feedbackLabel: '拒绝的原因或替代做法',
+			terminal: '在终端里运行',
+			terminalHint: '在终端里填好命令（不会执行），由你自己输入密码运行',
+			terminalCopied: '命令有多行，已复制到剪贴板，请粘贴到终端里运行',
+			uacHint: '批准后，Windows 会弹出管理员确认（UAC）。',
+			onComputer: '需要在电脑上完成。',
+			onComputerHint: {
+				terminal: '这条命令要在电脑的终端里输入密码运行；在这里可以拒绝并告诉它怎么做。',
+				uac: '批准后，要在电脑上确认 Windows 的管理员提示（UAC）。'
+			}
+		},
 		toggleDiff: '展开 / 收起差异',
 
 		// trust
@@ -1197,6 +1236,43 @@ const shell = {
 		allowSelected: 'Allow selected ({n})',
 		hunkCount: '{n} hunks',
 		noneSelectedHint: 'No hunks selected — same as deny',
+		sandbox: {
+			kind: {
+				edit: 'Allow file changes',
+				command: 'Allow running command',
+				escalation: 'Run a command outside the sandbox',
+				outside_write: 'Write outside the working directory',
+				elevation: 'Needs administrator rights',
+				rule: 'A rule asks you to confirm',
+				tool: 'Allow tool'
+			},
+			mustAsk: 'Always asked',
+			mustAskHint: 'Actions like this are asked in every mode, full auto included',
+			reason: 'Reason',
+			command: 'Command',
+			writes: 'Writes',
+			cwd: 'In',
+			sessionPrefix: 'Allow commands starting with “{prefix}” this session',
+			sessionEdits: 'Stop asking about file changes this session',
+			always: 'Always allow',
+			alwaysHint: 'Commands starting with “{prefix}” are no longer asked. The rule is kept in Settings → Permissions & sandbox, where you can delete it.',
+			dirSession: 'Writable this session: “{dir}”',
+			dirProject: 'Add “{dir}” as writable',
+			dirProjectHint: 'Adds {dir} to this project’s writable directories; writes there are no longer asked. Remove it in Settings → Permissions & sandbox.',
+			denyTell: 'Deny and say what to do',
+			denySend: 'Deny and send',
+			feedbackPlaceholder: 'Tell it what to do instead (optional)',
+			feedbackLabel: 'Why it is denied, or what to do instead',
+			terminal: 'Run in terminal',
+			terminalHint: 'Types the command in a terminal (does not run it); you run it and enter your password',
+			terminalCopied: 'The command has several lines: it was copied, paste it into the terminal',
+			uacHint: 'After you allow it, Windows asks for administrator confirmation (UAC).',
+			onComputer: 'Needs the computer.',
+			onComputerHint: {
+				terminal: 'This command has to be run in a terminal on the computer, with your password. Here you can deny it and say what to do.',
+				uac: 'After you allow it, confirm the Windows administrator prompt (UAC) on the computer.'
+			}
+		},
 		toggleDiff: 'Expand / collapse diff',
 
 		// trust

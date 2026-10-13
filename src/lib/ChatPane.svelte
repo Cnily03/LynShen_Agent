@@ -93,6 +93,7 @@
 	import { toast } from '$lib/ui/toast.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
 	import { planPages } from '$lib/planPages.svelte';
+	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import Picker from '$lib/shell/Picker.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import type { SectionKey } from '$lib/settings/nav';
@@ -612,7 +613,7 @@
 	// Plan mode: a proposed plan runs once approved, in the mode picked on its
 	// card; revising it sends the next message as the user's feedback.
 	const planMode = $derived<ApprovalMode>(
-		chat.modeBeforePlan && chat.modeBeforePlan !== 'plan' ? chat.modeBeforePlan : 'edits'
+		chat.modeBeforePlan && chat.modeBeforePlan !== 'plan' ? chat.modeBeforePlan : 'auto'
 	);
 	function planAction(id: string, action: PlanAction) {
 		const plan = chat.messages.find((m) => m.kind === 'plan' && m.id === id);
@@ -1443,7 +1444,7 @@
 		{#if chat.pendingApproval && !chat.pendingApproval.questions?.length}
 			<div class="approval-wrap">
 				{#key chat.pendingApproval.callId}
-					<ApprovalCard approval={chat.pendingApproval} onRespond={respondApproval} ruleScopes={caps(chat).ruleScopes} keys={isActive} />
+					<ApprovalCard approval={chat.pendingApproval} onRespond={respondApproval} ruleScopes={caps(chat).ruleScopes} keys={isActive} onTerminal={(command, cwd) => terminalRequests.open(command, cwd || chat.cwd, session.id)} />
 				{/key}
 			</div>
 		{/if}

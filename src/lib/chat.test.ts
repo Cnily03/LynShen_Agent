@@ -1423,3 +1423,74 @@ describe('letting go of tool outputs while hidden', () => {
 		expect(ids.length).toBeLessThanOrEqual(4);
 	});
 });
+
+describe('ChatState: the LynShen sandbox', () => {
+	it('starts a new LynShen session in 自动 and a claude one as before', () => {
+		vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+		expect(new ChatState().approvalMode).toBe('auto');
+		expect(new ChatState('lynshen').approvalMode).toBe('auto');
+		expect(new ChatState('claude').approvalMode).toBe('ask');
+		expect(new ChatState('claude').backendId).toBe('claude');
+		vi.unstubAllGlobals();
+	});
+
+	it('keeps an approval request from an older engine as it was', () => {
+		const c = new ChatState();
+		c.handle({ type: 'approval_request', call_id: 'c1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
+		expect(c.pendingApproval).toEqual({ callId: 'c1', name: 'bash', summary: 'ls', subagentId: null, hunks: null, questions: null });
+		// codex's always-allow scopes stay codex's
+		c.handle({ type: 'approval_request', call_id: 'c2', name: 'exec_command', summary: 'ls', scopes: ['session', 'rule'] });
+		expect(c.pendingApproval?.scopes).toEqual(['session', 'rule']);
+		expect(c.pendingApproval?.sandbox).toBeUndefined();
+	});
+
+	it('reads the sandbox fields of a request, not as codex scopes', () => {
+		const c = new ChatState();
+		c.handle({
+			type: 'approval_request',
+			call_id: 'c3',
+			name: 'bash',
+			summary: 'npm install -g pnpm',
+			kind: 'escalation',
+			must_ask: false,
+			justification: 'install pnpm',
+			cwd: '/w',
+			command: 'npm install -g pnpm',
+			paths: [],
+			dir_suggestion: null,
+			prefix: 'npm install',
+			scopes: ['once', 'session', 'project'],
+			elevation: null
+		});
+		expect(c.pendingApproval?.scopes).toBeUndefined();
+		expect(c.pendingApproval?.sandbox).toMatchObject({ kind: 'escalation', prefix: 'npm install', scopes: ['once', 'session', 'project'] });
+	});
+
+	it('keeps the sandbox state and records crossings in the conversation', () => {
+		const c = new ChatState();
+		expect(c.sandbox).toBeNull();
+		c.handle({ type: 'sandbox', mode: 'workspace-write', network: true, enforced: false, unavailable: null, directories: [] });
+		expect(c.sandbox).toMatchObject({ mode: 'workspace-write', enforced: false });
+		c.handle({ type: 'escalated', call_id: 'c4', kind: 'escalation', command: 'brew install jq', justification: 'needs jq', cwd: '/w', paths: [], by: 'mode' });
+		const last = c.messages.at(-1);
+		expect(last?.kind).toBe('escalation');
+		if (last?.kind === 'escalation') expect(last.record).toMatchObject({ command: 'brew install jq', by: 'mode' });
+	});
+
+	it('says why a deferred action was asked', () => {
+		setLocale('zh');
+		const c = new ChatState();
+		c.handle({ type: 'action_deferred', name: 'bash', summary: 'brew install jq', kind: 'escalation', justification: '需要 jq' });
+		const last = c.messages.at(-1);
+		expect(last?.kind === 'system' && last.text).toContain('原因：需要 jq');
+	});
+
+	it('takes an older engine refusing a sandbox op quietly', () => {
+		const c = new ChatState();
+		const before = c.messages.length;
+		c.handle({ type: 'error', message: 'unknown op: set_sandbox' });
+		c.handle({ type: 'error', message: 'unknown op: add_directory' });
+		expect(c.messages.length).toBe(before);
+		expect(c.lastError).toBeNull();
+	});
+});
