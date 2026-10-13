@@ -299,6 +299,127 @@ try {
   await expect(page.getByRole('menu')).toBeVisible();
   await page.mouse.click(700, 20);
   await expect(page.getByRole('menu')).toHaveCount(0);
+  // 反馈问题: selecting a field's text by dragging past the dialog's edge
+  // keeps the dialog open. (The release over the scrim sends the click to the
+  // scrim, the common ancestor, and that closed the dialog.) A click on the
+  // scrim, Escape and the close button still close it.
+  await page.goto(base + '?feedback');
+  const feedbackClosed = page.getByTestId('feedback-closed');
+  const feedback = page.getByRole('dialog',{name:'反馈问题'});
+  const openFeedback = async () => {
+    await page.getByRole('button',{name:'打开反馈',exact:true}).click();
+    await expect(feedback).toBeVisible();
+    await page.waitForFunction(() => document.querySelector('.sheet')?.getAnimations().every((a) => a.playState === 'finished'));
+  };
+  await openFeedback();
+  const sheetBox = await page.locator('.sheet').boundingBox();
+  const dragSelect = async (field, text, to) => {
+    await field.fill(text);
+    const b = await field.boundingBox();
+    await page.mouse.move(b.x + 3, b.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(to[0], to[1], {steps:8});
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.equal(await feedbackClosed.textContent(), '0', 'selecting the text closed the dialog');
+    await expect(feedback).toBeVisible();
+    assert.deepEqual(await field.evaluate((el) => [el.selectionStart, el.selectionEnd]), [0, text.length], 'the drag did not select the whole text');
+  };
+  const titleField = feedback.getByPlaceholder('一句话说明出了什么问题');
+  const bodyField = feedback.getByPlaceholder(/做了什么、期望看到什么/);
+  await dragSelect(titleField, '设置页打不开', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height / 2]);
+  await dragSelect(bodyField, '点击设置以后\n窗口没有反应', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height + 20]);
+  // A drag from the scrim into a field (selecting its text from outside) keeps it open too.
+  {
+    const b = await titleField.boundingBox();
+    await page.mouse.move(sheetBox.x - 40, b.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width - 4, b.y + 8, {steps:8});
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.equal(await feedbackClosed.textContent(), '0', 'a drag from the scrim into the dialog closed it');
+    await expect(feedback).toBeVisible();
+  }
+  await page.mouse.click(sheetBox.x - 60, sheetBox.y + 20);
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('1');
+  await openFeedback();
+  await page.keyboard.press('Escape');
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('2');
+  await openFeedback();
+  await feedback.getByRole('button',{name:'关闭',exact:true}).click();
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('3');
+  // The account's avatar (gateway DA-12): the account page shows the
+  // picture the app kept; 更换头像 takes a picture as the website does
+  // (centred square, 256 × 256 WebP) and uploads it; a type the website
+  // refuses is refused without a request. The sidebar's account row shows the
+  // kept picture without a session (offline).
+  await page.goto(base + '?loggedIn&avatar');
+  const kept = await page.evaluate(() => window.__keptAvatar);
+  const heroAvatar = page.locator('.hero .avatar img');
+  await expect(heroAvatar).toHaveAttribute('src', kept);
+  const picture = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 300;
+    c.height = 200;
+    const x = c.getContext('2d');
+    x.fillStyle = '#cc3333';
+    x.fillRect(0, 0, 300, 200);
+    x.fillStyle = '#3333cc';
+    x.fillRect(50, 0, 200, 200);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  const avatarPicker = page.locator('.hero input[type=file]');
+  assert.equal(await avatarPicker.getAttribute('accept'), 'image/png,image/jpeg,image/webp');
+  await avatarPicker.setInputFiles({name:'me.png', mimeType:'image/png', buffer:Buffer.from(picture, 'base64')});
+  const uploads = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_avatar_upload').map((c) => c.args.image));
+  await expect.poll(async () => (await uploads()).length).toBe(1);
+  const [sentImage] = await uploads();
+  const sent = await page.evaluate(async (image) => {
+    const bytes = Uint8Array.from(atob(image), (ch) => ch.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    const c = document.createElement('canvas');
+    c.width = bitmap.width;
+    c.height = bitmap.height;
+    const x = c.getContext('2d');
+    x.drawImage(bitmap, 0, 0);
+    return { kind: new TextDecoder().decode(bytes.slice(8, 12)), size: [bitmap.width, bitmap.height], corner: [...x.getImageData(2, 2, 1, 1).data.slice(0, 3)] };
+  }, sentImage);
+  assert.deepEqual([sent.kind, sent.size], ['WEBP', [256, 256]]);
+  assert.ok(sent.corner[2] > 150 && sent.corner[0] < 100, `the upload is not the centred square: ${sent.corner}`);
+  await expect(heroAvatar).toHaveAttribute('src', `data:image/webp;base64,${sentImage}`);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await avatarPicker.setInputFiles({name:'a.gif', mimeType:'image/gif', buffer:Buffer.from('GIF89a')});
+  await expect(page.getByText('请选择 PNG、JPEG 或 WebP 图片。')).toBeVisible();
+  assert.equal((await uploads()).length, 1);
+  await page.goto(base + '?sidebar&avatar');
+  await expect(page.locator('.sb-foot .avatar img')).toHaveAttribute('src', kept, {timeout:30000});
+  // Changed on the website: the app reads the account again when its window
+  // comes back to the front a minute or more after the last read, and shows
+  // the new avatar.
+  {
+    const back = await browser.newPage();
+    back.on('pageerror', e => errors.push(e.message));
+    await back.clock.install();
+    await back.addInitScript(() => { window.__avatarUrl = '/api/desktop/oauth/avatars/a1'; });
+    await back.goto(base + '?sidebar&avatar&loggedIn');
+    const rowAvatar = back.locator('.sb-foot .avatar img');
+    await expect(rowAvatar).toHaveAttribute('src', kept, {timeout:30000});
+    const syncs = () => back.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_avatar_sync').length);
+    assert.equal(await syncs(), 0, 'the kept avatar was downloaded again');
+    await back.evaluate(() => { window.__avatarUrl = '/api/desktop/oauth/avatars/a3'; });
+    await back.clock.fastForward(30_000);
+    await back.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await back.waitForTimeout(200);
+    await expect(rowAvatar).toHaveAttribute('src', kept);
+    await back.clock.fastForward(31_000);
+    await back.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(rowAvatar).toHaveAttribute('src', /avatars%2Fa3/);
+    assert.equal(await syncs(), 1);
+    await back.close();
+  }
   // Settings → 通用 offers the conversation width, 自适应 by default; a
   // choice is stored; the search finds the row.
   await page.goto(base);

@@ -325,6 +325,18 @@ const settings = {
 			toppedUp: '充值',
 			payAsYouGo: '按量付费'
 		},
+		avatar: {
+			change: '更换头像',
+			changed: '头像已更换，网站上的头像也已更新',
+			unsupported: '请选择 PNG、JPEG 或 WebP 图片。',
+			pickTooLarge: '图片超过 20 MB，请选择更小的图片。',
+			readFailed: '无法读取这张图片，请换一张。',
+			tooLarge: '图片处理后仍超过 1 MB，请选择更小的图片。',
+			rateLimited: '头像更换太频繁，请 {minutes} 分钟后再试。',
+			signIn: '请先登录 LynShen 账号再更换头像。',
+			unavailable: 'LynShen 服务暂不支持在应用里更换头像，请到网站的账户设置里更换。',
+			offline: '连不上 LynShen 服务，头像没有更换。检查网络后再试。'
+		},
 		invite: {
 			loadFailed: '邀请信息加载失败',
 			retry: '重试',
@@ -1086,6 +1098,18 @@ const settings = {
 			granted: 'Granted',
 			toppedUp: 'Topped up',
 			payAsYouGo: 'Pay as you go'
+		},
+		avatar: {
+			change: 'Change avatar',
+			changed: 'Avatar changed. The website shows it too.',
+			unsupported: 'Choose a PNG, JPEG or WebP image.',
+			pickTooLarge: 'The image is larger than 20 MB. Choose a smaller one.',
+			readFailed: 'This image cannot be read. Choose another one.',
+			tooLarge: 'The image is still larger than 1 MB after processing. Choose a smaller one.',
+			rateLimited: 'You changed your avatar too often. Try again in {minutes} min.',
+			signIn: 'Sign in to your LynShen account to change your avatar.',
+			unavailable: 'The LynShen service cannot change the avatar from the app yet. Change it in the account settings on the website.',
+			offline: 'Cannot reach the LynShen service. The avatar did not change. Check your network and try again.'
 		},
 		invite: {
 			loadFailed: 'Could not load your invites',

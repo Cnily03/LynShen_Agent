@@ -1,8 +1,9 @@
 <script lang="ts">
-	// Settings → 账户 for a signed-in LynShen Console account: who it is, the
+	// Settings → 账户 for a signed-in LynShen Console account: who it is (with
+	// the avatar the website has, which 更换头像 changes there too), the
 	// money (balance, what was granted and topped up, the plan), the last
 	// minute's usage, and the places the account is managed.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
 	import SquaresFourIcon from 'phosphor-svelte/lib/SquaresFourIcon';
 	import KeyIcon from 'phosphor-svelte/lib/KeyIcon';
@@ -15,6 +16,11 @@
 	import DesktopTowerIcon from 'phosphor-svelte/lib/DesktopTowerIcon';
 	import Button from '$lib/ui/Button.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import ImageIcon from 'phosphor-svelte/lib/ImageIcon';
+	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
+	import { toast } from '$lib/ui/toast.svelte';
+	import { AVATAR_ACCEPT } from '$lib/accountAvatar';
+	import { accountAvatar } from '$lib/accountAvatar.svelte';
 	import { t } from '$lib/i18n';
 	import { prefs } from '$lib/prefs.svelte';
 	import { shownBalanceText } from '$lib/money';
@@ -75,6 +81,26 @@
 		};
 	});
 
+	// The avatar: the picture the app kept, then the one the user this page
+	// was given (read as the page opened) names; 更换头像 picks a file and
+	// uploads it.
+	$effect(() => {
+		const current = user;
+		untrack(() => {
+			if (!accountAvatar.src) void accountAvatar.restore();
+			void accountAvatar.sync(current);
+		});
+	});
+	let picker = $state<HTMLInputElement | null>(null);
+	let avatarError = $state('');
+	async function pickAvatar(input: HTMLInputElement) {
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		avatarError = await accountAvatar.change(file);
+		if (!avatarError) toast.success(t('settings.avatar.changed'));
+	}
+
 	const LINKS = $derived([
 		{ icon: WalletIcon, title: t('settings.accountPage.topUp'), sub: t('settings.accountPage.topUpSub'), run: () => openExternal(`${web}/dashboard/wallet`), external: true },
 		{ icon: SquaresFourIcon, title: t('settings.monoize.square'), sub: t('settings.accountPage.squareSub'), run: onSquare, external: false },
@@ -87,7 +113,9 @@
 </script>
 
 <section class="hero">
-	<span class="avatar" aria-hidden="true">{avatarInitial(user.username) || '·'}</span>
+	<span class="avatar" aria-hidden="true">
+		{#if accountAvatar.src}<img src={accountAvatar.src} alt="" />{:else}{avatarInitial(user.username) || '·'}{/if}
+	</span>
 	<div class="who">
 		<div class="name-row">
 			<h2 class="name">{user.username}</h2>
@@ -96,11 +124,17 @@
 		<p class="sub">{user.email || 'LynShen Console'}</p>
 	</div>
 	<div class="acts">
+		<Button size="sm" onclick={() => picker?.click()} disabled={accountAvatar.busy}>
+			{#if accountAvatar.busy}<CircleNotchIcon size={14} class="spin" />{:else}<ImageIcon size={14} />{/if}
+			{t('settings.avatar.change')}
+		</Button>
+		<input bind:this={picker} type="file" accept={AVATAR_ACCEPT} hidden onchange={(e) => pickAvatar(e.currentTarget)} />
 		<Button size="sm" onclick={onRelogin}><SignInIcon size={14} /> {t('settings.account.relogin')}</Button>
 		<Button variant="danger" size="sm" onclick={onLogout}><SignOutIcon size={14} /> {t('settings.account.logout')}</Button>
 	</div>
 </section>
 {#if logoutError}<p role="alert" class="err">{logoutError}</p>{/if}
+{#if avatarError}<p role="alert" class="err">{avatarError}</p>{/if}
 
 <section class="stats">
 	<div class="tile wide">
@@ -170,6 +204,13 @@
 		color: var(--on-accent);
 		font-size: 24px;
 		font-weight: 600;
+		overflow: hidden;
+	}
+	.avatar img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 	.who {
 		flex: 1;

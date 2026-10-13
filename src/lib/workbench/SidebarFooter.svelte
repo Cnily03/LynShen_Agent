@@ -2,11 +2,13 @@
 	import ArrowCircleDownIcon from 'phosphor-svelte/lib/ArrowCircleDownIcon';
 	import CoinsIcon from 'phosphor-svelte/lib/CoinsIcon';
 	import UserIcon from 'phosphor-svelte/lib/UserIcon';
+	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n';
 	import { fetchMonoizeBalance, monoizeSession, type MonoizeUser } from '$lib/protocol';
 	import { shownBalanceText } from '$lib/money';
 	import { prefs } from '$lib/prefs.svelte';
 	import { avatarInitial } from '$lib/account';
+	import { accountAvatar } from '$lib/accountAvatar.svelte';
 	import AccountCard from './AccountCard.svelte';
 
 	// The bottom of the sidebar, as in the LynShen Console: the account row
@@ -52,28 +54,38 @@
 	const name = $derived(user?.username ?? (loggedIn ? 'LynShen' : t('shell.notLoggedIn')));
 
 	// Who is signed in and the balance; again on each open of the card, since
-	// the balance moves with every call.
+	// the balance moves with every call, and when the window comes back to the
+	// front a minute or more after the last read (an avatar changed on the
+	// website then shows here). The avatar follows each fresh user; the
+	// picture the app kept shows before that, also offline.
+	const FOCUS_RELOAD_MS = 60_000;
 	let generation = 0;
+	let loadedAt = 0;
 	function load() {
 		const g = ++generation;
+		loadedAt = Date.now();
 		Promise.all([monoizeSession(), fetchMonoizeBalance().catch(() => null)])
 			.then(([s, b]) => {
 				if (g !== generation) return;
 				user = s.logged_in && s.session ? s.session.user : null;
 				raw = b?.balance_infos?.[0] ?? null;
 				failed = false;
+				void accountAvatar.sync(user);
 			})
 			.catch(() => {
 				if (g === generation) failed = true;
 			});
 	}
 	$effect(() => {
-		if (loggedIn) load();
-		else {
+		if (loggedIn) {
+			untrack(() => void accountAvatar.restore());
+			load();
+		} else {
 			generation++;
 			user = null;
 			raw = null;
 			failed = false;
+			untrack(() => accountAvatar.clear());
 		}
 	});
 
@@ -122,7 +134,7 @@
 	>
 		<span class="ico" bind:this={avatarSlot}>
 			<span class="avatar" class:anon={!loggedIn}>
-				{#if loggedIn && user}{avatarInitial(user.username)}{:else}<UserIcon size={15} />{/if}
+				{#if loggedIn && accountAvatar.src}<img src={accountAvatar.src} alt="" />{:else if loggedIn && user}{avatarInitial(user.username)}{:else}<UserIcon size={15} />{/if}
 			</span>
 			{#if updateAvailable}<span class="dot" aria-hidden="true"></span>{/if}
 		</span>
@@ -145,7 +157,12 @@
 	{/if}
 </div>
 
-<svelte:window onpointerdown={outsideDown} onkeydown={(e) => e.key === 'Escape' && card && closeCard()} onresize={() => card && closeCard()} />
+<svelte:window
+	onpointerdown={outsideDown}
+	onkeydown={(e) => e.key === 'Escape' && card && closeCard()}
+	onresize={() => card && closeCard()}
+	onfocus={() => loggedIn && Date.now() - loadedAt >= FOCUS_RELOAD_MS && load()}
+/>
 
 {#if card}
 	<AccountCard
@@ -251,6 +268,13 @@
 		font-size: var(--fs-xs);
 		font-weight: 600;
 		line-height: 1;
+		overflow: hidden;
+	}
+	.avatar img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 	.avatar.anon {
 		color: var(--dim);

@@ -558,6 +558,10 @@ export type MonoizeUser = {
 	 *  session's /api/dashboard/auth/me does; the device login's
 	 *  /api/desktop/oauth/me does not yet). */
 	billing_plan?: { name?: string } | null;
+	/** The account's avatar for the device key (gateway DA-12):
+	 *  `/api/desktop/oauth/avatars/{id}`, or null for none. Absent from an older
+	 *  gateway and from the sign-in answer. */
+	avatar_url?: string | null;
 };
 export async function monoizeLogout(): Promise<void> {
 	return invoke('monoize_logout');
@@ -579,7 +583,9 @@ export class GatewayError extends Error {
 	constructor(
 		message: string,
 		readonly code: string | null,
-		readonly status: number | null
+		readonly status: number | null,
+		/** The gateway's `param`, where it sends one (the seconds of `avatar_rate_limited`). */
+		readonly param: string | null = null
 	) {
 		super(message);
 	}
@@ -591,7 +597,7 @@ async function gatewayCall<T>(cmd: string, args?: Record<string, unknown>): Prom
 		return await invoke<T>(cmd, args);
 	} catch (error) {
 		const raw = String(error);
-		let parsed: { message?: unknown; code?: unknown; status?: unknown } | null = null;
+		let parsed: { message?: unknown; code?: unknown; status?: unknown; param?: unknown } | null = null;
 		try {
 			parsed = JSON.parse(raw);
 		} catch {
@@ -601,12 +607,23 @@ async function gatewayCall<T>(cmd: string, args?: Record<string, unknown>): Prom
 			throw new GatewayError(
 				String(parsed.message ?? raw),
 				typeof parsed.code === 'string' ? parsed.code : null,
-				typeof parsed.status === 'number' ? parsed.status : null
+				typeof parsed.status === 'number' ? parsed.status : null,
+				typeof parsed.param === 'string' ? parsed.param : null
 			);
 		}
 		throw new GatewayError(raw, null, null);
 	}
 }
+
+/** The account's avatar as the app keeps it (account_avatar.rs): the gateway
+ *  address it is for and the picture, or null. Read without the network. */
+export const monoizeAvatarCached = () => invoke<{ url: string; data_url: string } | null>('monoize_avatar_cached');
+/** Brings the kept avatar to the one the gateway names (`avatar_url` of the
+ *  session's user; null removes it): the picture to show, or null. */
+export const monoizeAvatarSync = (url: string | null) => gatewayCall<string | null>('monoize_avatar_sync', { url });
+/** Sets the account's avatar (gateway DA-12): `image` is base64 PNG, JPEG or WebP. */
+export const monoizeAvatarUpload = (image: string) =>
+	gatewayCall<{ user: MonoizeUser; data_url: string }>('monoize_avatar_upload', { image });
 
 /** The invite program (gateway DA-9, RF-API-1): amounts in CNY fen, times in Unix ms. */
 export interface ReferralOverview {

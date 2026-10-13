@@ -1,5 +1,6 @@
 //! Browser-based LynShen device authorization. Passwords stay on the website.
 use serde_json::{json, Value};
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -170,8 +171,93 @@ pub(crate) fn gateway_key_call(method: &str, path: &str, body: Option<Value>) ->
     })
 }
 
+/// The JSON error of [`gateway_key_bytes`].
+fn key_failure(
+    status: Option<u16>,
+    code: Option<&str>,
+    message: &str,
+    param: Option<&str>,
+) -> String {
+    json!({ "status": status, "code": code, "message": message, "param": param }).to_string()
+}
+
+/// A device-key request with a raw body (`content_type`, `body`) whose answer is
+/// read as bytes, at most `max_bytes`: `(content type, body)`. Domains fail over
+/// as in [`api_call_status`]. An error is [`gateway_key_call`]'s JSON plus the
+/// gateway's `param` (e.g. the seconds of `avatar_rate_limited`).
+pub(crate) fn gateway_key_bytes(
+    method: &str,
+    path: &str,
+    content_type: Option<&str>,
+    body: Option<&[u8]>,
+    max_bytes: u64,
+) -> Result<(String, Vec<u8>), String> {
+    let key = gateway_key()
+        .map_err(|message| key_failure(None, Some("not_signed_in"), &message, None))?;
+    let mut last_network_err = String::new();
+    for index in base_order() {
+        let mut req = http()
+            .request(method, &format!("{}{}", BASES[index], path))
+            .set("Authorization", &format!("Bearer {key}"));
+        if let Some(kind) = content_type {
+            req = req.set("Content-Type", kind);
+        }
+        let result = match body {
+            Some(bytes) => req.send_bytes(bytes),
+            None => req.call(),
+        };
+        match result {
+            Ok(resp) => {
+                BASE_INDEX.store(index, Ordering::Relaxed);
+                let kind = resp.content_type().to_string();
+                let mut bytes = Vec::new();
+                resp.into_reader()
+                    .take(max_bytes + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| key_failure(None, None, &e.to_string(), None))?;
+                if bytes.len() as u64 > max_bytes {
+                    return Err(key_failure(
+                        None,
+                        Some("too_large"),
+                        "the gateway's answer is too large",
+                        None,
+                    ));
+                }
+                return Ok((kind, bytes));
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                BASE_INDEX.store(index, Ordering::Relaxed);
+                let parsed = resp.into_json::<Value>().ok();
+                let message = match &parsed {
+                    Some(v) => gateway_error_message(v),
+                    None => format!("gateway error {status} via {}", BASES[index]),
+                };
+                let code = parsed
+                    .as_ref()
+                    .and_then(|v| v["error"]["code"].as_str().or_else(|| v["code"].as_str()));
+                let param = parsed.as_ref().and_then(|v| v["error"]["param"].as_str());
+                return Err(key_failure(Some(status), code, &message, param));
+            }
+            Err(e) => last_network_err = format!("{}: {e}", BASES[index]),
+        }
+    }
+    Err(key_failure(
+        None,
+        None,
+        &format!("all gateways unreachable ({last_network_err})"),
+        None,
+    ))
+}
+
 fn read_session() -> Value {
     crate::read_json(&session_path())
+}
+/// The signed-in account's user id, from the session written at sign-in.
+pub(crate) fn session_user_id() -> Option<String> {
+    read_session()["user"]["id"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(String::from)
 }
 fn write_session(session: &Value) -> Result<(), String> {
     crate::write_json(&session_path(), session)?;
@@ -390,6 +476,7 @@ pub fn monoize_logout() -> Result<(), String> {
         )?;
     }
     clear_session();
+    crate::account_avatar::forget();
     crate::remove_provider_credential("monoize".to_string())
 }
 
