@@ -544,6 +544,8 @@ function replayMessages(items: Record<string, unknown>[]): Msg[] {
 			if (role === 'plan') return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
 			if (role === 'agent_message' && (str(it.summary) || str(it.content)))
 				return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
+			// A sandbox crossing, where the transcript keeps them (same fields as `escalated`).
+			if (role === 'escalated') return { kind: 'escalation', record: parseEscalation(it) };
 			return null;
 		})
 		.filter((m): m is Msg => m !== null);

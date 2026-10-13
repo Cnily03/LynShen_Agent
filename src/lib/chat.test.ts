@@ -1477,6 +1477,13 @@ describe('ChatState: the LynShen sandbox', () => {
 		if (last?.kind === 'escalation') expect(last.record).toMatchObject({ command: 'brew install jq', by: 'mode' });
 	});
 
+	it('shows a crossing the transcript keeps', () => {
+		const c = new ChatState();
+		c.handle({ type: 'transcript', items: [{ role: 'user', content: '装 jq' }, { role: 'escalated', kind: 'escalation', command: 'brew install jq', by: 'classifier' }] });
+		const last = c.messages.at(-1);
+		expect(last?.kind === 'escalation' && last.record).toMatchObject({ command: 'brew install jq', by: 'classifier' });
+	});
+
 	it('says why a deferred action was asked', () => {
 		setLocale('zh');
 		const c = new ChatState();

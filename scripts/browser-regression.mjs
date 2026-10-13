@@ -734,6 +734,31 @@ try {
   await expect(phone.locator('.composer textarea')).toHaveValue('对比这三份文件，列出口径不一致的地方');
   await expect(phone.locator('.composer .att-name')).toHaveText(['2026 Q3 经营分析.pdf', '销售明细.xlsx', 'metrics.md']);
   await phone.close();
+  // The LynShen sandbox: a new session in 自动, the note when commands are
+  // not isolated, a 越界记录 line, the card's answers from the engine's
+  // scopes (a must-ask request gets once and deny only), deny with what to
+  // do, and Settings → 权限与沙箱 writing config.json.
+  await page.goto(base + '?chat');
+  await expect(page.locator('.fbtn.mode')).toHaveText('自动');
+  await page.evaluate(() => {
+    const c = window.__paneChat();
+    c.handle({ type: 'escalated', call_id: 'e1', kind: 'escalation', command: 'brew install jq', justification: '需要 jq', cwd: '/w', paths: [], by: 'mode' });
+    c.handle({ type: 'sandbox', mode: 'workspace-write', network: true, enforced: false, unavailable: null, directories: [] });
+    c.handle({ type: 'approval_request', call_id: 's1', name: 'bash', summary: 'npm install -g pnpm', kind: 'escalation', justification: '全局装 pnpm', cwd: '/w', command: 'npm install -g pnpm', prefix: 'npm install', scopes: ['once', 'session', 'project'] });
+  });
+  await expect(page.locator('.esc')).toContainText('越界记录');
+  await expect(page.locator('.fbtn.isolation')).toBeVisible();
+  await expect(page.locator('.approval .approval-actions button')).toHaveText([/允许一次/, /本会话允许「npm install」开头的命令/, /始终允许/, /拒绝并告诉它怎么做/]);
+  await page.getByRole('button',{name:/拒绝并告诉它怎么做/}).click();
+  await page.locator('.fb-input').fill('用 corepack pnpm');
+  await page.locator('.fb-input').press('Enter');
+  await expect(page.locator('.approval')).toHaveCount(0);
+  await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 's2', name: 'bash', summary: 'git push', kind: 'rule', must_ask: true, command: 'git push', prefix: 'git push', scopes: ['once'] }));
+  await expect(page.locator('.approval .approval-actions button')).toHaveText([/允许一次/, /拒绝并告诉它怎么做/]);
+  await page.goto(base);
+  await page.getByRole('button',{name:'权限与沙箱'}).first().click();
+  await page.getByRole('switch',{name:'允许联网'}).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)))).toContain('{"sandbox_network":false}');
   // The product is named Aogiri; its engine and the account keep the name LynShen.
   await page.goto(base + '?sidebar');
   await expect(page.locator('.brand .word')).toHaveText('Aogiri');
@@ -804,5 +829,5 @@ try {
   await expect(trialPage.locator('.acct-card .funding')).toHaveCount(0);
   await trialPage.close();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows and funding choice, 404 not asked again).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows and funding choice, 404 not asked again).');
 } finally { await browser.close(); await server.close(); }

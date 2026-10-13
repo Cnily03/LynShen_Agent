@@ -441,7 +441,9 @@
 						title: t('chat.addPlan'),
 						desc: t('chat.addPlanDesc'),
 						checked: chat.approvalMode === 'plan',
-						onSelect: () => onApproval(chat.approvalMode === 'plan' ? 'ask' : 'plan')
+						// Leaving plan mode goes back to the mode before it.
+						onSelect: () =>
+							onApproval(chat.approvalMode !== 'plan' ? 'plan' : chat.modeBeforePlan && chat.modeBeforePlan !== 'plan' ? chat.modeBeforePlan : 'ask')
 					}
 				]
 			});
