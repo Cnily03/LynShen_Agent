@@ -86,8 +86,11 @@
 	}
 
 	// ---------- running sessions ----------
-	/** LynShen sessions whose engine reported its sandbox: it takes the ops. */
-	const live = $derived(sessions.filter((s) => caps(s.chat).sandbox && s.chat.sandbox && s.chat.engineState !== 'exited'));
+	/** LynShen sessions whose engine reported its sandbox: it takes the ops.
+	 *  An agent's session keeps the sandbox set on its Agent page. */
+	const live = $derived(
+		sessions.filter((s) => caps(s.chat).sandbox && s.chat.sandbox && !s.chat.agent && s.chat.engineState !== 'exited')
+	);
 	const inScope = (chat: ChatState, scope: Scope) => scope === GLOBAL || (!!chat.cwd && samePath(chat.cwd, scope));
 	function send(scope: Scope, op: (chat: ChatState) => Op | null) {
 		for (const s of live) {
