@@ -262,7 +262,9 @@ pub fn shell_env_status() -> ShellEnvStatus {
     status()
 }
 
-#[tauri::command]
+/// Runs a login shell (up to CAPTURE_TIMEOUT): off the main thread, which
+/// would otherwise hold the window still meanwhile.
+#[tauri::command(async)]
 pub fn refresh_shell_env() -> ShellEnvStatus {
     capture_and_store()
 }
