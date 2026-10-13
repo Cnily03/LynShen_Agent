@@ -66,30 +66,13 @@ export function parseSandboxRequest(ev: Record<string, unknown>): SandboxRequest
 	};
 }
 
-/** The directory of a path (either separator); the path itself when it has none. */
-export function dirOf(path: string): string {
-	const trimmed = path.replace(/[\\/]+$/, '');
-	const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
-	if (at < 0) return trimmed;
-	if (at === 0) return trimmed.slice(0, 1);
-	// `C:\file` → `C:\`
-	if (/^[A-Za-z]:$/.test(trimmed.slice(0, at))) return trimmed.slice(0, at + 1);
-	return trimmed.slice(0, at);
-}
-
-/** The directory the path answers make writable: the engine's suggestion,
- *  else the directory of the first path; '' when the request names none. */
-export function writeTarget(req: SandboxRequest): string {
-	if (req.dirSuggestion) return req.dirSuggestion;
-	return req.paths.length ? dirOf(req.paths[0]) : '';
-}
-
 /** The answers a card offers, from what the engine allows. A `must_ask`
  *  request gets nothing beyond its scopes either. */
 export interface ApprovalChoices {
 	/** 允许一次 (always there: every scope list allows once). */
 	once: boolean;
-	/** 本会话: commands starting with the prefix, or edits for an edit request. */
+	/** 本会话: commands starting with the prefix, edits for an edit request,
+	 *  the tool for another tool's. */
 	session: boolean;
 	/** 始终允许: the prefix saved as an allow rule. */
 	project: boolean;
@@ -103,19 +86,25 @@ export interface ApprovalChoices {
 
 export function approvalChoices(req: SandboxRequest, opts: { terminal?: boolean } = {}): ApprovalChoices {
 	const has = (s: ApprovalScope) => req.scopes.includes(s);
-	const target = writeTarget(req);
+	// The write answers name only the directory the engine suggests: it
+	// suggests none for the home directory, a root or the credentials, and
+	// none for a request it allows once only (must_ask). Its scopes are
+	// about command prefixes: a write outside the workspace is allowed once
+	// with them, and for its directory with these.
+	const target = req.mustAsk ? '' : req.dirSuggestion;
 	// A write outside the working directory is answered for its directory;
 	// a command that also names one gets both kinds of answer.
 	const commandAnswers = req.kind !== 'outside_write';
-	// A session allow of an edit is "edits no longer ask"; of anything else it
-	// covers a command prefix, so it needs one.
-	const sessionOk = has('session') && (req.kind === 'edit' || !!req.prefix);
+	// A session allow of an edit is "edits no longer ask", of another tool
+	// "this tool no longer asks"; of a command it covers a prefix, so it
+	// needs one.
+	const sessionOk = has('session') && (req.kind === 'edit' || req.kind === 'tool' || !!req.prefix);
 	return {
 		once: true,
 		session: commandAnswers && sessionOk,
 		project: commandAnswers && has('project') && !!req.prefix,
-		pathSession: !!target && has('session'),
-		pathProject: !!target && has('project'),
+		pathSession: !!target,
+		pathProject: !!target,
 		target,
 		terminal: req.elevation === 'terminal' && !!req.command && !!opts.terminal
 	};

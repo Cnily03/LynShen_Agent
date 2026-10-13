@@ -4,12 +4,10 @@ import {
 	baseName,
 	buildSandboxApproveOp,
 	commandsIsolated,
-	dirOf,
 	parseEscalation,
 	parseSandboxRequest,
 	parseSandboxState,
 	TERMINAL_FEEDBACK,
-	writeTarget,
 	type SandboxRequest
 } from './request';
 import { typedCommand } from './terminal.svelte';
@@ -55,6 +53,22 @@ describe('parseSandboxRequest', () => {
 		});
 	});
 
+	it('reads malformed fields as the narrowest answer', () => {
+		const req = request({
+			kind: 'escalation',
+			must_ask: 'false',
+			scopes: 'session',
+			prefix: 42,
+			dir_suggestion: ['/Users/me'],
+			paths: '/Users/me/x',
+			command: { run: 'rm -rf ~' },
+			elevation: true,
+			justification: 'x'.repeat(200000)
+		});
+		expect(req).toMatchObject({ scopes: ['once'], prefix: '', dirSuggestion: '', paths: [], command: '', elevation: null });
+		expect(approvalChoices(req, { terminal: true })).toMatchObject({ session: false, project: false, pathSession: false, pathProject: false, terminal: false });
+	});
+
 	it('defaults missing fields to the narrowest answer', () => {
 		const req = request({ kind: 'command', justification: null, command: null, dir_suggestion: null, prefix: null, elevation: 'sudo' });
 		expect(req).toMatchObject({ mustAsk: false, justification: '', command: '', paths: [], dirSuggestion: '', prefix: '', elevation: null });
@@ -73,16 +87,36 @@ describe('approvalChoices', () => {
 		expect(c).toMatchObject({ once: true, session: false, project: false, pathSession: false, pathProject: false });
 	});
 
-	it('needs a prefix for a command allow, not for an edit', () => {
+	it('needs a prefix for a command allow, not for an edit or a tool', () => {
 		expect(approvalChoices(request({ kind: 'command', scopes: ['once', 'session', 'project'] }))).toMatchObject({ session: false, project: false });
 		expect(approvalChoices(request({ kind: 'edit', scopes: ['once', 'session'] }))).toMatchObject({ session: true, project: false });
+		expect(approvalChoices(request({ kind: 'tool', name: 'mcp__srv__lookup', scopes: ['once', 'session'] }))).toMatchObject({ session: true, project: false });
+		expect(approvalChoices(request({ kind: 'tool', scopes: ['once'] }))).toMatchObject({ session: false, project: false });
+		// a manual-mode command in the sandbox: once and the session only
+		expect(approvalChoices(request({ kind: 'command', prefix: 'npm test', scopes: ['once', 'session'] }))).toMatchObject({ session: true, project: false });
 	});
 
-	it('answers a write outside the workspace for its directory', () => {
-		const c = approvalChoices(
-			request({ kind: 'outside_write', paths: ['/Users/me/Desktop/a.txt'], dir_suggestion: '/Users/me/Desktop', prefix: 'cp', scopes: ['once', 'session', 'project'] })
+	it("answers a write outside the workspace for the engine's directory, though it allows the write once only", () => {
+		// a file tool's write, and a command whose text writes outside
+		for (const command of [null, 'cp shot.png ~/Desktop/']) {
+			const c = approvalChoices(
+				request({ kind: 'outside_write', command, paths: ['/Users/me/Desktop/a.txt'], dir_suggestion: '/Users/me/Desktop', prefix: command ? 'cp shot.png' : null, scopes: ['once'] })
+			);
+			expect(c).toMatchObject({ session: false, project: false, pathSession: true, pathProject: true, target: '/Users/me/Desktop' });
+		}
+	});
+
+	it('offers no directory the engine did not suggest', () => {
+		// ~/notes.txt: the engine withholds the home directory (and a root, the credentials)
+		const home = approvalChoices(request({ kind: 'outside_write', paths: ['/Users/me/notes.txt'], dir_suggestion: null, scopes: ['once', 'session', 'project'] }));
+		expect(home).toMatchObject({ pathSession: false, pathProject: false, target: '' });
+		const root = approvalChoices(request({ kind: 'outside_write', paths: ['/etc'], scopes: ['once'] }));
+		expect(root).toMatchObject({ pathSession: false, pathProject: false, target: '' });
+		// a must-ask request is allowed once at most, whatever it suggests
+		const sudo = approvalChoices(
+			request({ kind: 'elevation', must_ask: true, command: 'sudo cp x /usr/local/bin/', paths: ['/usr/local/bin/x'], dir_suggestion: '/usr/local/bin', scopes: ['once'] })
 		);
-		expect(c).toMatchObject({ session: false, project: false, pathSession: true, pathProject: true, target: '/Users/me/Desktop' });
+		expect(sudo).toMatchObject({ session: false, project: false, pathSession: false, pathProject: false });
 	});
 
 	it('offers both kinds of answer for a command that names a directory', () => {
@@ -99,20 +133,9 @@ describe('approvalChoices', () => {
 });
 
 describe('paths', () => {
-	it('takes the directory of a path on every system', () => {
-		expect(dirOf('/Users/me/Desktop/a.txt')).toBe('/Users/me/Desktop');
-		expect(dirOf('/a')).toBe('/');
-		expect(dirOf('C:\\Users\\me\\Desktop\\a.txt')).toBe('C:\\Users\\me\\Desktop');
-		expect(dirOf('C:\\a.txt')).toBe('C:\\');
-		expect(dirOf('/Users/me/dir/')).toBe('/Users/me');
+	it('takes the last part of a path on every system', () => {
 		expect(baseName('/Users/me/Desktop/')).toBe('Desktop');
 		expect(baseName('C:\\Users\\me\\OneDrive\\Desktop')).toBe('Desktop');
-	});
-
-	it("prefers the engine's directory to the first path's", () => {
-		expect(writeTarget(request({ kind: 'outside_write', paths: ['/a/b/c.txt'] }))).toBe('/a/b');
-		expect(writeTarget(request({ kind: 'outside_write', paths: ['/a/b/c.txt'], dir_suggestion: '/a' }))).toBe('/a');
-		expect(writeTarget(request({ kind: 'command' }))).toBe('');
 	});
 });
 

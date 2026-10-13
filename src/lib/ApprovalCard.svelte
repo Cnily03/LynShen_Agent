@@ -442,8 +442,12 @@
 					<Button variant="primary" size="sm" onclick={() => answer({ type: 'once' })}>{t('shell.allowOnce')}<kbd>1</kbd></Button>
 				{/if}
 				{#if choices.session}
-					<Button variant="secondary" size="sm" title={sbx.prefix} onclick={() => answer({ type: 'session' })}
-						>{sbx.kind === 'edit' ? t('shell.sandbox.sessionEdits') : t('shell.sandbox.sessionPrefix', { prefix: clip(sbx.prefix) })}{#if secondKey?.type === 'session'}<kbd>2</kbd>{/if}</Button
+					<Button variant="secondary" size="sm" title={sbx.prefix || undefined} onclick={() => answer({ type: 'session' })}
+						>{sbx.kind === 'edit'
+							? t('shell.sandbox.sessionEdits')
+							: sbx.kind === 'tool'
+								? t('shell.sandbox.sessionTool', { tool: clip(approval.name) })
+								: t('shell.sandbox.sessionPrefix', { prefix: clip(sbx.prefix) })}{#if secondKey?.type === 'session'}<kbd>2</kbd>{/if}</Button
 					>
 				{/if}
 				{#if choices.project}
