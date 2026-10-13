@@ -340,9 +340,11 @@ const isWorktree = (workdir: string, isolation: string) =>
 
 /** Mode names as a client sends them to the daemon (see backends/lynshen.ts). */
 /** The engine's refusals of an `approve` that leave the request waiting:
- *  `add_dir` naming no existing directory, a scope or prefix it does not
- *  offer (LynShen core `approve_with`). */
-const APPROVE_REFUSED = /^(not an existing absolute directory: |add_dir persist |call \S+ can be allowed only |call \S+ has no command prefix|prefix `)/;
+ *  `add_dir` naming no existing directory or one it never makes writable
+ *  (home, a root, credentials), a scope or prefix it does not offer
+ *  (LynShen core `approve_with`). */
+const APPROVE_REFUSED =
+	/^(not an existing absolute directory: |add_dir persist |call \S+ can be allowed only |call \S+ has no command prefix|prefix `|.+ cannot be made writable: )/;
 const PENDING_MODES: Record<string, ApprovalMode> = { manual: 'ask', 'auto-edit': 'edits', auto: 'auto', 'full-access': 'all', plan: 'plan' };
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const num = (v: unknown) => (typeof v === 'number' ? v : 0);

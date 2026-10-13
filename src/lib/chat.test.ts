@@ -1522,6 +1522,29 @@ describe('ChatState: the LynShen sandbox', () => {
 		expect(c.lastError).toBe('not an existing absolute directory: /x');
 	});
 
+	it('brings a sandbox card back when the engine will not make the directory writable', () => {
+		const c = new ChatState();
+		c.handle({
+			type: 'approval_request',
+			call_id: 'w2',
+			name: 'write',
+			summary: '/Users/me/a.txt',
+			kind: 'outside_write',
+			command: null,
+			paths: ['/Users/me/x/a.txt'],
+			dir_suggestion: '/Users/me/x',
+			scopes: ['once']
+		});
+		c.approvalAnswered();
+		c.handle({
+			type: 'error',
+			message:
+				"/Users/me cannot be made writable: it is the root, the home directory or holds credentials or LynShen's settings"
+		});
+		expect(c.pendingApproval?.callId).toBe('w2');
+		expect(c.lastError).toBeNull();
+	});
+
 	it('does not bring back an older engine card or one answered long ago', () => {
 		const c = new ChatState();
 		c.handle({ type: 'approval_request', call_id: 'o1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
