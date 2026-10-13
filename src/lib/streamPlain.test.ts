@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { BLOCK_MIN, BlockCutter } from './streamPlain';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { BLOCK_MIN, BlockCutter, streamPlain, type PlainSource } from './streamPlain';
 
 /** A long reasoning: lines of a few dozen characters, now and then a blank
  *  line, sometimes a run of them. */
@@ -74,5 +74,74 @@ describe('BlockCutter', () => {
 	it('leaves a text without line breaks in one block', () => {
 		const text = 'x'.repeat(5000);
 		expect(cut(text, 7).blocks).toEqual([text]);
+	});
+});
+
+/** The few DOM calls streamPlain makes, on plain objects. */
+class FakeText {
+	constructor(public data: string) {}
+	appendData(s: string) {
+		this.data += s;
+	}
+	deleteData(at: number, n: number) {
+		this.data = this.data.slice(0, at) + this.data.slice(at + n);
+	}
+}
+class FakeEl {
+	children: (FakeEl | FakeText)[] = [];
+	parent: FakeEl | null = null;
+	get firstChild() {
+		return this.children[0];
+	}
+	append(c: FakeEl | FakeText) {
+		if (c instanceof FakeEl) c.parent = this;
+		this.children.push(c);
+	}
+	replaceChildren() {
+		this.children = [];
+	}
+	remove() {
+		this.parent!.children.splice(this.parent!.children.indexOf(this), 1);
+	}
+	/** The blocks' texts, each block a line as the pre-wrap text shows it. */
+	get shown() {
+		return this.children.map((b) => ((b as FakeEl).firstChild as FakeText).data).join('\n');
+	}
+}
+
+describe('streamPlain', () => {
+	const real = globalThis.document;
+	beforeEach(() => {
+		globalThis.document = { createElement: () => new FakeEl(), createTextNode: (s: string) => new FakeText(s) } as unknown as Document;
+	});
+	afterEach(() => {
+		globalThis.document = real;
+	});
+	const source = (text: string, length = text.length, from?: number): PlainSource => ({ length, read: (a, b) => text.slice(a, b), from });
+
+	it('drops its front as `from` moves on, and leaves the rest as it was written', () => {
+		const text = reasoning(20_000);
+		const node = new FakeEl();
+		const action = streamPlain(node as unknown as HTMLElement, source(text, 0))!;
+		for (let at = 0; at < text.length; at += 37) action.update!(source(text, at));
+		action.update!(source(text));
+		expect(node.shown).toBe(text);
+		const blocks = [...node.children];
+		for (const from of [0, 1, 950, 951, 5000, 12_345, 19_999, text.length]) {
+			action.update!(source(text, text.length, from));
+			expect(node.shown).toBe(text.slice(from));
+			// The blocks still there are the ones written as it streamed.
+			for (const b of node.children) expect(blocks).toContain(b);
+		}
+		expect(node.children.length).toBe(1);
+	});
+
+	it('starts over when `from` goes back', () => {
+		const text = reasoning(3000);
+		const node = new FakeEl();
+		const action = streamPlain(node as unknown as HTMLElement, source(text, text.length, 2000))!;
+		expect(node.shown).toBe(text.slice(2000));
+		action.update!(source(text, text.length, 500));
+		expect(node.shown).toBe(text.slice(500));
 	});
 });

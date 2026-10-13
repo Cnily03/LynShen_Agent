@@ -10,7 +10,12 @@
 // time per frame (average and 95th percentile), and in Chromium the main
 // thread's task, script and layout time per frame and the JS heap (not
 // collected); at the end, the heap after a forced GC. A cost per frame that
-// grows from window to window grows with the text's length.
+// grows from window to window grows with the text's length. Then the turn
+// ends: `turnEndMs` is the time to the second frame after it, the time the
+// finished message took to show; `turnSettledMs` the time until no part of
+// it shows as plain text any more (a long reasoning turns into Markdown
+// over frames), and `longestFrameAfterMs` the longest frame from the second
+// until then.
 //
 // --per-frame: deltas per animation frame. --words: words per delta (about
 //   4 characters each; more reaches a long text sooner).
@@ -21,8 +26,13 @@
 //   footprint (macOS `footprint`), which WebKit's allocator does not give
 //   back when freed, so it shows the peak; and the GPU process's, which
 //   holds the compositing layers' backing stores in this WebKit build. Only
-//   the processes started by this run count (not another run's at the same
-//   time).
+//   this run's processes count: those started between its launch and its
+//   page's load (one that starts later is another run's, and one that ran
+//   before is too). `processPeakMB` is the highest footprint the WebContent process
+//   has had, by the kernel's count: above `peakFootprintMB` (the highest
+//   while streaming), the turn's end made it. Memory that render frees
+//   within the second is gone from `footprintAfterTurnMB` on some runs and
+//   not on others; the peak counts it on all.
 // --paint (Chromium): also trace each window (devtools.timeline) and print
 //   the main thread's PrePaint, Paint and Layerize time per frame. Tracing
 //   slows every frame a little: compare runs that all trace, or none.
@@ -71,12 +81,20 @@ const others = new Set([...webkitPids('WebContent'), ...webkitPids('GPU')]);
 const browser = WEBKIT
 	? await webkit.launch()
 	: await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH });
-/** This run's processes' footprint, MB (WebKit only). */
-const footprintMB = (kind = 'WebContent') => {
+/** This run's processes of each kind, set once its page has loaded. */
+const mine = { WebContent: [], GPU: [] };
+/** This run's processes' footprint, MB (WebKit only); `peak`: the highest
+ *  each has had since it started. */
+const footprintMB = (kind = 'WebContent', peak = false) => {
 	let total = 0;
-	for (const pid of webkitPids(kind).filter((p) => !others.has(p))) {
-		const out = execFileSync('footprint', ['-p', pid], { encoding: 'utf8' });
-		const m = out.match(/Footprint:\s+([\d.]+)\s+(KB|MB|GB)/);
+	for (const pid of mine[kind]) {
+		let out;
+		try {
+			out = execFileSync('footprint', ['-p', pid], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+		} catch {
+			continue; // the process has ended
+		}
+		const m = out.match(peak ? /phys_footprint_peak:\s+([\d.]+)\s+(KB|MB|GB)/ : /Footprint:\s+([\d.]+)\s+(KB|MB|GB)/);
 		if (m) total += Number(m[1]) * (m[2] === 'GB' ? 1024 : m[2] === 'KB' ? 1 / 1024 : 1);
 	}
 	return +total.toFixed(1);
@@ -90,6 +108,7 @@ try {
 	page.on('console', (m) => m.type() === 'error' && console.error('[page]', m.text()));
 	await page.goto(`http://127.0.0.1:${PORT}/tests/browser/perf.html`);
 	await page.waitForFunction(() => window.__perf?.ready(), null, { timeout: 15000 });
+	if (WEBKIT) for (const kind of ['WebContent', 'GPU']) mine[kind] = webkitPids(kind).filter((p) => !others.has(p));
 	const metrics = async () =>
 		cdp ? Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value])) : {};
 	/** Renderer main thread time in each rendering step, ms, from the trace
@@ -223,7 +242,30 @@ try {
 	}
 	const seconds = (Date.now() - t0) / 1000;
 	const heapAfterGc = await gcHeap();
-	await page.evaluate(() => window.__perf.deliver({ type: 'status', message: 'ready' }));
+	const turnEnd = await page.evaluate(
+		() =>
+			new Promise((done) => {
+				const t = performance.now();
+				window.__perf.deliver({ type: 'status', message: 'ready' });
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => {
+						const shown = performance.now() - t;
+						// Then until no part of it shows as plain text, and the
+						// longest frame on the way.
+						let last = performance.now();
+						let longest = 0;
+						const frame = (now) => {
+							longest = Math.max(longest, now - last);
+							last = now;
+							const plain = [...document.querySelectorAll('.reason-body .stream')].some((e) => e.textContent);
+							if (plain) requestAnimationFrame(frame);
+							else done({ shown, settled: performance.now() - t, longest });
+						};
+						requestAnimationFrame(frame);
+					})
+				);
+			})
+	);
 	await page.waitForTimeout(300);
 	const finalHeap = await gcHeap();
 	console.table(rows);
@@ -235,9 +277,12 @@ try {
 			perFrame: PER_FRAME,
 			wordsPerDelta: WORDS,
 			seconds,
+			turnEndMs: Math.round(turnEnd.shown),
+			turnSettledMs: Math.round(turnEnd.settled),
+			longestFrameAfterMs: Math.round(turnEnd.longest),
 			...(cdp
 				? { peakHeapMB: +(peak / 1e6).toFixed(1), heapAfterGcMB: +(heapAfterGc / 1e6).toFixed(1), heapAfterTurnMB: +(finalHeap / 1e6).toFixed(1) }
-				: { peakFootprintMB: peak, footprintAfterTurnMB: footprintMB(), gpuProcessAfterTurnMB: footprintMB('GPU') }),
+				: { peakFootprintMB: peak, processPeakMB: footprintMB('WebContent', true), footprintAfterTurnMB: footprintMB(), gpuProcessAfterTurnMB: footprintMB('GPU') }),
 			errors
 		})
 	);

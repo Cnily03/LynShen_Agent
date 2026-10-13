@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ReplyStream, splitIdx, stableBlocks } from './streamBlocks';
+import { ReplyStream, finishedBlocks, splitIdx, stableBlocks } from './streamBlocks';
 
 const texts = (done: string) => stableBlocks(done).map((b) => b.text);
 
@@ -104,5 +104,71 @@ describe('ReplyStream', () => {
 		const short = readFor(20_000);
 		const long = readFor(40_000);
 		expect(long / short).toBeLessThan(1.3);
+	});
+});
+
+describe('finishedBlocks', () => {
+	it('keeps the key of every chunk a reply streamed in but the last', () => {
+		// The view keeps a chunk it rendered while the reply streamed as long
+		// as its key stays: only the chunk still open may render again.
+		const parts = ['One paragraph.\n\n', 'Two\nlines.\n\n', '- a\n- b\n\n', '1. x\n\n   more\n\n2. y\n\n', '```js\nlet a = 1;\n\nlet b = 2;\n```\n\n', '~~~\ntext\n\nmore\n~~~\n\n', '    code()\n\n    more()\n\n', '> quote\n\n', '| a | b |\n| - | - |\n| 1 | 2 |\n\n', '# Title\n\n', '$$\na = b\n$$\n\n'];
+		for (let seed = 1; seed <= 100; seed++) {
+			let text = '';
+			for (let i = 0, n = seed; i < 12; i++) {
+				n = (n * 1103515245 + 12345) & 0x7fffffff;
+				text += parts[(n >>> 8) % parts.length];
+			}
+			text += 'The end';
+			const r = new ReplyStream();
+			let streamed = r.update(0, (from, to) => text.slice(from, to)).blocks;
+			for (let at = 0; at < text.length; ) {
+				at = Math.min(text.length, at + (seed % 13) + 1);
+				streamed = r.update(at, (from, to) => text.slice(from, to)).blocks;
+			}
+			const keys = new Set(finishedBlocks(text).map((b) => b.key));
+			expect(keys.size).toBeGreaterThan(1);
+			expect(streamed.length).toBeGreaterThan(1);
+			expect(streamed.slice(0, -1).filter((b) => !keys.has(b.key))).toEqual([]);
+		}
+	});
+
+	it('is the whole reply when its chunks may not render as it does whole', () => {
+		const whole = (text: string) => [{ key: `0:${text.length}`, text }];
+		for (const text of [
+			// What reaches from one chunk into another.
+			'See [the docs][1].\n\n[1]: https://example.dev\n',
+			'<details>\n\nInside.\n\n</details>\n\nAfter.',
+			'Now <b>bold\n\nand on.',
+			'A Vec<String> here.\n\nNext.',
+			'Before.\n\n<!-- note\n\nstill the note -->',
+			// Math with a blank line, a fence line or no line in it.
+			'So:\n\n$$\na = b\n\n+ c\n$$\n\nDone.',
+			'So:\n\n$$\na = b\n```\n$$\n\nDone.\n\n```\nx\n```',
+			'So:\n\n$$\n$$\n\nDone.',
+			// Fences the cuts count as a pair and Markdown does not.
+			'````md\n```js\nlet a = 1;\n\nlet b = 2;\n```\n````\n\nAfter.',
+			'~~~\n```\n\nstill code\n~~~\n\nAfter.',
+			'```js\nlet a;\n\n``` and on\n\nlet b;\n```\n\nAfter.',
+			'Text.\n\n```a```\n\nMore.\n\n```\ncode\n```',
+			// Code a tab indents after spaces: one block across its blank line.
+			'Text.\n\n \ta()\n\n \tb()\n\nAfter.'
+		])
+			expect(finishedBlocks(text)).toEqual(whole(text));
+		expect(finishedBlocks(' \n')).toEqual([]);
+	});
+
+	it('stays in chunks for code, links and comparisons that only look like HTML', () => {
+		for (const text of [
+			'One.\n\nTwo.',
+			'```html\n<div>\n\n</div>\n```\n\nAfter.',
+			'~~~md\n[1]: https://example.dev\n\n$$\n~~~\n\nAfter.',
+			'````\ncode\n`````\n\nAfter.',
+			'Use `Vec<String>` and `<details>`.\n\nNext.',
+			'See <https://example.dev/a> or <me@example.dev>.\n\nNext.',
+			'When a < b and b <= c.\n\nNext.',
+			'A [link](https://example.dev) and [text]: not at the line start.\n\nNext.',
+			'So:\n\n$$\na = b + c\n$$\n\nIt costs $5.\n\nDone.'
+		])
+			expect(finishedBlocks(text)).toEqual(stableBlocks(text));
 	});
 });

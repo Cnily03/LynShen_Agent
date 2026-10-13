@@ -7,6 +7,7 @@
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
 	import { fade } from 'svelte/transition';
 	import Markdown from '$lib/Markdown.svelte';
+	import ReasoningBody from '$lib/ReasoningBody.svelte';
 	import Collapse from '$lib/ui/Collapse.svelte';
 	import ToolCard from '$lib/ToolCard.svelte';
 	import SubagentCard from '$lib/agents/SubagentCard.svelte';
@@ -20,7 +21,7 @@
 	import DeliveryNotice from '$lib/DeliveryNotice.svelte';
 	import { parseDelivery } from '$lib/delivery';
 	import { sendCardProps, sendCardView, type SessionMessageView } from '$lib/sessions/sessionMessage';
-	import { ReplyStream } from '$lib/streamBlocks';
+	import { ReplyStream, finishedBlocks, type Block } from '$lib/streamBlocks';
 	import { parseToolOutput, toolIcon, toolTarget, toolVerb } from '$lib/toolSummary';
 	import Indicator from '$lib/Indicator.svelte';
 	import CallTimer from '$lib/CallTimer.svelte';
@@ -40,7 +41,7 @@
 	import { lastTurnStart, turnEnds, turnText } from '$lib/turnText';
 	import { contextItems, type ContextItem } from '$lib/ui/contextMenu';
 	import { streamText } from '$lib/streamText';
-	import { streamPlain, type PlainSource } from '$lib/streamPlain';
+	import type { PlainSource } from '$lib/streamPlain';
 	import { hasText, liveRead } from '$lib/liveText';
 
 	let {
@@ -436,6 +437,20 @@
 		return reply.stream.update(length, read);
 	}
 
+	// A finished reply renders as the chunks it streamed in (finishedBlocks),
+	// not as one document: the chunks rendered while it streamed stay as they
+	// are, and only its tail renders as it finishes. Rendering it whole again
+	// then cost time and memory that grew with the reply.
+	const finished = new WeakMap<Msg, { text: string; blocks: Block[] }>();
+	function replyBlocks(m: Msg & { text: string }): Block[] {
+		const text = m.text;
+		const done = finished.get(m);
+		if (done?.text === text) return done.blocks;
+		const blocks = finishedBlocks(text);
+		finished.set(m, { text, blocks });
+		return blocks;
+	}
+
 	// A user message's text split into runs of "> " quote lines (quoted
 	// passages, shown as quotes) and the text between.
 	function userBlocks(text: string): { text: string; quote: boolean }[] {
@@ -586,14 +601,16 @@
 			</div>
 			{/if}
 		{:else if m.kind === 'assistant'}
+			{@const r = m === streamingMsg ? streamingReply(m) : null}
+			{@const blocks = r ? r.blocks : replyBlocks(m)}
 			<div class="answer" use:contextItems={() => turnMenu(i)}>
-				{#if m === streamingMsg}
-					{@const r = streamingReply(m)}
-					{#each r.blocks as block (block.key)}<Markdown text={block.text} />{/each}
+				<!-- The same keyed chunks while it streams and once it has
+				     finished: only the tail renders anew at its end. -->
+				{#each blocks as block, b (block.key)}<Markdown text={block.text} more={!!r || b < blocks.length - 1} onFile={(href) => onFile?.(href, m.text)} />{/each}
+				{#if r}
 					<div class="stream" use:streamText={{ text: r.tail, from: r.split }}></div>
 				{:else}
 					{@const turnEnd = ends.has(m) && i < liveFrom}
-					<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
 					<!-- Only the turn's last reply carries the request's totals
 					     and the copy button for the whole turn. -->
 					{#if m.turn || m.elapsed || turnEnd || m.interrupted}
@@ -642,14 +659,10 @@
 				</div>
 				<Collapse open={!m.collapsed}>
 					<div class="reason-body">
-						{#if m === streamingReasoning}
-							<!-- While it streams: plain text (no per-frame Markdown),
-							     in blocks written once (streamPlain); it renders as
-							     Markdown once finished. -->
-							<div class="stream" use:streamPlain={shownText(m)}></div>
-						{:else}
-							<Markdown text={m.text} onFile={(href) => onFile?.(href, m.text)} />
-						{/if}
+						<!-- Plain text while it streams (no per-frame Markdown), in
+						     blocks written once; Markdown once finished, taking
+						     over from the plain text a few chunks each frame. -->
+						<ReasoningBody source={shownText(m)} text={m.text} live={m === streamingReasoning} onFile={(href) => onFile?.(href, m.text)} />
 					</div>
 				</Collapse>
 			</div>

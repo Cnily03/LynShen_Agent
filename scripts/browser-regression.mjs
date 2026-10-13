@@ -200,9 +200,42 @@ try {
   assert.ok(blocks.growing < 2000, `the growing block holds ${blocks.growing} characters`);
   assert.equal(blocks.rewritten, 0, 'a finished reasoning block was written again');
   assert.ok(blocks.sameHeight, 'the blocks do not read as the one text');
-  // Once it ends it renders as Markdown, as before.
-  await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
-  await expect(page.locator('.reason-body .md')).toBeVisible();
+  // Once it ends it renders as Markdown: its chunks at the top at once and
+  // the rest a few each frame, taking over from the plain text written as it
+  // streamed, which stays (laid out as it was) and loses its front as they
+  // come. (It all rendered in one task: time and memory that grew with it.)
+  await body.evaluate((el) => (el.dataset.kept = '1'));
+  const ended = await page.evaluate(() => new Promise((done) => {
+    window.__chat.handle({ type: 'status', message: 'ready' });
+    requestAnimationFrame(() => {
+      const plain = document.querySelector('.reason-body .stream');
+      done({
+        chunks: document.querySelectorAll('.reason-body .md').length,
+        kept: plain?.dataset.kept === '1',
+        plain: plain?.textContent.length ?? 0,
+        text: window.__chat.messages.at(-1).text.length
+      });
+    });
+  }));
+  assert.ok(ended.chunks >= 1 && ended.plain > 0 && ended.plain < ended.text - 3000, `as it ended: ${JSON.stringify(ended)}`);
+  assert.ok(ended.kept, 'the plain text was written again as the reasoning ended');
+  await expect(page.locator('.reason-body .stream')).toHaveCount(0, { timeout: 15000 });
+  // In the end it reads as the whole text rendered as one document.
+  const rendered = await page.evaluate(async () => {
+    const { renderMarkdown } = await import('/src/lib/markdown.ts');
+    const mds = [...document.querySelectorAll('.reason-body .md')];
+    const norm = (html) => html.replace(/>\s+</g, '><').trim();
+    const one = document.createElement('div');
+    one.className = mds[0].className.replace(/\bmore\b/, '');
+    one.innerHTML = renderMarkdown(window.__chat.messages.at(-1).text);
+    const height = mds.at(-1).getBoundingClientRect().bottom - mds[0].getBoundingClientRect().top;
+    document.querySelector('.reason-body').append(one);
+    const same = { html: norm(mds.map((m) => m.innerHTML).join('')) === norm(one.innerHTML), height: Math.abs(one.offsetHeight - height) < 1 };
+    one.remove();
+    return { chunks: mds.length, ...same };
+  });
+  assert.deepEqual(rendered, { chunks: rendered.chunks, html: true, height: true }, 'the chunks do not read as the whole reasoning');
+  assert.ok(rendered.chunks > 5, `the reasoning in ${rendered.chunks} chunks`);
   // A long reply: each finished paragraph renders once, the paragraph being
   // written streams as text after them, a code fence stays in it until it
   // closes.
@@ -218,8 +251,18 @@ try {
   await expect(reply.locator('.md')).toHaveCount(31);
   assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a finished paragraph rendered again');
   await expect(reply.locator('.md').last()).toContainText('let b = 2;');
+  // Once it ends the reply keeps what it rendered as it streamed: only its
+  // last paragraph renders, and the paragraphs are spaced as one document's
+  // (the last has no space after it). (The whole reply rendered again, as
+  // one document: time and memory that grew with the reply.)
+  const spaces = () => reply.locator('.md > p:last-child').evaluateAll((ps) => ps.map((p) => getComputedStyle(p).marginBottom));
+  assert.deepEqual([...new Set(await spaces())], ['10px'], 'the paragraphs of a streaming reply are spaced');
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
-  await expect(reply.locator('.md')).toHaveCount(1);
+  await expect(reply.locator('.stream')).toHaveCount(0);
+  await expect(reply.locator('.md')).toHaveCount(32);
+  await expect(reply.locator('.md').last()).toHaveText('Done.');
+  assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a paragraph rendered again as the reply ended');
+  assert.deepEqual(await spaces(), [...Array(30).fill('10px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
   // A steered message cuts the streaming reply off: it stays, finished and
   // marked, and the next response is a reply of its own after the message.
   await page.evaluate(() => {

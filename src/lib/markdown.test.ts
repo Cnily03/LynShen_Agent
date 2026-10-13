@@ -38,3 +38,25 @@ describe('renderMarkdown tables', () => {
 		expect(html.match(/<tr>/g)).toHaveLength(3);
 	});
 });
+
+describe('renderMarkdown on a long text', () => {
+	it('does not copy a list of the tokens so far for each token', () => {
+		// The regression: marked walks the tokens for an extension's
+		// `walkTokens` and gathers the results with `concat`, which copies
+		// the whole list for every token (marked-highlight was such an
+		// extension). A 240,000-character text took 300 MB of copies.
+		const text = Array.from({ length: 2000 }, (_, i) => `第 ${i} 段：**注意** the cache 的 \`buf.len()\` 边界。`).join('\n\n');
+		const concat = Array.prototype.concat;
+		let copied = 0;
+		Array.prototype.concat = function (this: unknown[], ...items: unknown[]) {
+			copied += this.length;
+			return concat.apply(this, items);
+		} as typeof concat;
+		try {
+			expect(renderMarkdown(text).match(/<p>/g)).toHaveLength(2000);
+		} finally {
+			Array.prototype.concat = concat;
+		}
+		expect(copied).toBeLessThan(text.length);
+	});
+});
