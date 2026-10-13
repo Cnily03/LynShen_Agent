@@ -1423,3 +1423,152 @@ describe('letting go of tool outputs while hidden', () => {
 		expect(ids.length).toBeLessThanOrEqual(4);
 	});
 });
+
+describe('ChatState: the LynShen sandbox', () => {
+	it('starts a new LynShen session in 自动 and a claude one as before', () => {
+		vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+		expect(new ChatState().approvalMode).toBe('auto');
+		expect(new ChatState('lynshen').approvalMode).toBe('auto');
+		expect(new ChatState('claude').approvalMode).toBe('ask');
+		expect(new ChatState('claude').backendId).toBe('claude');
+		vi.unstubAllGlobals();
+	});
+
+	it('keeps an approval request from an older engine as it was', () => {
+		const c = new ChatState();
+		c.handle({ type: 'approval_request', call_id: 'c1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
+		expect(c.pendingApproval).toEqual({ callId: 'c1', name: 'bash', summary: 'ls', subagentId: null, hunks: null, questions: null });
+		// codex's always-allow scopes stay codex's
+		c.handle({ type: 'approval_request', call_id: 'c2', name: 'exec_command', summary: 'ls', scopes: ['session', 'rule'] });
+		expect(c.pendingApproval?.scopes).toEqual(['session', 'rule']);
+		expect(c.pendingApproval?.sandbox).toBeUndefined();
+	});
+
+	it('reads the sandbox fields of a request, not as codex scopes', () => {
+		const c = new ChatState();
+		c.handle({
+			type: 'approval_request',
+			call_id: 'c3',
+			name: 'bash',
+			summary: 'npm install -g pnpm',
+			kind: 'escalation',
+			must_ask: false,
+			justification: 'install pnpm',
+			cwd: '/w',
+			command: 'npm install -g pnpm',
+			paths: [],
+			dir_suggestion: null,
+			prefix: 'npm install',
+			scopes: ['once', 'session', 'project'],
+			elevation: null
+		});
+		expect(c.pendingApproval?.scopes).toBeUndefined();
+		expect(c.pendingApproval?.sandbox).toMatchObject({ kind: 'escalation', prefix: 'npm install', scopes: ['once', 'session', 'project'] });
+	});
+
+	it('keeps the sandbox state and records crossings in the conversation', () => {
+		const c = new ChatState();
+		expect(c.sandbox).toBeNull();
+		c.handle({ type: 'sandbox', mode: 'workspace-write', network: true, enforced: false, unavailable: null, directories: [] });
+		expect(c.sandbox).toMatchObject({ mode: 'workspace-write', enforced: false });
+		c.handle({ type: 'escalated', call_id: 'c4', kind: 'escalation', command: 'brew install jq', justification: 'needs jq', cwd: '/w', paths: [], by: 'mode' });
+		const last = c.messages.at(-1);
+		expect(last?.kind).toBe('escalation');
+		if (last?.kind === 'escalation') expect(last.record).toMatchObject({ command: 'brew install jq', by: 'mode' });
+	});
+
+	it('shows a crossing the transcript keeps', () => {
+		const c = new ChatState();
+		c.handle({ type: 'transcript', items: [{ role: 'user', content: '装 jq' }, { role: 'escalated', kind: 'escalation', command: 'brew install jq', by: 'classifier' }] });
+		const last = c.messages.at(-1);
+		expect(last?.kind === 'escalation' && last.record).toMatchObject({ command: 'brew install jq', by: 'classifier' });
+	});
+
+	it('says why a deferred action was asked', () => {
+		setLocale('zh');
+		const c = new ChatState();
+		c.handle({ type: 'action_deferred', name: 'bash', summary: 'brew install jq', kind: 'escalation', justification: '需要 jq' });
+		const last = c.messages.at(-1);
+		expect(last?.kind === 'system' && last.text).toContain('原因：需要 jq');
+	});
+
+	it('brings a sandbox card back when the engine does not take the answer', () => {
+		const c = new ChatState();
+		const ask = {
+			type: 'approval_request',
+			call_id: 'w1',
+			name: 'write',
+			summary: '/Users/me/New/a.txt',
+			kind: 'outside_write',
+			command: null,
+			paths: ['/Users/me/New/a.txt'],
+			dir_suggestion: '/Users/me/New',
+			scopes: ['once']
+		};
+		c.handle(ask);
+		c.approvalAnswered();
+		expect(c.pendingApproval).toBeNull();
+		// add_dir named a directory that does not exist yet: the request waits
+		c.handle({ type: 'error', message: 'not an existing absolute directory: /Users/me/New' });
+		expect(c.pendingApproval?.callId).toBe('w1');
+		expect(c.pendingApproval?.sandbox?.dirSuggestion).toBe('/Users/me/New');
+		expect(c.lastError).toBeNull();
+		expect(c.messages.at(-1)?.kind).toBe('system');
+		// answered again and taken: the call runs; a later error is a failure as before
+		c.approvalAnswered();
+		c.handle({ type: 'tool_output', call_id: 'w1', output: 'ok' });
+		c.handle({ type: 'error', message: 'not an existing absolute directory: /x' });
+		expect(c.pendingApproval).toBeNull();
+		expect(c.lastError).toBe('not an existing absolute directory: /x');
+	});
+
+	it('brings a sandbox card back when the engine will not make the directory writable', () => {
+		const c = new ChatState();
+		c.handle({
+			type: 'approval_request',
+			call_id: 'w2',
+			name: 'write',
+			summary: '/Users/me/a.txt',
+			kind: 'outside_write',
+			command: null,
+			paths: ['/Users/me/x/a.txt'],
+			dir_suggestion: '/Users/me/x',
+			scopes: ['once']
+		});
+		c.approvalAnswered();
+		c.handle({
+			type: 'error',
+			message:
+				"/Users/me cannot be made writable: it is the root, the home directory or holds credentials or LynShen's settings"
+		});
+		expect(c.pendingApproval?.callId).toBe('w2');
+		expect(c.lastError).toBeNull();
+	});
+
+	it('does not bring back an older engine card or one answered long ago', () => {
+		const c = new ChatState();
+		c.handle({ type: 'approval_request', call_id: 'o1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
+		c.approvalAnswered();
+		c.handle({ type: 'error', message: 'call o1 can be allowed only once' });
+		expect(c.pendingApproval).toBeNull();
+		vi.useFakeTimers();
+		try {
+			c.handle({ type: 'approval_request', call_id: 's1', name: 'bash', kind: 'command', command: 'ls', scopes: ['once'] });
+			c.approvalAnswered();
+			vi.advanceTimersByTime(60_000);
+			c.handle({ type: 'error', message: 'call s1 can be allowed only once' });
+			expect(c.pendingApproval).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('takes an older engine refusing a sandbox op quietly', () => {
+		const c = new ChatState();
+		const before = c.messages.length;
+		c.handle({ type: 'error', message: 'unknown op: set_sandbox' });
+		c.handle({ type: 'error', message: 'unknown op: add_directory' });
+		expect(c.messages.length).toBe(before);
+		expect(c.lastError).toBeNull();
+	});
+});

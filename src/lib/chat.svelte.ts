@@ -1,9 +1,11 @@
 import type { AgentEvent } from './protocol';
 import { loadProfile, profileKey, rememberProfile, type BackendProfile } from '$lib/backendProfile';
 import { isBackendId, type BackendId } from './backends/types';
+import { caps } from './backends';
 import {
 	EDIT_TOOLS,
 	fromEngineMode,
+	initialApprovalMode,
 	parseHunks,
 	parseQuestions,
 	reconcileMode,
@@ -14,6 +16,14 @@ import {
 	type EngineApprovalMode,
 	type Question
 } from './approval';
+import {
+	parseEscalation,
+	parseSandboxRequest,
+	parseSandboxState,
+	type EscalationRecord,
+	type SandboxRequest,
+	type SandboxState
+} from './sandbox/request';
 import { t } from './i18n';
 import { costUsd } from './pricing';
 import { pendingCost, sumCosts, type BillingCost } from './sessionCost';
@@ -138,7 +148,9 @@ export type Msg =
 	| { kind: 'agent_message'; from: string; to: string; summary: string }
 	/** A plan the engine proposes in plan mode (`proposed_plan`): `text` is
 	 *  its Markdown; status pending / approved / revising. */
-	| { kind: 'plan'; id: string; title: string; text: string; status: string };
+	| { kind: 'plan'; id: string; title: string; text: string; status: string }
+	/** A sandbox crossing that ran without asking (`escalated`): one line. */
+	| { kind: 'escalation'; record: EscalationRecord };
 
 export interface TreeNode {
 	id: string;
@@ -327,6 +339,12 @@ const isWorktree = (workdir: string, isolation: string) =>
 	isolation === 'worktree' || (isolation === '' && /[\\/]\.lynshen[\\/]agents[\\/][^\\/]+[\\/]?$/.test(workdir));
 
 /** Mode names as a client sends them to the daemon (see backends/lynshen.ts). */
+/** The engine's refusals of an `approve` that leave the request waiting:
+ *  `add_dir` naming no existing directory or one it never makes writable
+ *  (home, a root, credentials), a scope or prefix it does not offer
+ *  (LynShen core `approve_with`). */
+const APPROVE_REFUSED =
+	/^(not an existing absolute directory: |add_dir persist |call \S+ can be allowed only |call \S+ has no command prefix|prefix `|.+ cannot be made writable: )/;
 const PENDING_MODES: Record<string, ApprovalMode> = { manual: 'ask', 'auto-edit': 'edits', auto: 'auto', 'full-access': 'all', plan: 'plan' };
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const num = (v: unknown) => (typeof v === 'number' ? v : 0);
@@ -532,6 +550,8 @@ function replayMessages(items: Record<string, unknown>[]): Msg[] {
 			if (role === 'plan') return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
 			if (role === 'agent_message' && (str(it.summary) || str(it.content)))
 				return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
+			// A sandbox crossing, where the transcript keeps them (same fields as `escalated`).
+			if (role === 'escalated') return { kind: 'escalation', record: parseEscalation(it) };
 			return null;
 		})
 		.filter((m): m is Msg => m !== null);
@@ -809,7 +829,18 @@ export class ChatState {
 		url?: string;
 		/** Where an always-allow can be kept, when the engine says (codex). */
 		scopes?: AlwaysScope[];
+		/** A LynShen sandbox request: its kind, reason, scopes (absent from
+		 *  an engine before the sandbox contract). */
+		sandbox?: SandboxRequest;
 	} | null>(null);
+	/** What this session's commands may do, as the engine last said
+	 *  (`sandbox`); null until it says (an engine before the contract never does). */
+	sandbox = $state<SandboxState | null>(null);
+	/** A sandbox request just answered here: an engine that cannot take the
+	 *  answer (a directory that does not exist, a scope it does not offer)
+	 *  says so in an `error` and keeps the request waiting, so its card comes
+	 *  back (see `error`). Gone once the call runs or another request comes. */
+	#answered: { approval: NonNullable<ChatState['pendingApproval']>; at: number } | null = null;
 	/** The conversation is open in its engine's TUI (on this or another
 	 *  client): its GUI ops wait until the TUI exits. */
 	inTerminal = $state(false);
@@ -1021,13 +1052,24 @@ export class ChatState {
 	 *  letting go of its outputs (see `armRefill`). */
 	#refillNext = false;
 
-	constructor() {
+	/** `backend`: the engine behind the session, whose picker the saved mode
+	 *  must fit (a LynShen session starts in 自动, see initialApprovalMode). */
+	constructor(backend: BackendId = 'lynshen') {
+		this.backendId = backend;
+		let saved: string | null = null;
 		try {
-			const saved = localStorage.getItem('lynshen-approval-mode');
-			if (saved === 'edits' || saved === 'all') this.approvalMode = saved;
+			saved = localStorage.getItem('lynshen-approval-mode');
 		} catch {
 			/* no localStorage (e.g. tests) */
 		}
+		this.approvalMode = initialApprovalMode(saved, caps({ backendId: backend }).sandbox);
+	}
+
+	/** The pending approval was answered (its op sent): its card goes. */
+	approvalAnswered() {
+		const approval = this.pendingApproval;
+		this.#answered = approval?.sandbox ? { approval, at: Date.now() } : null;
+		this.pendingApproval = null;
 	}
 
 	/** Set the approval mode locally and persist it (the caller is responsible
@@ -1906,6 +1948,7 @@ export class ChatState {
 				// The call ran: it was decided here, on another device, or by
 				// a mode switch, so its card goes.
 				if (this.pendingApproval && this.pendingApproval.callId === str(ev.call_id)) this.pendingApproval = null;
+				if (this.#answered?.approval.callId === str(ev.call_id)) this.#answered = null;
 				// Engines that do not announce each request (codex) start the next
 				// one once the tools are back.
 				this.#segStart = Date.now();
@@ -2188,7 +2231,11 @@ export class ChatState {
 				this.plan = next;
 				break;
 			}
-			case 'approval_request':
+			case 'approval_request': {
+				// A LynShen sandbox request names its kind; its `scopes` are the
+				// sandbox's (once / session / project), not codex's always-allow ones.
+				const sandbox = parseSandboxRequest(ev as Record<string, unknown>);
+				this.#answered = null;
 				this.pendingApproval = {
 					callId: str(ev.call_id),
 					name: str(ev.name),
@@ -2197,8 +2244,15 @@ export class ChatState {
 					hunks: parseHunks(ev.hunks),
 					questions: parseQuestions(ev.questions),
 					...(str(ev.url) ? { url: str(ev.url) } : {}),
-					...(Array.isArray(ev.scopes) ? { scopes: arr<AlwaysScope>(ev.scopes) } : {})
+					...(sandbox ? { sandbox } : Array.isArray(ev.scopes) ? { scopes: arr<AlwaysScope>(ev.scopes) } : {})
 				};
+				break;
+			}
+			case 'sandbox':
+				this.sandbox = parseSandboxState(ev as Record<string, unknown>);
+				break;
+			case 'escalated':
+				this.messages.push({ kind: 'escalation', record: parseEscalation(ev as Record<string, unknown>) });
 				break;
 			// The conversation moved to its engine's own TUI on some client, or
 			// came back: the transcript that follows is the whole conversation,
@@ -2564,12 +2618,17 @@ export class ChatState {
 				break;
 			// Nobody was watching this hosted session, so a gated call was
 			// recorded for the desk instead of prompting here.
-			case 'action_deferred':
+			case 'action_deferred': {
+				// A sandbox request says why the agent asked.
+				const why = str(ev.justification).trim();
 				this.messages.push({
 					kind: 'system',
-					text: t('chat.actionDeferred', { name: str(ev.name), summary: str(ev.summary) })
+					text: why
+						? t('chat.actionDeferredWhy', { name: str(ev.name), summary: str(ev.summary), why })
+						: t('chat.actionDeferred', { name: str(ev.name), summary: str(ev.summary) })
 				});
 				break;
+			}
 			case 'action_decided':
 				this.messages.push({
 					kind: 'system',
@@ -2579,11 +2638,23 @@ export class ChatState {
 				});
 				break;
 			case 'error': {
+				// The engine did not take the answer just given to a sandbox
+				// request and keeps it waiting (its words say why): the card
+				// comes back, and the turn goes on.
+				const answered = this.#answered;
+				if (answered && !this.pendingApproval && Date.now() - answered.at < 15_000 && APPROVE_REFUSED.test(str(ev.message))) {
+					this.#answered = null;
+					this.pendingApproval = answered.approval;
+					this.messages.push({ kind: 'system', text: t('chat.approvalRefused', { msg: str(ev.message) }) });
+					break;
+				}
 				// An engine without the agent trace refuses its ops: nothing failed.
 				// A daemon from before context categories answers a Claude Code
 				// session's context_usage in its own words.
+				// Nor does an engine before the sandbox contract change its sandbox
+				// (Settings sends only after a `sandbox` event; this is the fallback).
 				const refused =
-					/^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent|context_usage)$/.exec(str(ev.message)) ??
+					/^unknown op: (agent_runs|subagent_transcript|merge_agent|pick_attempt|close_agent|context_usage|set_sandbox|add_directory|remove_directory)$/.exec(str(ev.message)) ??
 					/^Claude Code sessions do not support (context_usage)$/.exec(str(ev.message));
 				if (refused) {
 					if (refused[1] === 'context_usage') this.contextBreakdown = { error: str(ev.message) };

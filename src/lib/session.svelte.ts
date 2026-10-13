@@ -197,8 +197,7 @@ export class SessionStore {
 	 *  this run already spawned it. */
 	#newSession(backendId: BackendId, acpAgent?: { id: string; name: string }, reuseId?: string): Session {
 		const id = reuseId && !this.allSessions.some((s) => s.id === reuseId) ? reuseId : this.uid();
-		const chat = new ChatState();
-		chat.backendId = backendId;
+		const chat = new ChatState(backendId);
 		chat.bindRunKey(id);
 		if (acpAgent) {
 			chat.acpAgentId = acpAgent.id;
@@ -464,8 +463,7 @@ export class SessionStore {
 		// Swap the projection + adapter BEFORE the old child exits, so the exit
 		// event lands on the new ChatState with `switching` set and isn't treated
 		// as a crash to auto-restart (handleExit resolves chat via the session).
-		const chat = new ChatState();
-		chat.backendId = backend;
+		const chat = new ChatState(backend);
 		chat.bindRunKey(id);
 		chat.switching = true;
 		unregisterAdapter(id);
@@ -500,8 +498,7 @@ export class SessionStore {
 
 	/** A draft's backend changes: only the choice, nothing starts. */
 	#redraft(s: Session, backend: BackendId, acpAgent?: { id: string; name: string }) {
-		const chat = new ChatState();
-		chat.backendId = backend;
+		const chat = new ChatState(backend);
 		chat.bindRunKey(s.id);
 		chat.title = s.chat.title;
 		const agent = backend === 'acp' ? acpAgent : undefined;

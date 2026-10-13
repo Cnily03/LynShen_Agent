@@ -23,12 +23,23 @@
 	} from '$lib/approval';
 	import PopMenu from '$lib/ui/PopMenu.svelte';
 	import { openExternal } from '$lib/openExternal';
+	import TerminalWindowIcon from 'phosphor-svelte/lib/TerminalWindowIcon';
+	import {
+		approvalChoices,
+		baseName,
+		buildSandboxApproveOp,
+		TERMINAL_FEEDBACK,
+		type SandboxAnswer,
+		type SandboxRequest
+	} from '$lib/sandbox/request';
 
 	let {
 		approval,
 		onRespond,
 		ruleScopes = false,
-		keys = true
+		keys = true,
+		remote = false,
+		onTerminal
 	}: {
 		approval: {
 			callId: string;
@@ -42,13 +53,68 @@
 			/** Where this request's always-allow can be kept (Codex: the session,
 			 *  or a rule for commands like it). */
 			scopes?: AlwaysScope[];
+			/** A LynShen sandbox request (kind, reason, scopes…). */
+			sandbox?: SandboxRequest;
 		};
 		onRespond: (op: ApproveOp) => void;
 		/** 始终允许 asks where to keep the rule (caps.ruleScopes). */
 		ruleScopes?: boolean;
 		/** Answers the 1/2/3 keys (only the active pane's card). */
 		keys?: boolean;
+		/** On the phone: what needs the computer (admin rights) says so. */
+		remote?: boolean;
+		/** Opens a terminal in `cwd` with `command` typed, not run (在终端里运行). */
+		onTerminal?: (command: string, cwd: string) => void;
 	} = $props();
+
+	// --- LynShen sandbox requests: title by kind, reason / command / cwd,
+	// answers from the scopes the engine allows (a must-ask request gets no
+	// more), a deny that tells the agent what to do instead.
+	const sbx = $derived(approval.sandbox ?? null);
+	const choices = $derived(sbx ? approvalChoices(sbx, { terminal: !!onTerminal && !remote }) : null);
+	let feedbackOpen = $state(false);
+	let feedback = $state('');
+	let cmdOpen = $state(false);
+	const clip = (s: string, n = 32) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+	function answer(a: SandboxAnswer) {
+		onRespond(buildSandboxApproveOp(approval.callId, a));
+	}
+	function runInTerminal() {
+		if (!sbx || !onTerminal) return;
+		onTerminal(sbx.command, sbx.cwd);
+		answer({ type: 'deny', feedback: TERMINAL_FEEDBACK });
+	}
+	function openFeedback() {
+		feedbackOpen = true;
+	}
+	function sendDeny() {
+		answer({ type: 'deny', feedback });
+	}
+	function onFeedbackKey(e: KeyboardEvent) {
+		if (e.isComposing) return;
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			sendDeny();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			feedbackOpen = false;
+			feedback = '';
+		}
+	}
+	const focusOnMount = (el: HTMLElement) => el.focus();
+	/** The answer key 2 gives: the narrowest wider-than-once answer offered. */
+	const secondKey = $derived<SandboxAnswer | null>(
+		!choices || !sbx
+			? null
+			: choices.session
+				? { type: 'session' }
+				: choices.pathSession
+					? { type: 'dir', path: choices.target, persist: 'session' }
+					: choices.project
+						? { type: 'project' }
+						: null
+	);
 
 	// An MCP server asking the user (claude elicitation): accept / decline,
 	// with its page to open when it names one; never an always-allow rule.
@@ -79,6 +145,24 @@
 		}
 		if (Date.now() - lastTyped < 1000 || questions || approval.hunks?.length || isPlan) return;
 		const key = e.key.toLowerCase();
+		if (sbx && choices) {
+			if (feedbackOpen && key !== 'escape') return;
+			if (key === '1' || key === 'y') {
+				e.preventDefault();
+				if (choices.terminal) runInTerminal();
+				else answer({ type: 'once' });
+			} else if ((key === '2' || key === 'a') && secondKey) {
+				e.preventDefault();
+				answer(secondKey);
+			} else if (key === '3' || key === 'n') {
+				e.preventDefault();
+				openFeedback();
+			} else if (key === 'escape' && !typing && !feedbackOpen) {
+				e.preventDefault();
+				answer({ type: 'deny' });
+			}
+			return;
+		}
 		let op: ApproveOp | null = null;
 		if (key === '1' || key === 'y') op = buildApproveOp(approval.callId, 'allow');
 		else if ((key === '2' || key === 'a') && !isElicitation) {
@@ -188,6 +272,12 @@
 		{:else if isPlan}
 			<ClipboardTextIcon size={15} />
 			<span>{t('shell.proposePlan')}</span>
+		{:else if sbx}
+			<ShieldWarningIcon size={15} />
+			<span class="aname"
+				>{t(`shell.sandbox.kind.${sbx.kind}`)}{#if sbx.kind === 'tool' || sbx.kind === 'edit'} · <b>{approval.name}</b>{/if}</span
+			>
+			{#if sbx.mustAsk}<span class="must" title={t('shell.sandbox.mustAskHint')}>{t('shell.sandbox.mustAsk')}</span>{/if}
 		{:else}
 			<ShieldWarningIcon size={15} />
 			<span class="aname"
@@ -301,6 +391,83 @@
 				onclick={() => onRespond(buildApproveOp(approval.callId, 'deny'))}>{t('shell.deny')}</Button
 			>
 		</div>
+	{:else if sbx && choices}
+		<div class="sbx-lines">
+			{#if sbx.justification}
+				<div class="sline reason" title={sbx.justification}><span class="sk">{t('shell.sandbox.reason')}</span><span class="sv">{sbx.justification}</span></div>
+			{/if}
+			{#if sbx.command}
+				<button class="sline cmdline" class:open={cmdOpen} title={sbx.command} aria-expanded={cmdOpen} onclick={() => (cmdOpen = !cmdOpen)}
+					><span class="sk">{t('shell.sandbox.command')}</span><code class="sv">$ {sbx.command}</code></button
+				>
+			{:else if approval.summary}
+				<pre class="approval-sum">{approval.summary}</pre>
+			{/if}
+			{#if sbx.paths.length}
+				<div class="sline" title={sbx.paths.join('\n')}><span class="sk">{t('shell.sandbox.writes')}</span><code class="sv">{sbx.paths.join(', ')}</code></div>
+			{/if}
+			{#if sbx.cwd}
+				<div class="sline" title={sbx.cwd}><span class="sk">{t('shell.sandbox.cwd')}</span><code class="sv">{sbx.cwd}</code></div>
+			{/if}
+		</div>
+		{#if sbx.elevation && remote}
+			<div class="sbx-note"><Notice tone="info">{t('shell.sandbox.onComputer')} {t(`shell.sandbox.onComputerHint.${sbx.elevation}`)}</Notice></div>
+		{:else if sbx.elevation === 'uac'}
+			<p class="sbx-hint">{t('shell.sandbox.uacHint')}</p>
+		{/if}
+		{#if feedbackOpen}
+			<div class="feedback">
+				<textarea
+					class="fb-input"
+					rows="2"
+					bind:value={feedback}
+					placeholder={t('shell.sandbox.feedbackPlaceholder')}
+					aria-label={t('shell.sandbox.feedbackLabel')}
+					onkeydown={onFeedbackKey}
+					use:focusOnMount
+				></textarea>
+				<div class="approval-actions">
+					<Button variant="danger" size="sm" onclick={sendDeny}>{feedback.trim() ? t('shell.sandbox.denySend') : t('shell.deny')}</Button>
+					<Button variant="ghost" size="sm" onclick={() => ((feedbackOpen = false), (feedback = ''))}>{t('common.cancel')}</Button>
+				</div>
+			</div>
+		{:else}
+			<div class="approval-actions">
+				{#if choices.terminal}
+					<Button variant="primary" size="sm" onclick={runInTerminal} title={t('shell.sandbox.terminalHint')}
+						><TerminalWindowIcon size={13} />{t('shell.sandbox.terminal')}<kbd>1</kbd></Button
+					>
+					<Button variant="secondary" size="sm" onclick={() => answer({ type: 'once' })}>{t('shell.allowOnce')}</Button>
+				{:else}
+					<Button variant="primary" size="sm" onclick={() => answer({ type: 'once' })}>{t('shell.allowOnce')}<kbd>1</kbd></Button>
+				{/if}
+				{#if choices.session}
+					<Button variant="secondary" size="sm" title={sbx.prefix || undefined} onclick={() => answer({ type: 'session' })}
+						>{sbx.kind === 'edit'
+							? t('shell.sandbox.sessionEdits')
+							: sbx.kind === 'tool'
+								? t('shell.sandbox.sessionTool', { tool: clip(approval.name) })
+								: t('shell.sandbox.sessionPrefix', { prefix: clip(sbx.prefix) })}{#if secondKey?.type === 'session'}<kbd>2</kbd>{/if}</Button
+					>
+				{/if}
+				{#if choices.project}
+					<Button variant="secondary" size="sm" title={t('shell.sandbox.alwaysHint', { prefix: sbx.prefix })} onclick={() => answer({ type: 'project' })}
+						>{t('shell.sandbox.always')}{#if secondKey?.type === 'project'}<kbd>2</kbd>{/if}</Button
+					>
+				{/if}
+				{#if choices.pathSession}
+					<Button variant="secondary" size="sm" title={choices.target} onclick={() => answer({ type: 'dir', path: choices.target, persist: 'session' })}
+						>{t('shell.sandbox.dirSession', { dir: clip(baseName(choices.target), 24) })}{#if secondKey?.type === 'dir'}<kbd>2</kbd>{/if}</Button
+					>
+				{/if}
+				{#if choices.pathProject}
+					<Button variant="secondary" size="sm" title={t('shell.sandbox.dirProjectHint', { dir: choices.target })} onclick={() => answer({ type: 'dir', path: choices.target, persist: 'project' })}
+						>{t('shell.sandbox.dirProject', { dir: clip(baseName(choices.target), 24) })}</Button
+					>
+				{/if}
+				<Button variant="danger" size="sm" onclick={openFeedback}>{t('shell.sandbox.denyTell')}<kbd>3</kbd></Button>
+			</div>
+		{/if}
 	{:else}
 		{#if approval.summary}
 			<pre class="approval-sum" class:cmd={isShell}>{isShell
@@ -623,6 +790,110 @@
 	.aname {
 		min-width: 0;
 		overflow-wrap: anywhere;
+	}
+	/* --- sandbox request --- */
+	.must {
+		flex-shrink: 0;
+		padding: 1px 7px;
+		font-size: var(--fs-2xs);
+		font-weight: 500;
+		color: var(--warn);
+		background: color-mix(in oklab, var(--warn) 12%, transparent);
+		border-radius: var(--r-full);
+		white-space: nowrap;
+	}
+	.sbx-lines {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin-top: 8px;
+	}
+	/* One line each: the reason, the command (opens to its full text), the paths, the directory. */
+	.sline {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--text);
+		font: inherit;
+		font-size: var(--fs-xs);
+		line-height: 1.5;
+		text-align: left;
+	}
+	.sk {
+		flex: none;
+		min-width: 3em;
+		color: var(--dim);
+	}
+	.sv {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The reason is why to allow it: it wraps (a phone has no tooltip), up to three lines. */
+	.reason .sv {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+	code.sv {
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+	}
+	.cmdline {
+		padding: 5px 8px;
+		margin: 2px 0;
+		background: var(--sidebar);
+		border: 1px solid var(--hairline);
+		border-radius: var(--r-sm);
+		cursor: pointer;
+	}
+	.cmdline code.sv {
+		font-size: var(--fs-xs);
+		color: var(--text);
+	}
+	.cmdline.open code.sv {
+		white-space: pre-wrap;
+		word-break: break-word;
+		max-height: 160px;
+		overflow-y: auto;
+	}
+	.sbx-note {
+		margin-top: 8px;
+	}
+	.sbx-hint {
+		margin: 6px 0 0;
+		font-size: var(--fs-xs);
+		color: var(--dim);
+	}
+	.feedback {
+		margin-top: 10px;
+	}
+	.fb-input {
+		display: block;
+		width: 100%;
+		box-sizing: border-box;
+		resize: vertical;
+		min-height: 52px;
+		padding: 7px 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
+		background: var(--surface2);
+		color: var(--text);
+		font-family: var(--font-sans);
+		font-size: var(--fs-sm);
+		line-height: 1.5;
+		outline: none;
+	}
+	.fb-input:focus {
+		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
 	}
 	.hunk-count {
 		flex-shrink: 0;

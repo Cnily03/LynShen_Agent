@@ -107,7 +107,7 @@
 		left: 0;
 		bottom: calc(100% + 8px);
 		z-index: 81;
-		width: min(340px, calc(100vw - 32px));
+		width: min(360px, calc(100vw - 32px));
 		transform-origin: bottom left;
 		animation: pop-in var(--t-pop) var(--ease-enter);
 	}
@@ -126,10 +126,9 @@
 		gap: 8px;
 		min-width: 0;
 	}
+	/* A mode is chosen on what it does: its line wraps rather than hide the end. */
 	.pop-desc {
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		line-height: 1.45;
 	}
 	.tag {
 		flex-shrink: 0;

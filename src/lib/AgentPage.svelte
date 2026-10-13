@@ -12,7 +12,6 @@
 	import PaperPlaneRightIcon from 'phosphor-svelte/lib/PaperPlaneRightIcon';
 	import TrashIcon from 'phosphor-svelte/lib/TrashIcon';
 	import { open } from '@tauri-apps/plugin-dialog';
-	import IconButton from '$lib/ui/IconButton.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Select from '$lib/ui/Select.svelte';
 	import Switch from '$lib/ui/Switch.svelte';
@@ -22,6 +21,8 @@
 	import AgentActivity from '$lib/AgentActivity.svelte';
 	import SettingsSection from '$lib/settings/SettingsSection.svelte';
 	import SettingsRow from '$lib/settings/SettingsRow.svelte';
+	import DirectoryList from '$lib/settings/DirectoryList.svelte';
+	import CommandRuleList from '$lib/settings/CommandRuleList.svelte';
 	import TabChromePopover from '$lib/workbench/TabChromePopover.svelte';
 	import { newAvatarSeed } from '$lib/avatar';
 	import {
@@ -110,19 +111,27 @@
 		}
 	}
 
+	// 不限制 (full access) turns the agent's sandbox off: only after a
+	// confirmation. A declined one remounts the picker on the old value.
+	let sandboxKey = $state(0);
+	async function setSandbox(sandbox: AgentView['sandbox']) {
+		if (
+			sandbox === 'full-access' &&
+			!(await confirm({
+				title: t('shell.agentPage.sandboxFullConfirmTitle', { name: detail?.agent.name ?? agentId }),
+				message: t('shell.agentPage.sandboxFullConfirmBody'),
+				confirmLabel: t('shell.agentPage.sandboxFullConfirm'),
+				danger: true
+			}))
+		)
+			return void sandboxKey++;
+		await change({ sandbox });
+	}
+
 	const SANDBOXES = $derived([
 		{ value: 'read-only', label: t('shell.agentPage.sandboxReadOnly') },
 		{ value: 'workspace-write', label: t('shell.agentPage.sandboxWorkspace') },
 		{ value: 'full-access', label: t('shell.agentPage.sandboxFull') }
-	]);
-	const DIR_MODES = $derived([
-		{ value: 'ro', label: t('shell.agentPage.readOnly') },
-		{ value: 'rw', label: t('shell.agentPage.readWrite') }
-	]);
-	const ACTIONS = $derived([
-		{ value: 'allow', label: t('shell.agentPage.allow') },
-		{ value: 'ask', label: t('shell.agentPage.ask') },
-		{ value: 'forbid', label: t('shell.agentPage.forbid') }
 	]);
 
 	// Rules are edited locally and saved when a complete one changes, so a
@@ -412,11 +421,13 @@
 					</SettingsRow>
 					<SettingsRow title={t('shell.agentPage.sandbox')} description={t('shell.agentPage.sandboxHint')}>
 						<div class="pick">
-							<Select
-								value={detail.agent.sandbox}
-								options={SANDBOXES}
-								onChange={(sandbox) => change({ sandbox: sandbox as AgentView['sandbox'] })}
-							/>
+							{#key sandboxKey}
+								<Select
+									value={detail.agent.sandbox}
+									options={SANDBOXES}
+									onChange={(sandbox) => setSandbox(sandbox as AgentView['sandbox'])}
+								/>
+							{/key}
 						</div>
 					</SettingsRow>
 					<SettingsRow title={t('shell.agentPage.network')}>
@@ -428,29 +439,13 @@
 					{#snippet action()}
 						<Button size="sm" onclick={addDirectory}><FolderPlusIcon size={13} /> {t('shell.agentPage.addDirectory')}</Button>
 					{/snippet}
-					{#each detail.agent.directories as dir, index (dir.path)}
-						<div class="item">
-							<code class="grow" title={dir.path}>{dir.path}</code>
-							<div class="pick sm">
-								<Select
-									value={dir.mode}
-									options={DIR_MODES}
-									onChange={(mode) =>
-										change({
-											directories: detail!.agent.directories.map((d, i) => (i === index ? { ...d, mode: mode as 'ro' | 'rw' } : d))
-										})}
-								/>
-							</div>
-							<IconButton
-								label={t('shell.agentPage.remove')}
-								onclick={() => change({ directories: detail!.agent.directories.filter((_, i) => i !== index) })}
-							>
-								<XIcon size={13} />
-							</IconButton>
-						</div>
-					{:else}
-						<p class="none">{t('shell.agentPage.noDirectories')}</p>
-					{/each}
+					<DirectoryList
+						items={detail.agent.directories}
+						empty={t('shell.agentPage.noDirectories')}
+						onMode={(index, mode) =>
+							change({ directories: detail!.agent.directories.map((d, i) => (i === index ? { ...d, mode } : d)) })}
+						onRemove={(index) => change({ directories: detail!.agent.directories.filter((_, i) => i !== index) })}
+					/>
 				</SettingsSection>
 
 				<SettingsSection title={t('shell.agentPage.rules')} description={t('shell.agentPage.rulesHint')}>
@@ -459,32 +454,18 @@
 							<PlusIcon size={13} /> {t('shell.agentPage.addRule')}
 						</Button>
 					{/snippet}
-					{#each rules as rule, index (index)}
-						<div class="item">
-							<input class="grow" bind:value={rule.prefix} placeholder={t('shell.agentPage.rulePrefix')} onchange={saveRules} />
-							<div class="pick sm">
-								<Select
-									value={rule.action}
-									options={ACTIONS}
-									onChange={(action) => {
-										rule.action = action as typeof rule.action;
-										saveRules();
-									}}
-								/>
-							</div>
-							<IconButton
-								label={t('shell.agentPage.remove')}
-								onclick={() => {
-									rules = rules.filter((_, i) => i !== index);
-									saveRules();
-								}}
-							>
-								<XIcon size={13} />
-							</IconButton>
-						</div>
-					{:else}
-						<p class="none">{t('shell.agentPage.noRules')}</p>
-					{/each}
+					<CommandRuleList
+						{rules}
+						empty={t('shell.agentPage.noRules')}
+						onChange={(index, rule) => {
+							rules[index] = rule;
+							saveRules();
+						}}
+						onRemove={(index) => {
+							rules = rules.filter((_, i) => i !== index);
+							saveRules();
+						}}
+					/>
 				</SettingsSection>
 
 				<SettingsSection>
@@ -731,35 +712,11 @@
 		color: var(--dim2);
 		line-height: 1.5;
 	}
-	/* A list row inside a SettingsSection card, padded like a SettingsRow. */
-	.item {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 12px 10px 18px;
-	}
 	.none {
 		margin: 0;
 		padding: 16px 18px;
 		font-size: var(--fs-xs);
 		color: var(--dim2);
-	}
-	.item .grow {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.item input {
-		border: 1px solid var(--border);
-		border-radius: var(--r-sm);
-		background: var(--surface2);
-		color: var(--text);
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
-		padding: 6px 9px;
-		outline: none;
 	}
 	.empty {
 		margin: 0;
@@ -843,10 +800,6 @@
 	.pick {
 		width: 180px;
 	}
-	.pick.sm {
-		flex: none;
-		width: 120px;
-	}
 	input.name {
 		width: 180px;
 		border: 1px solid var(--border);
@@ -857,8 +810,7 @@
 		padding: 6px 9px;
 		outline: none;
 	}
-	input.name:focus,
-	.item input:focus {
+	input.name:focus {
 		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
 	}
 	.err {

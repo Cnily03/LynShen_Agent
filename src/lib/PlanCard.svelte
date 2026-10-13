@@ -19,7 +19,7 @@
 		text,
 		status,
 		actionable = false,
-		defaultMode = 'edits',
+		defaultMode = 'auto',
 		onAction,
 		onOpen
 	}: {

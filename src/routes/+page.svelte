@@ -139,6 +139,7 @@
 	import FilesPanel from '$lib/FilesPanel.svelte';
 	import GitPanel from '$lib/GitPanel.svelte';
 	import TerminalPanel from '$lib/TerminalPanel.svelte';
+	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import BrowserPanel from '$lib/BrowserPanel.svelte';
 	import DiagnosticsPanel from '$lib/DiagnosticsPanel.svelte';
 	import AgentRunsPanel from '$lib/AgentRunsPanel.svelte';
@@ -711,7 +712,7 @@
 	/** The approval mode a plan runs in once approved: the one before plan mode. */
 	function planModeOf(sessionId: string): ApprovalMode {
 		const before = sessionMap.get(sessionId)?.chat.modeBeforePlan;
-		return before && before !== 'plan' ? before : 'edits';
+		return before && before !== 'plan' ? before : 'auto';
 	}
 		/** A plan message of a session, for its page. */
 	function planOf(sessionId: string, planId: string) {
@@ -746,6 +747,19 @@
 		untrack(() => {
 			openFilePreview(request.sessionId, request.path);
 			filePreviews.request = null;
+		});
+	});
+	// 在终端里运行 (a sandbox request needing admin rights): a new terminal
+	// beside the conversation, the command typed there but not run.
+	let terminalSeen = 0;
+	$effect(() => {
+		const request = terminalRequests.request;
+		if (!request || !tilesReady || request.n === terminalSeen) return;
+		terminalSeen = request.n;
+		untrack(() => {
+			const tab = { id: newTabId(), panel: 'term' };
+			terminalRequests.assign(tab.id, { cwd: request.cwd, command: request.command });
+			applyTiles(openElsewhere(tab, { place: 'side', sessionId: request.sessionId || store.activeId }));
 		});
 	});
 	/** A worktree subagent's changes beside its session's chat: the Changes
@@ -1775,7 +1789,7 @@
 								{:else if tab.panel === 'turns'}<TurnsPanel turns={chat?.turnTimeline ?? []} onOpenFile={openActiveFile} />
 								{:else if tab.panel === 'files'}<FilesPanel rootDir={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'git'}<GitPanel cwd={activeProject?.path ?? ''} worktree={activeProject?.worktree ?? null} llm={llmTarget} onOpenTask={(path, meta) => openTaskProject(path, meta)} onTaskRemoved={closeTaskProject} />
-								{:else if tab.panel === 'term'}<TerminalPanel cwd={activeProject?.path ?? ''} />
+								{:else if tab.panel === 'term'}<TerminalPanel cwd={terminalRequests.cwdOf(tab.id) ?? activeProject?.path ?? ''} tabId={tab.id} />
 								{:else if tab.panel === 'browser'}<BrowserPanel />
 								{:else if tab.panel === 'diag'}<DiagnosticsPanel chat={chat ?? null} />
 								{:else if tab.panel === 'audit'}<EditorPane onAiSend={sendAiEdit} />
@@ -1796,6 +1810,8 @@
 					onAccountLogout={afterAccountLogout}
 					onFeedback={() => (showFeedback = true)}
 					onAddFolders={addImportedFolders}
+					project={activeProject && !activeProject.chats ? activeProject.path : ''}
+					sessions={store.allSessions}
 					onClose={closeSettings}
 				/>
 			{/if}

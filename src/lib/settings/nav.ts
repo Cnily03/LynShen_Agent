@@ -22,6 +22,8 @@ export type SectionKey =
 	/** The skills page's marketplace tab (not a nav item of its own). */
 	| 'market'
 	| 'agents'
+	/** 权限与沙箱: the LynShen sandbox, its directories and command rules. */
+	| 'sandbox'
 	| 'team'
 	| 'acp'
 	| 'import'
@@ -31,7 +33,7 @@ export type SectionKey =
 export const GROUPS: { key: string; sections: SectionKey[] }[] = [
 	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'invite', 'devices', 'usage', 'voice'] },
 	{ key: 'models', sections: ['providers', 'models', 'network'] },
-	{ key: 'agents', sections: ['agents', 'team', 'acp', 'skills', 'plugins', 'mcp', 'import'] },
+	{ key: 'agents', sections: ['agents', 'sandbox', 'team', 'acp', 'skills', 'plugins', 'mcp', 'import'] },
 	{ key: 'system', sections: ['daemon', 'updates'] }
 ];
 
@@ -112,6 +114,11 @@ export const ROWS: SearchRow[] = [
 	{ section: 'agents', id: 'shell-env', titleKey: 'settings.backend.shellEnvLabel', descKey: 'settings.backend.shellEnvHint' },
 	{ section: 'agents', id: 'backend-list', titleKey: 'settings.section.agents' },
 	{ section: 'agents', id: 'dependencies', titleKey: 'setup.deps.title' },
+	{ section: 'sandbox', id: 'sandbox-mode', titleKey: 'settings.sandbox.modeTitle', descKey: 'settings.sandbox.modeHint.workspace-write' },
+	{ section: 'sandbox', id: 'sandbox-network', titleKey: 'settings.sandbox.network', descKey: 'settings.sandbox.networkHint' },
+	{ section: 'sandbox', id: 'sandbox-always', titleKey: 'settings.sandbox.always', descKey: 'settings.sandbox.alwaysHint.project' },
+	{ section: 'sandbox', id: 'sandbox-directories', titleKey: 'settings.sandbox.dirsTitle', descKey: 'settings.sandbox.dirsHint' },
+	{ section: 'sandbox', id: 'sandbox-rules', titleKey: 'settings.sandbox.rulesTitle', descKey: 'settings.sandbox.rulesHint' },
 	{ section: 'team', id: 'team-v2', titleKey: 'settings.team.v2', descKey: 'settings.team.v2Hint' },
 	{ section: 'team', id: 'team-fanout', titleKey: 'settings.team.fanout', descKey: 'settings.team.fanoutHint.plan' },
 	{ section: 'team', id: 'team-messages', titleKey: 'settings.team.messages', descKey: 'settings.team.messagesHint.on' },

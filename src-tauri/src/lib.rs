@@ -657,14 +657,34 @@ fn read_config() -> serde_json::Value {
 /// created sessions (the engine reads config at startup).
 #[tauri::command]
 fn write_config(patch: serde_json::Value) -> Result<(), String> {
-    let path = lynshen_dir().join("config.json");
-    let mut current = read_json_strict(&path)?;
+    merge_config(&lynshen_dir().join("config.json"), &patch)
+}
+
+/// `write_config` for the file at `path`. Holds `<file>.lock`, the lock
+/// LynShen's engines take to change config.json, from the read to the
+/// write: a rule an engine saves at the same moment is not lost.
+fn merge_config(path: &std::path::Path, patch: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_file_name(format!("{name}.lock")))
+        .map_err(|error| error.to_string())?;
+    lock.lock().map_err(|error| error.to_string())?;
+    let mut current = read_json_strict(path)?;
     if let (Some(cur), Some(p)) = (current.as_object_mut(), patch.as_object()) {
         for (key, value) in p {
             cur.insert(key.clone(), value.clone());
         }
     }
-    write_json(&path, &current)
+    write_json(path, &current)
 }
 
 /// The engine's shell hooks, `~/.lynshen/hooks.json`: `{}` when there is no
@@ -3908,6 +3928,37 @@ pub fn run() {
 mod tests {
     use super::{background_ext, read_json_strict, resolve_file_ref, ui_path, valid_app_data_name};
     use std::path::Path;
+
+    #[test]
+    fn config_writers_keep_each_other_s_keys() {
+        let dir = std::env::temp_dir().join(format!("aogiri-config-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, "{\"keep\":1}\n").unwrap();
+        // Several writers at once (the settings page, engines saving rules):
+        // each one's key stays, and so does the key none of them knows.
+        let writers: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut patch = serde_json::Map::new();
+                    patch.insert(format!("k{n}"), serde_json::json!(n));
+                    super::merge_config(&path, &serde_json::Value::Object(patch)).unwrap();
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        for n in 0..8 {
+            assert_eq!(saved[format!("k{n}")], serde_json::json!(n));
+        }
+        assert_eq!(saved["keep"], serde_json::json!(1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn ui_path_drops_the_windows_verbatim_prefix() {

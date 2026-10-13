@@ -29,6 +29,7 @@
 	import PuzzlePieceIcon from 'phosphor-svelte/lib/PuzzlePieceIcon';
 	import RobotIcon from 'phosphor-svelte/lib/RobotIcon';
 	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThreeIcon';
+	import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheckIcon';
 	import PlugsConnectedIcon from 'phosphor-svelte/lib/PlugsConnectedIcon';
 	import TrayArrowDownIcon from 'phosphor-svelte/lib/TrayArrowDownIcon';
 	import InfoIcon from 'phosphor-svelte/lib/InfoIcon';
@@ -106,6 +107,7 @@
 	import PluginsSection from './PluginsSection.svelte';
 	import ShortcutsSection from './ShortcutsSection.svelte';
 	import TeamSection from './TeamSection.svelte';
+	import SandboxSection from './SandboxSection.svelte';
 	import PermissionRulesSection from './PermissionRulesSection.svelte';
 	import UpdateCard from './UpdateCard.svelte';
 	import ThirdPartyNotices from './ThirdPartyNotices.svelte';
@@ -125,7 +127,9 @@
 		onAuthChange,
 		onAccountLogout,
 		onFeedback,
-		onAddFolders
+		onAddFolders,
+		project = '',
+		sessions = []
 	}: {
 		sessionId: string;
 		/** The active session's ChatState — source of the live `mcp_servers` view.
@@ -142,6 +146,10 @@
 		onFeedback?: () => void;
 		/** Show these folders as projects in the sidebar (导入); how many were new. */
 		onAddFolders?: (paths: string[]) => number;
+		/** The open project's root ('' for none): 权限与沙箱 lists its entries first. */
+		project?: string;
+		/** The open sessions: 权限与沙箱 applies its changes to the running LynShen ones. */
+		sessions?: { id: string; chat: ChatState }[];
 	} = $props();
 
 	const ICONS: Record<SectionKey, typeof GearSixIcon> = {
@@ -160,6 +168,7 @@
 		plugins: PuzzlePieceIcon,
 		market: StorefrontIcon,
 		agents: RobotIcon,
+		sandbox: ShieldCheckIcon,
 		team: UsersThreeIcon,
 		acp: PlugsConnectedIcon,
 		import: TrayArrowDownIcon,
@@ -1268,6 +1277,8 @@
 						{/snippet}
 						<Dependencies ids={depIds} heading={false} flat />
 					</SettingsSection>
+				{:else if current === 'sandbox'}
+					<SandboxSection {project} {sessions} />
 				{:else if current === 'team'}
 					<TeamSection project={chat && !chat.isChatMode ? chat.cwd : ''} />
 				{:else if current === 'acp'}

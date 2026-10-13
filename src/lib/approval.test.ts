@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
 	allHunkIds,
+	approvalModeKeys,
 	buildApproveOp,
 	buildSetApprovalModeOp,
 	fromEngineMode,
+	initialApprovalMode,
 	needsClaudeYoloRespawn,
 	parseHunks,
 	reconcileMode,
@@ -147,5 +149,33 @@ describe('buildApproveOp', () => {
 
 	it('rejects hunks on a deny (partial approval is allow-only)', () => {
 		expect(() => buildApproveOp('c', 'deny', { hunks: ['f0h1'] })).toThrow();
+	});
+});
+
+describe('approval modes per backend', () => {
+	const lynshen = { sandbox: true, extendedApprovalModes: false, planMode: true };
+	const claude = { sandbox: false, extendedApprovalModes: true, planMode: true };
+	const acpLike = { sandbox: false, extendedApprovalModes: false, planMode: false };
+
+	it('offers a LynShen session 谨慎 / 计划 / 自动 / 全自动', () => {
+		expect(approvalModeKeys(lynshen)).toEqual(['ask', 'plan', 'auto', 'all']);
+		// An agent's session shows the agent's modes.
+		expect(approvalModeKeys(lynshen, true)).toEqual(['ask', 'edits', 'auto', 'all']);
+		expect(approvalModeKeys(claude)).toEqual(['ask', 'plan', 'auto', 'edits', 'all']);
+		expect(approvalModeKeys(acpLike)).toEqual(['ask', 'edits', 'all']);
+	});
+
+	it('starts a LynShen session in 自动, keeping only a saved 全自动', () => {
+		expect(initialApprovalMode(null, true)).toBe('auto');
+		for (const saved of ['ask', 'plan', 'auto', 'edits', 'junk']) expect(initialApprovalMode(saved, true)).toBe('auto');
+		expect(initialApprovalMode('all', true)).toBe('all');
+	});
+
+	it('keeps the other backends as they were', () => {
+		expect(initialApprovalMode(null, false)).toBe('ask');
+		expect(initialApprovalMode('auto', false)).toBe('ask');
+		expect(initialApprovalMode('plan', false)).toBe('ask');
+		expect(initialApprovalMode('edits', false)).toBe('edits');
+		expect(initialApprovalMode('all', false)).toBe('all');
 	});
 });

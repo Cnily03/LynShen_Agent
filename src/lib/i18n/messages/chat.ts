@@ -6,6 +6,8 @@ const chat = {
 		reasoningExpand: '展开完整推理',
 		reasoningFor: '推理了 {t}',
 		actionDeferred: '没有人在看，{name}（{summary}）已记为待确认动作，可在工作台处理',
+		actionDeferredWhy: '没有人在看，{name}（{summary}）已记为待确认动作，可在工作台处理。原因：{why}',
+		approvalRefused: '引擎没有接受这个回答，请求仍在等你：{msg}',
 		actionAllowed: '待确认动作 {id} 已批准',
 		actionDenied: '待确认动作 {id} 已拒绝',
 		rewindTitle: '回退到此轮并重写（会还原文件改动）',
@@ -28,6 +30,26 @@ const chat = {
 		approvalAutoDesc: '由模型判断，仅对有风险的操作询问',
 		approvalEditsDesc: '自动修改文件，执行命令前询问',
 		approvalAllDesc: '不再询问，可改动任何文件并执行任何命令',
+		// A LynShen session, whose commands run in the sandbox (…Sandbox) or
+		// without isolation (…Open: Windows, full access).
+		approvalAskDescSandbox: '改文件和执行每条命令前都先问你',
+		approvalAutoDescSandbox: '沙箱里直接做；越出沙箱时由安全模型判断，拿不准再问你',
+		approvalAllDescSandbox: '保留沙箱边界，越界自动放行并留下记录；git push、提权等仍会问你',
+		approvalAskDescOpen: '改文件和执行每条命令前都先问你',
+		approvalAutoDescOpen: '每条命令先由安全模型判断，拿不准再问你',
+		approvalAllDescOpen: '不再询问，命令不在隔离环境中运行；git push、提权等仍会问你',
+		sandbox: {
+			open: '未隔离',
+			openHint: '命令不在隔离环境中运行：它能改动你的账户能改动的任何文件。审批模式只决定什么时候问你。',
+			fullAccessNote: '沙箱已关闭（完全访问）。在 设置 → 权限与沙箱 中修改。'
+		},
+		escalation: {
+			label: '越界记录',
+			reason: '原因：{text}',
+			paths: '写入：{paths}',
+			cwd: '目录：{cwd}',
+			by: { mode: '全自动放行', rule: '规则允许', classifier: '安全模型放行' }
+		},
 		slashMenuLabel: '命令补全',
 		atMenuLabel: '文件补全',
 		noMatchingFiles: '无匹配文件',
@@ -454,6 +476,8 @@ const chat = {
 	},
 	en: {
 		actionDeferred: 'Nobody was watching: {name} ({summary}) was recorded as a pending action; decide it on the desk',
+		actionDeferredWhy: 'Nobody was watching: {name} ({summary}) was recorded as a pending action; decide it on the desk. Reason: {why}',
+		approvalRefused: 'The engine did not take that answer; the request is still waiting for you: {msg}',
 		actionAllowed: 'Pending action {id} allowed',
 		actionDenied: 'Pending action {id} denied',
 		reasoning: 'Reasoning',
@@ -480,6 +504,24 @@ const chat = {
 		approvalAutoDesc: 'The model asks only for risky actions',
 		approvalEditsDesc: 'Edit files freely; ask before commands',
 		approvalAllDesc: 'Never ask; edit and run anything',
+		approvalAskDescSandbox: 'Ask before every file change and every command',
+		approvalAutoDescSandbox: 'Work freely in the sandbox; a safety model judges leaving it and asks you when unsure',
+		approvalAllDescSandbox: 'Keeps the sandbox boundary, allows leaving it and records each time; still asks for git push, admin rights and the like',
+		approvalAskDescOpen: 'Ask before every file change and every command',
+		approvalAutoDescOpen: 'A safety model checks every command first and asks you when unsure',
+		approvalAllDescOpen: 'Never asks, and commands are not isolated; still asks for git push, admin rights and the like',
+		sandbox: {
+			open: 'Not isolated',
+			openHint: 'Commands do not run in isolation: they can change any file your account can. The approval mode only decides when you are asked.',
+			fullAccessNote: 'The sandbox is off (full access). Change it in Settings → Permissions & sandbox.'
+		},
+		escalation: {
+			label: 'Sandbox crossing',
+			reason: 'Reason: {text}',
+			paths: 'Writes: {paths}',
+			cwd: 'Directory: {cwd}',
+			by: { mode: 'allowed by full auto', rule: 'allowed by a rule', classifier: 'allowed by the safety model' }
+		},
 		slashMenuLabel: 'Command completion',
 		atMenuLabel: 'File completion',
 		noMatchingFiles: 'No matching files',

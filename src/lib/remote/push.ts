@@ -48,6 +48,24 @@ export async function enablePush(daemons: DaemonClient[]): Promise<void> {
 	localStorage.setItem(ON, '1');
 }
 
+/** Shows a notification on this phone now: a request came while the page
+ *  was in the background. Only where the user turned notifications on; a
+ *  notification the computer sends for the same `tag` (its session)
+ *  replaces it rather than adding a second one. */
+export async function notifyHere(title: string, body: string, tag: string): Promise<void> {
+	if (!pushSupported() || !pushOn()) return;
+	const registration = await navigator.serviceWorker.ready;
+	const options: NotificationOptions & { renotify?: boolean } = {
+		body,
+		// A renotify needs a tag.
+		tag: tag || 'approval',
+		renotify: true,
+		icon: '/icon-192.png',
+		data: { url: '/remote' }
+	};
+	await registration.showNotification(title, options);
+}
+
 /** Hands the subscription to a computer again (its connection came back;
  *  the browser may have renewed the subscription meanwhile). */
 export async function resubscribe(daemon: DaemonClient): Promise<void> {
