@@ -1,12 +1,15 @@
 <script lang="ts">
 	// A model request that failed and is being re-sent: which attempt of how
-	// many (one segment each), the countdown to it, and why the last one
-	// failed, in words (errorInfo) with the provider's text folded under it.
-	// Replaces the turn's phase indicator until output flows again.
+	// many (one segment each, for a few), the countdown to it, then how long
+	// the attempt has been waiting, and why the last one failed, in words
+	// (errorInfo) with the provider's text folded under it. Replaces the
+	// turn's phase indicator until output flows again.
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwiseIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
+	import CallTimer from '$lib/CallTimer.svelte';
 	import { describeError, stripEngineHint } from '$lib/errorInfo';
 	import type { RetryState } from '$lib/chat.svelte';
+	import { retryCount, retrySegments } from '$lib/retryView';
 	import { t } from '$lib/i18n';
 
 	// `onNow` / `onCancel`: the app's own retry of a failed turn (autoRetry.ts),
@@ -26,6 +29,8 @@
 		return () => clearInterval(timer);
 	});
 	const left = $derived(Math.max(0, Math.ceil((retry.at + retry.delayMs - now) / 1000)));
+	const count = $derived(retryCount(retry.attempt, retry.max));
+	const segments = $derived(retrySegments(retry.max));
 
 	const info = $derived(retry.reason ? describeError(retry.reason, backend) : null);
 	const reason = $derived(
@@ -40,14 +45,15 @@
 	<div class="head">
 		<span class="ico" class:spin={left === 0}><ArrowClockwiseIcon size={15} /></span>
 		<span class="title">{t(onCancel ? 'chat.autoRetry.title' : 'chat.retry.title')}</span>
-		<span class="count">{t('chat.retry.attempt', { n: retry.attempt, max: retry.max })}</span>
-		<span class="when">{left > 0 ? t('chat.retry.in', { s: left }) : t('chat.retry.now')}</span>
+		<span class="count">{count.max === null ? t('chat.retry.attemptN', { n: count.n }) : t('chat.retry.attempt', { n: count.n, max: count.max })}</span>
+		<!-- Once due, the attempt can wait for minutes on a dead connection: its time shows. -->
+		<span class="when">{#if left > 0}{t('chat.retry.in', { s: left })}{:else}{t('chat.retry.now')} <CallTimer since={retry.at + retry.delayMs} />{/if}</span>
 		{#if onNow}<button class="act" onclick={onNow}>{t('chat.autoRetry.now')}</button>{/if}
 		{#if onCancel}<button class="act" onclick={onCancel}>{t('chat.autoRetry.cancel')}</button>{/if}
 	</div>
-	{#if retry.max > 1}
+	{#if segments > 1}
 		<div class="bar" aria-hidden="true">
-			{#each Array.from({ length: retry.max }, (_, i) => i + 1) as n (n)}
+			{#each Array.from({ length: segments }, (_, i) => i + 1) as n (n)}
 				<span class:done={n < retry.attempt} class:now={n === retry.attempt}></span>
 			{/each}
 		</div>
