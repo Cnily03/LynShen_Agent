@@ -3,13 +3,13 @@ import '../../src/lib/app.css';
 import { imageSrc, previewFacts } from './previewFiles';
 
 const calls: { command: string; args: any }[] = [];
+// The picture the app keeps for an account with an avatar (?avatar).
+const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='teal'/></svg>")}`;
 // The window frost choice in storage as the page loads (see set_window_frost).
 const frostAtStart = (() => {
   try { return JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}').sidebarVibrancy === true; } catch { return false; }
 })();
 let loggedIn = new URL(location.href).searchParams.has('loggedIn');
-// The picture the app keeps for an account with an avatar (?avatar).
-const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='teal'/></svg>")}`;
 Object.assign(window, {
   __calls: calls,
   __keptAvatar: KEPT_AVATAR,
@@ -21,6 +21,10 @@ Object.assign(window, {
     convertFileSrc: (path: string) => (path.endsWith('.png') ? imageSrc() : `asset://localhost/${encodeURIComponent(path)}`),
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      // `window.__avatarUrl`: the avatar /api/desktop/oauth/me names (?avatar);
+      // unset, the user has none (a gateway without DA-12).
+      const avatarUrl = (window as unknown as { __avatarUrl?: string }).__avatarUrl;
+      if (command === 'monoize_session' && loggedIn && avatarUrl) return {logged_in: true, session: {user: {username: 'Test user', avatar_url: avatarUrl}}};
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
         // not written its own list yet.
@@ -29,8 +33,7 @@ Object.assign(window, {
           : {provider: 'monoize', models: []};
         case 'read_auth_providers': return loggedIn ? ['monoize'] : [];
         case 'list_providers': return [{id:'openai',base_url:'https://api.openai.com/v1',protocol:'responses',models:[{name:'gpt-5'}]}, {id:'openai-codex',base_url:'https://chatgpt.com/backend-api/codex',protocol:'openai-codex-responses',models:[{name:'gpt-5'}]}];
-        // `window.__avatarUrl`: the avatar /api/desktop/oauth/me names (?avatar), undefined for a gateway without DA-12.
-        case 'monoize_session': return {logged_in:loggedIn, session:loggedIn ? {user:{username:'Test user', ...((window as unknown as {__avatarUrl?: string}).__avatarUrl ? {avatar_url: (window as unknown as {__avatarUrl: string}).__avatarUrl} : {})}} : null};
+        case 'monoize_session': return {logged_in:loggedIn, session:loggedIn ? {user:{username:'Test user'}} : null};
         case 'monoize_logout': loggedIn = false; return;
         case 'monoize_oauth_start': return {user_code:'ABCDEF123456',verification_uri_complete:'https://www.lynshen.org/oauth/authorize?user_code=ABCDEF123456'};
         case 'monoize_oauth_poll': return {pending:true};
