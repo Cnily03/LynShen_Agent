@@ -340,6 +340,51 @@ try {
   await feedback.getByRole('button',{name:'关闭',exact:true}).click();
   await expect(feedback).toHaveCount(0);
   await expect(feedbackClosed).toHaveText('3');
+  // The account's avatar (gateway DA-12): the account page shows the
+  // picture the app kept; 更换头像 takes a picture as the website does
+  // (centred square, 256 × 256 WebP) and uploads it; a type the website
+  // refuses is refused without a request. The sidebar's account row shows the
+  // kept picture without a session (offline).
+  await page.goto(base + '?loggedIn&avatar');
+  const kept = await page.evaluate(() => window.__keptAvatar);
+  const heroAvatar = page.locator('.hero .avatar img');
+  await expect(heroAvatar).toHaveAttribute('src', kept);
+  const picture = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 300;
+    c.height = 200;
+    const x = c.getContext('2d');
+    x.fillStyle = '#cc3333';
+    x.fillRect(0, 0, 300, 200);
+    x.fillStyle = '#3333cc';
+    x.fillRect(50, 0, 200, 200);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  const avatarPicker = page.locator('.hero input[type=file]');
+  assert.equal(await avatarPicker.getAttribute('accept'), 'image/png,image/jpeg,image/webp');
+  await avatarPicker.setInputFiles({name:'me.png', mimeType:'image/png', buffer:Buffer.from(picture, 'base64')});
+  const uploads = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_avatar_upload').map((c) => c.args.image));
+  await expect.poll(async () => (await uploads()).length).toBe(1);
+  const [sentImage] = await uploads();
+  const sent = await page.evaluate(async (image) => {
+    const bytes = Uint8Array.from(atob(image), (ch) => ch.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    const c = document.createElement('canvas');
+    c.width = bitmap.width;
+    c.height = bitmap.height;
+    const x = c.getContext('2d');
+    x.drawImage(bitmap, 0, 0);
+    return { kind: new TextDecoder().decode(bytes.slice(8, 12)), size: [bitmap.width, bitmap.height], corner: [...x.getImageData(2, 2, 1, 1).data.slice(0, 3)] };
+  }, sentImage);
+  assert.deepEqual([sent.kind, sent.size], ['WEBP', [256, 256]]);
+  assert.ok(sent.corner[2] > 150 && sent.corner[0] < 100, `the upload is not the centred square: ${sent.corner}`);
+  await expect(heroAvatar).toHaveAttribute('src', `data:image/webp;base64,${sentImage}`);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await avatarPicker.setInputFiles({name:'a.gif', mimeType:'image/gif', buffer:Buffer.from('GIF89a')});
+  await expect(page.getByText('请选择 PNG、JPEG 或 WebP 图片。')).toBeVisible();
+  assert.equal((await uploads()).length, 1);
+  await page.goto(base + '?sidebar&avatar');
+  await expect(page.locator('.sb-foot .avatar img')).toHaveAttribute('src', kept, {timeout:30000});
   // Settings → 通用 offers the conversation width, 自适应 by default; a
   // choice is stored; the search finds the row.
   await page.goto(base);

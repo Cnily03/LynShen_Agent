@@ -8,8 +8,11 @@ const frostAtStart = (() => {
   try { return JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}').sidebarVibrancy === true; } catch { return false; }
 })();
 let loggedIn = new URL(location.href).searchParams.has('loggedIn');
+// The picture the app keeps for an account with an avatar (?avatar).
+const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='teal'/></svg>")}`;
 Object.assign(window, {
   __calls: calls,
+  __keptAvatar: KEPT_AVATAR,
   __TAURI_INTERNALS__: {
     metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
     transformCallback: () => 1,
@@ -44,6 +47,11 @@ Object.assign(window, {
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
         case 'diagnostic_logs': return [];
+        // ?avatar: the account's avatar as the app kept it (account_avatar.rs);
+        // an upload answers the gateway's user and the picture it sent.
+        case 'monoize_avatar_cached': return new URL(location.href).searchParams.has('avatar') ? {url: '/api/desktop/oauth/avatars/a1', data_url: KEPT_AVATAR} : null;
+        case 'monoize_avatar_sync': return null;
+        case 'monoize_avatar_upload': return {user: {id: 'u1', username: 'Test user', role: 'user', avatar_url: '/api/desktop/oauth/avatars/a2'}, data_url: `data:image/webp;base64,${args.image}`};
         case 'about_app': return {version:'0.5.0', cli:'0.5.0', os:'macos', arch:'aarch64', logs:'', daemon_log:''};
         // Only the agent-UX pages have a (stand-in) daemon.
         case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;

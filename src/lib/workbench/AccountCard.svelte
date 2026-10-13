@@ -12,6 +12,7 @@
 	import SunIcon from 'phosphor-svelte/lib/SunIcon';
 	import UserIcon from 'phosphor-svelte/lib/UserIcon';
 	import Button from '$lib/ui/Button.svelte';
+	import { accountAvatar } from '$lib/accountAvatar.svelte';
 	import { t } from '$lib/i18n';
 	import { fetchMonoizeLiveUsage, monoizeLogout, type LiveUsage, type MonoizeUser } from '$lib/protocol';
 	import { prefs } from '$lib/prefs.svelte';
@@ -130,7 +131,7 @@
 >
 	<div class="head">
 		<span class="avatar" class:anon={!loggedIn}>
-			{#if loggedIn && user}{avatarInitial(user.username)}{:else}<UserIcon size={18} />{/if}
+			{#if loggedIn && accountAvatar.src}<img src={accountAvatar.src} alt="" />{:else if loggedIn && user}{avatarInitial(user.username)}{:else}<UserIcon size={18} />{/if}
 		</span>
 		<div class="id">
 			<div class="name-line">
@@ -266,6 +267,13 @@
 		font-size: var(--fs-sm);
 		font-weight: 600;
 		line-height: 1;
+		overflow: hidden;
+	}
+	.avatar img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 	.avatar.anon {
 		color: var(--dim);

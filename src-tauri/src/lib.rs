@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
+mod account_avatar;
 mod acp_registry;
 mod agent_import;
 mod app_cli;
@@ -3799,6 +3800,9 @@ pub fn run() {
             monoize_devices,
             monoize_buy_seat,
             fetch_monoize_models,
+            account_avatar::monoize_avatar_cached,
+            account_avatar::monoize_avatar_sync,
+            account_avatar::monoize_avatar_upload,
             monoize_auth::monoize_oauth_start,
             monoize_auth::monoize_oauth_poll,
             monoize_auth::monoize_oauth_cancel,
