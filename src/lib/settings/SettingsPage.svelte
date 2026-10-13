@@ -84,6 +84,7 @@
 	import { deps, recheckDeps } from '$lib/deps.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TextField from '$lib/ui/TextField.svelte';
+	import { RETRY_ATTEMPTS_MAX, retryAttemptsSetting } from '$lib/retryView';
 	import Select from '$lib/ui/Select.svelte';
 	import Switch from '$lib/ui/Switch.svelte';
 	import Checkbox from '$lib/ui/Checkbox.svelte';
@@ -400,7 +401,7 @@
 			title_model: cfg.title_model ?? '',
 			image_model: cfg.image_model ?? '',
 			compaction_threshold_percent: Number(cfg.compaction_threshold_percent) || 75,
-			retry_attempts: Number(cfg.retry_attempts) || 0,
+			retry_attempts: retryAttemptsSetting(cfg.retry_attempts),
 			connect_timeout_seconds: Number(cfg.connect_timeout_seconds) || 0,
 			read_timeout_seconds: Number(cfg.read_timeout_seconds) || 0,
 			include_project_instructions: !!cfg.include_project_instructions,
@@ -1230,7 +1231,7 @@
 					</SettingsSection>
 				{:else if current === 'network'}
 					<SettingsSection title={t('settings.page.requests')}>
-						<SettingsRow id="retry-attempts" title={t('settings.behavior.retryAttempts')}>
+						<SettingsRow id="retry-attempts" title={t('settings.behavior.retryAttempts')} description={t('settings.behavior.retryAttemptsHint', { max: RETRY_ATTEMPTS_MAX })}>
 							<div class="w-num"><TextField bind:value={cfg.retry_attempts} type="number" align="right" /></div>
 						</SettingsRow>
 						<SettingsRow id="connect-timeout" title={t('settings.behavior.connectTimeout')} description={t('settings.page.zeroDefault')}>

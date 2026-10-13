@@ -282,6 +282,7 @@ const chat = {
 		retry: {
 			title: '请求失败，正在重试',
 			attempt: '第 {n} / {max} 次',
+			attemptN: '第 {n} 次',
 			in: '{s} 秒后重试',
 			now: '正在重新连接…',
 			reason: '原因'
@@ -729,6 +730,7 @@ const chat = {
 		retry: {
 			title: 'Request failed, retrying',
 			attempt: 'attempt {n} of {max}',
+			attemptN: 'attempt {n}',
 			in: 'retrying in {s}s',
 			now: 'reconnecting…',
 			reason: 'Reason'
