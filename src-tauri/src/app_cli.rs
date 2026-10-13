@@ -34,8 +34,10 @@ pub fn managed_path() -> Option<PathBuf> {
 
 /// The sidecar inside this build, when it has one. A debug build has none:
 /// a `lynshen` left in target/debug by an older build is not the app's own.
-/// It is named `lynshen-cli`: a `lynshen` would be the same file as the app's
-/// own `LynShen` executable on case-insensitive file systems (macOS, Windows).
+/// It is named `lynshen-cli`: up to 0.5.x the app's own executable was
+/// `LynShen`, which a `lynshen` beside it would have been the same file as on
+/// case-insensitive file systems (macOS, Windows). Installers and packages
+/// know it by this name.
 fn bundled() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         return None;

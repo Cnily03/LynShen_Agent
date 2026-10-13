@@ -932,6 +932,7 @@ dependencies = [
  "ureq",
  "window-vibrancy 0.5.3",
  "windows-version",
+ "winreg 0.10.1",
 ]
 
 [[package]]

@@ -20,7 +20,7 @@
 	});
 </script>
 
-<svelte:head><title>LynShen</title></svelte:head>
+<svelte:head><title>Aogiri</title></svelte:head>
 
 <div class="callback">
 	{#if error}

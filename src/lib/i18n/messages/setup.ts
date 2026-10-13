@@ -2,7 +2,7 @@
 const setup = {
 	zh: {
 		welcome: {
-			label: '欢迎使用 LynShen',
+			label: '欢迎使用 Aogiri',
 			login: {
 				title: '登录 LynShen',
 				sub: '登录后可使用 LynShen 账号下的模型。也可以填写自己的 API\u00a0Key，接入其他模型服务商。',
@@ -27,7 +27,7 @@ const setup = {
 				sub: '选择新对话默认使用的智能体。每个对话也可以单独切换。',
 				installFirst: '返回依赖安装，安装此智能体',
 				desc: {
-					lynshen: 'LynShen 自带引擎，可使用账号内的模型和自定义服务商。',
+					lynshen: '自带的 LynShen 引擎，可使用账号内的模型和自定义服务商。',
 					claude: 'Anthropic 的 Claude Code，使用本机安装的 claude 命令。',
 					codex: 'OpenAI 的 Codex CLI，使用本机安装的 codex 命令。'
 				},
@@ -54,7 +54,7 @@ const setup = {
 				required: '必需工具',
 				requiredHint: 'Node.js（含 npm）和 Git 必须安装并通过检测。',
 				engines: '智能体安装',
-				enginesHint: '至少准备一个要使用的智能体。LynShen 正式安装包已内置引擎。',
+				enginesHint: '至少准备一个要使用的智能体。Aogiri 正式安装包已内置引擎。',
 				optional: '可选工具',
 				optionalHint: 'FFmpeg 用于录屏，GitHub CLI 用于 Pull Request；可以跳过。'
 			},
@@ -144,7 +144,7 @@ const setup = {
 	},
 	en: {
 		welcome: {
-			label: 'Welcome to LynShen',
+			label: 'Welcome to Aogiri',
 			login: {
 				title: 'Sign in to LynShen',
 				sub: 'Sign in to use the models on your LynShen account, or connect another model provider with your own API key.',
@@ -196,7 +196,7 @@ const setup = {
 				required: 'Required tools',
 				requiredHint: 'Node.js (including npm) and Git must be installed and detected.',
 				engines: 'Coding agents',
-				enginesHint: 'Prepare at least one agent you will use. Official LynShen installers include the engine.',
+				enginesHint: 'Prepare at least one agent you will use. Official Aogiri installers include the engine.',
 				optional: 'Optional tools',
 				optionalHint: 'FFmpeg enables recording; GitHub CLI enables pull requests. You can skip both.'
 			},

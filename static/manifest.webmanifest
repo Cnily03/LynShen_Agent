@@ -1,7 +1,7 @@
 {
 	"id": "/remote",
-	"name": "LynShen",
-	"short_name": "LynShen",
+	"name": "Aogiri",
+	"short_name": "Aogiri",
 	"description": "Work with the coding agents on your computer from your phone.",
 	"start_url": "/remote",
 	"scope": "/",

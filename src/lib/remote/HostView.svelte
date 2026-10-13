@@ -243,7 +243,7 @@
 		</div>
 	{:else}
 		<aside class="side">
-			{#if wide}<div class="brand">LynShen</div>{/if}
+			{#if wide}<div class="brand">Aogiri</div>{/if}
 			<nav>
 				{#if wide && chatHref}
 					<a class="chat" href={chatHref}>

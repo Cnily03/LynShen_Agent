@@ -43,7 +43,7 @@ const chat = {
 		unqueueTitle: '撤回这条，放回输入框',
 		opUnsupported: '这个对话的引擎还是旧版本，暂不支持这个操作；这一轮结束后会自动更新。',
 		composerPlaceholder: '输入 / 使用命令',
-		chatPlaceholder: '问点什么，或让 LynShen 帮你调研…',
+		chatPlaceholder: '问点什么，或让 Aogiri 帮你调研…',
 		attachTitle: '附加文件',
 		voiceTitle: '语音输入',
 		voiceStopTitle: '停止录音并转写',
@@ -374,7 +374,7 @@ const chat = {
 			conflict: '合并冲突，项目里的文件没有改动',
 			failed: '合并失败',
 			failedWhy: '合并失败：{error}',
-			mergeUnsupported: '当前引擎还不能合并子智能体的改动，请更新 LynShen 后再试。',
+			mergeUnsupported: '当前引擎还不能合并子智能体的改动，请更新 Aogiri 后再试。',
 			discardTitle: '丢弃 {name} 的改动？',
 			discardMessage: '{name} 的 worktree 会被删除，里面 {n} 个文件的改动无法恢复。',
 			budgetExhausted: '预算用完，已停止',
@@ -389,7 +389,7 @@ const chat = {
 			stopping: '正在停止',
 			stopTitle: '停止 {name}？',
 			stopMessage: '{name} 有 {n} 个文件的改动还没有合并。停止后它不再继续，改动留在它的 worktree 里，之后仍可合并或丢弃。',
-			stopUnsupported: '当前引擎还不能停止单个子智能体，请更新 LynShen 后再试。',
+			stopUnsupported: '当前引擎还不能停止单个子智能体，请更新 Aogiri 后再试。',
 			v2Off: '工作组 v2 已关闭，这个操作没有执行。'
 		},
 		// Best-of-N: several attempts at one task, one of them merged
@@ -495,7 +495,7 @@ const chat = {
 		unqueueTitle: 'Take this back into the message box',
 		opUnsupported: "This conversation's engine is an older release and cannot do that yet; it updates once this turn ends.",
 		composerPlaceholder: 'Type / for commands',
-		chatPlaceholder: 'Ask anything, or have LynShen research it…',
+		chatPlaceholder: 'Ask anything, or have Aogiri research it…',
 		attachTitle: 'Attach files',
 		voiceTitle: 'Voice input',
 		voiceStopTitle: 'Stop recording and transcribe',
@@ -822,7 +822,7 @@ const chat = {
 			conflict: 'Merge conflict: no project file changed',
 			failed: 'Merge failed',
 			failedWhy: 'Merge failed: {error}',
-			mergeUnsupported: 'This engine cannot merge subagent changes yet. Update LynShen and try again.',
+			mergeUnsupported: 'This engine cannot merge subagent changes yet. Update Aogiri and try again.',
 			discardTitle: 'Discard the changes of {name}?',
 			discardMessage: 'The worktree of {name} is deleted. Its changes to {n} files cannot be restored.',
 			budgetExhausted: 'Budget used up, stopped',
@@ -837,7 +837,7 @@ const chat = {
 			stopping: 'Stopping',
 			stopTitle: 'Stop {name}?',
 			stopMessage: '{name} has changes to {n} files that are not merged. It stops working; the changes stay in its worktree, where you can still merge or discard them.',
-			stopUnsupported: 'This engine cannot stop one subagent yet. Update LynShen and try again.',
+			stopUnsupported: 'This engine cannot stop one subagent yet. Update Aogiri and try again.',
 			v2Off: 'Agent team v2 is off. Nothing was done.'
 		},
 		// Best-of-N: several attempts at one task, one of them merged

@@ -1,0 +1,43 @@
+<?if $(sys.BUILDARCH)="x86"?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?else?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?endif?>
+
+<!--
+  WiX fragment for Tauri's MSI template (bundle > windows > wix > fragmentPaths).
+
+  The product was called "LynShen" up to 0.5.x. This MSI keeps LynShen's
+  UpgradeCode (tauri.conf.json), so installing it removes the LynShen product.
+  But the template's package skips RemoveShortcuts while it is being upgraded
+  (so that pins survive an update), and its shortcuts carry the old name: they
+  would stay behind, pointing at an executable that is gone, and one of them
+  ("Uninstall LynShen" in the install directory) would keep that directory
+  alive. This removes the three shortcuts and the two emptied folders.
+  Background: docs/rename-aogiri-notes.md.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <!-- Where the LynShen MSI was installed: its own record (read before
+             it is removed), else the default location. -->
+        <Property Id="LYNSHENINSTALLDIR" Secure="yes">
+            <RegistrySearch Id="LynShenInstallDir" Root="HKCU" Key="Software\LynShen Innovations INC.\LynShen" Name="InstallDir" Type="raw" />
+        </Property>
+        <SetProperty Id="LYNSHENINSTALLDIR" Value="[$(var.PlatformProgramFilesFolder)]LynShen\" After="AppSearch" Sequence="both">NOT LYNSHENINSTALLDIR</SetProperty>
+
+        <DirectoryRef Id="ProgramMenuFolder">
+            <Directory Id="LynShenProgramsFolder" Name="LynShen" />
+        </DirectoryRef>
+
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="RemoveLynShenShortcuts" Guid="642C261B-ECB1-481E-96C9-F5557AB7D1B3">
+                <RemoveFile Id="LynShenUninstallShortcut" Property="LYNSHENINSTALLDIR" Name="Uninstall LynShen.lnk" On="install" />
+                <RemoveFolder Id="LynShenInstallFolder" Property="LYNSHENINSTALLDIR" On="install" />
+                <RemoveFile Id="LynShenStartMenuShortcut" Directory="LynShenProgramsFolder" Name="LynShen.lnk" On="install" />
+                <RemoveFolder Id="LynShenStartMenuFolder" Directory="LynShenProgramsFolder" On="install" />
+                <RemoveFile Id="LynShenDesktopShortcut" Directory="DesktopFolder" Name="LynShen.lnk" On="install" />
+                <RegistryValue Root="HKCU" Key="Software\LynShen Innovations INC.\Aogiri" Name="Renamed From LynShen" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+    </Fragment>
+</Wix>

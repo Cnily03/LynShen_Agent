@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LynShen",
+  "productName": "Aogiri",
   "version": "0.5.1",
   "identifier": "com.lynshen.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "LynShen",
+        "title": "Aogiri",
         "create": false,
         "width": 1320,
         "height": 880,
@@ -70,12 +70,33 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      },
+      "wix": {
+        "upgradeCode": "d4dbe261-d530-5c4b-98dc-bf1c243b18ab",
+        "fragmentPaths": ["windows/rename.wxs"],
+        "componentRefs": ["RemoveLynShenShortcuts"]
+      }
+    },
     "linux": {
       "deb": {
-        "recommends": ["fonts-noto-cjk", "desktop-file-utils", "xdg-utils"]
+        "recommends": ["fonts-noto-cjk", "desktop-file-utils", "xdg-utils"],
+        "provides": ["lyn-shen"],
+        "conflicts": ["lyn-shen"],
+        "replaces": ["lyn-shen"],
+        "files": {
+          "/usr/bin/LynShen": "../packaging/linux/LynShen"
+        }
       },
       "rpm": {
-        "recommends": ["google-noto-sans-cjk-fonts", "desktop-file-utils", "xdg-utils"]
+        "recommends": ["google-noto-sans-cjk-fonts", "desktop-file-utils", "xdg-utils"],
+        "provides": ["lyn-shen"],
+        "obsoletes": ["lyn-shen"],
+        "files": {
+          "/usr/bin/LynShen": "../packaging/linux/LynShen"
+        }
       }
     }
   }

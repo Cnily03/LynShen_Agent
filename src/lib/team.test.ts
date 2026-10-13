@@ -132,7 +132,7 @@ describe('agent team state', () => {
 		c.handle({ type: 'error', message: 'unknown op: merge_agent' });
 		expect(c.messages).toEqual([]);
 		expect(c.lastError).toBeNull();
-		expect(c.team[W]).toMatchObject({ pending: null, merge: { ok: false, error: '当前引擎还不能合并子智能体的改动，请更新 LynShen 后再试。' } });
+		expect(c.team[W]).toMatchObject({ pending: null, merge: { ok: false, error: '当前引擎还不能合并子智能体的改动，请更新 Aogiri 后再试。' } });
 	});
 
 	it('keeps the team budget of the turn', () => {

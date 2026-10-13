@@ -1,4 +1,4 @@
-# LynShen Desktop 差距清单（Gap Checklist）
+# Aogiri 桌面端差距清单（Gap Checklist）
 
 > 基准：`main@6f83aa4`。配套阅读：`docs/workbench-plan.md`。
 > 已勾选（[x]）= 方向已确认、直接排期实施；未勾选（[ ]）= 存在分歧或多方案，需要 owner 拍板后才能动工。

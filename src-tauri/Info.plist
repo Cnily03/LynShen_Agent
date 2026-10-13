@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>LynShen 使用麦克风进行语音输入转写。LynShen uses the microphone for voice-input transcription.</string>
+	<string>Aogiri 使用麦克风进行语音输入转写。Aogiri uses the microphone for voice-input transcription.</string>
 </dict>
 </plist>

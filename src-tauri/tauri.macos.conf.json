@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "LynShen",
+        "title": "Aogiri",
         "create": false,
         "width": 1320,
         "height": 880,

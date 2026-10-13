@@ -512,6 +512,19 @@ try {
   await expect(phone.locator('.composer textarea')).toHaveValue('对比这三份文件，列出口径不一致的地方');
   await expect(phone.locator('.composer .att-name')).toHaveText(['2026 Q3 经营分析.pdf', '销售明细.xlsx', 'metrics.md']);
   await phone.close();
+  // The product is named Aogiri; its engine and the account keep the name LynShen.
+  await page.goto(base + '?sidebar');
+  await expect(page.locator('.brand .word')).toHaveText('Aogiri');
+  await page.goto(base + '?welcome');
+  await expect(page.locator('.wordmark')).toHaveText('Aogiri');
+  await expect(page.getByRole('heading',{name:'登录 LynShen'})).toBeVisible();
+  await page.goto(base + '?updates');
+  await expect(page.locator('#set-app-version')).toContainText('Aogiri 版本');
+  await expect(page.locator('#set-engine-version')).toContainText('引擎版本');
+  await page.goto(base + '?updates=found');
+  await expect(page.getByRole('heading',{name:'发现新版本 Aogiri 9.9.9'})).toBeVisible();
+  await page.goto(base + '?skills&oldEngine');
+  await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), product name.');
 } finally { await browser.close(); await server.close(); }

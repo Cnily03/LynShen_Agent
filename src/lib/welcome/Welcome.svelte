@@ -171,7 +171,7 @@
 			<div class="raster" aria-hidden="true"><SignalRaster /></div>
 
 			<div class="copy">
-				<div class="wordmark">LynShen</div>
+				<div class="wordmark">Aogiri</div>
 				<h1>{t('setup.welcome.login.title')}</h1>
 				<p class="lede">{t('setup.welcome.login.sub')}</p>
 
@@ -194,7 +194,7 @@
 			<header class="ghead">
 				<div class="band" aria-hidden="true"><SignalRaster /></div>
 				<div class="ghead-copy">
-					<div class="wordmark sm">LynShen</div>
+					<div class="wordmark sm">Aogiri</div>
 					<h1>{t('setup.welcome.guide.title')}</h1>
 					<p class="lede">{t('setup.welcome.guide.sub')}</p>
 				</div>

@@ -19,7 +19,7 @@ export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
 				{
 					heading: '内测版本',
 					body: [
-						'LynShen 由 LynShen Innovations INC. 提供，目前处于内测阶段。功能可能变化、出错或中断，请不要把它当作唯一的工作工具，重要代码请自行做好版本管理和备份。'
+						'Aogiri 由 LynShen Innovations INC. 提供，目前处于内测阶段。功能可能变化、出错或中断，请不要把它当作唯一的工作工具，重要代码请自行做好版本管理和备份。'
 					]
 				},
 				{
@@ -43,7 +43,7 @@ export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
 				{
 					heading: '许可与责任',
 					body: [
-						'LynShen 客户端以 Apache-2.0 许可证开源，按现状提供，不附带任何明示或默示的保证。在法律允许的范围内，我们不对因使用本软件造成的间接损失负责。',
+						'Aogiri 客户端以 Apache-2.0 许可证开源，按现状提供，不附带任何明示或默示的保证。在法律允许的范围内，我们不对因使用本软件造成的间接损失负责。',
 						'条款更新后会在应用内展示，继续使用即视为同意。'
 					]
 				},
@@ -57,7 +57,7 @@ export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
 				{
 					heading: 'Beta software',
 					body: [
-						'LynShen is provided by LynShen Innovations INC. and is in beta. Features may change, break or stop working. Do not rely on it as your only tool, and keep your important code under version control with backups.'
+						'Aogiri is provided by LynShen Innovations INC. and is in beta. Features may change, break or stop working. Do not rely on it as your only tool, and keep your important code under version control with backups.'
 					]
 				},
 				{
@@ -81,8 +81,8 @@ export const LEGAL: Record<LegalDocId, Record<'zh' | 'en', LegalText>> = {
 				{
 					heading: 'License and liability',
 					body: [
-						'The LynShen client is open source under the Apache-2.0 license and provided as is, without warranties of any kind. To the extent permitted by law, we are not liable for indirect damages arising from its use.',
-						'Updated terms are shown in the app; continuing to use LynShen means you accept them.'
+						'The Aogiri client is open source under the Apache-2.0 license and provided as is, without warranties of any kind. To the extent permitted by law, we are not liable for indirect damages arising from its use.',
+						'Updated terms are shown in the app; continuing to use Aogiri means you accept them.'
 					]
 				},
 				{ heading: 'Contact', body: [CONTACT] }
