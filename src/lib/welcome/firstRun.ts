@@ -21,14 +21,23 @@ export async function useAccountForEngine(): Promise<boolean> {
 	return true;
 }
 
-/** After a sign-in on the welcome page. */
+/** How long the welcome page waits for the account's models before it
+ *  closes anyway (the model list then fills in when they arrive). */
+const ENGINE_WAIT_MS = 10_000;
+
+/** After a sign-in on the welcome page. The trial claim runs in the
+ *  background; the page waits (a bounded time) only for the engine's setup. */
 export async function afterWelcomeSignIn(): Promise<void> {
 	try {
 		localStorage.setItem(SETUP_DONE_KEY, '1');
 	} catch {
 		/* no storage: the sign-in shows again next start, and is skipped there */
 	}
-	const claim = trial.signedIn();
-	await useAccountForEngine().catch((e) => console.error('account provider', e));
-	await claim;
+	void trial.signedIn();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([
+		useAccountForEngine().catch((e) => console.error('account provider', e)),
+		new Promise((resolve) => (timer = setTimeout(resolve, ENGINE_WAIT_MS)))
+	]);
+	clearTimeout(timer);
 }

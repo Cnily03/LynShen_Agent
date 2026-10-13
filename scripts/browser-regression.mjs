@@ -926,7 +926,7 @@ try {
   await first.getByRole('button',{name:'在浏览器中授权 Aogiri'}).click();
   await expect(first.getByTestId('welcome-closed')).toHaveText('signed-in', {timeout:20000});
   const firstCalls = () => first.evaluate(() => window.__calls);
-  assert.ok((await firstCalls()).some((c) => c.command === 'monoize_trial_claim'), 'the trial was not claimed right after the sign-in');
+  await expect.poll(async () => (await firstCalls()).some((c) => c.command === 'monoize_trial_claim'), {message: 'the trial was not claimed right after the sign-in'}).toBe(true);
   assert.ok((await firstCalls()).some((c) => c.command === 'write_config' && c.args.patch.provider === 'monoize'), 'the engine was not pointed at the account');
   assert.equal(await first.evaluate(() => localStorage.getItem('lynshen-setup-done')), '1');
   // 跳过，稍后登录: one optional page for other agents. Tools show only for
