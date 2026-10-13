@@ -17,7 +17,7 @@
 		<span class="ico" aria-hidden="true"><GiftIcon size={18} /></span>
 		<div class="txt">
 			<h2>{text.title}</h2>
-			<p>{text.body}</p>
+			<p>{#each text.parts as part, i (i)}{#if i}{' · '}{/if}<span class="part">{part}</span>{/each}</p>
 			<div class="acts">
 				<Button variant="primary" size="sm" onclick={() => trial.acknowledge()}>{t('shell.trial.ok')}</Button>
 			</div>
@@ -67,6 +67,10 @@
 		color: var(--dim);
 		font-size: var(--fs-xs);
 		line-height: 1.55;
+	}
+	/* A line breaks between the parts, not inside one ("4 积分"). */
+	.part {
+		white-space: nowrap;
 	}
 	.acts {
 		display: flex;

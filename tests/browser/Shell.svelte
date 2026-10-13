@@ -13,6 +13,8 @@
 	//   &preview                the same with files to preview: a chip opens its
 	//                           file in a tab beside the conversation
 	//                           (previewFiles.ts stands in for the files)
+	//   &trial[=used|404]       signed in; the first-use trial claim as the app
+	//                           runs it, with its grant card (main.ts answers it)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
 	import { onMount, untrack } from 'svelte';
@@ -27,6 +29,8 @@
 	import TitleBar from '../../src/lib/shell/TitleBar.svelte';
 	import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
 	import Toaster from '../../src/lib/ui/Toaster.svelte';
+	import TrialGrantCard from '../../src/lib/TrialGrantCard.svelte';
+	import { trial } from '../../src/lib/trial.svelte';
 	import { SessionStore } from '../../src/lib/session.svelte';
 	import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
 	import { daemon } from '../../src/lib/protocol';
@@ -154,11 +158,14 @@
 		if (backdrop) document.documentElement.style.background = backdrop === 'black' ? '#000' : '#fff';
 		prefs.init();
 		Object.assign(window, { __prefs: prefs });
+		// As +page.svelte does once the sign-in is known.
+		if (mode.has('trial')) Object.assign(window, { __trial: trial, __trialDone: trial.signedIn() });
 	});
 </script>
 
 <ConfirmHost />
 <Toaster />
+<TrialGrantCard />
 <div class="app">
 	<TitleBar leftWidth={292} sidebarOpen onToggleSidebar={() => {}} title={session.chat.title || '对话宽度跟随窗口'} subtitle="lynshen-desktop" addOptions={[{ key: 'term', label: '终端' }]} onAdd={() => {}} />
 	<div class="body">

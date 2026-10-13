@@ -247,8 +247,9 @@ export function planDate(iso: string, withTime = false): string {
 }
 
 /** The grant card's text: "已赠送 7 天体验套餐" and "国内模型 · 共 10 积分 ·
- *  每 5 小时最多 4 积分 · 到期 10月20日". `grantedAt` dates the plan's length. */
-export function grantText(plan: TrialPlan, grantedAt: number): { title: string; body: string } {
+ *  每 5 小时最多 4 积分 · 到期 10月20日" (also as its parts, which the card
+ *  keeps whole on a line). `grantedAt` dates the plan's length. */
+export function grantText(plan: TrialPlan, grantedAt: number): { title: string; body: string; parts: string[] } {
 	const days = Math.max(1, Math.round((Date.parse(plan.expires_at) - grantedAt) / 86_400_000));
 	const windows = sortedWindows(plan);
 	const longest = windows.at(-1);
@@ -256,5 +257,5 @@ export function grantText(plan: TrialPlan, grantedAt: number): { title: string; 
 	if (longest) parts.push(t('shell.trial.total', { n: credits(longest.quota_cny) }));
 	for (const w of windows.slice(0, -1)) parts.push(t('shell.trial.perWindow', { window: windowLabel(w.kind), n: credits(w.quota_cny) }));
 	parts.push(t('shell.trial.until', { date: planDate(plan.expires_at) }));
-	return { title: t('shell.trial.grantTitle', { days }), body: parts.join(' · ') };
+	return { title: t('shell.trial.grantTitle', { days }), body: parts.join(' · '), parts };
 }

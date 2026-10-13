@@ -205,11 +205,12 @@ describe('the grant card', () => {
 		const plan = { ...PLAN, expires_at: expires.toISOString() };
 		expect(grantText(plan, expires.getTime() - 7 * DAY)).toEqual({
 			title: '已赠送 7 天体验套餐',
-			body: '国内模型分组 · 共 10 积分 · 每 5 小时最多 4 积分 · 到期 10月20日'
+			body: '国内模型分组 · 共 10 积分 · 每 5 小时最多 4 积分 · 到期 10月20日',
+			parts: ['国内模型分组', '共 10 积分', '每 5 小时最多 4 积分', '到期 10月20日']
 		});
 		expect(grantText({ ...plan, group: '' }, expires.getTime() - 7 * DAY).body.startsWith('国内模型 · ')).toBe(true);
 		setLocale('en');
-		expect(grantText(plan, expires.getTime() - 7 * DAY)).toEqual({
+		expect(grantText(plan, expires.getTime() - 7 * DAY)).toMatchObject({
 			title: '7-day trial plan added',
 			body: '国内模型分组 · 10 credits in all · at most 4 per 5 hours · ends Oct 20'
 		});
