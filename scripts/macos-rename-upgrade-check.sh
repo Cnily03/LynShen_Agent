@@ -19,18 +19,22 @@
 # RENAME_CHECK_THROWAWAY=1:
 #
 #   RENAME_CHECK_THROWAWAY=1 scripts/macos-rename-upgrade-check.sh \
-#     LynShen_0.5.1_aarch64.dmg Aogiri_aarch64.app.tar.gz 0.7.0
+#     LynShen_0.5.1_aarch64.dmg Aogiri_aarch64.app.tar.gz 0.7.0 [Aogiri_0.6.0_aarch64.app.tar.gz]
 #
-# The archive is what the updater downloads: a tar.gz with Aogiri.app at its top.
+# The archives are what the updater downloads: a tar.gz with Aogiri.app at its
+# top. The optional last one is a release users already updated to (0.6.0):
+# the "from-0.6.0" scenario updates over it.
 set -uo pipefail
 
 old_dmg=${1:?old dmg}
 new_archive=${2:?new .app.tar.gz}
 new_version=${3:?new version}
+mid_archive=${4:-}
 [ "${RENAME_CHECK_THROWAWAY:-}" = 1 ] || { echo "refusing to run: this changes /Applications (set RENAME_CHECK_THROWAWAY=1 on a throwaway Mac)"; exit 2; }
 
 old_dmg=$(cd "$(dirname "$old_dmg")" && pwd)/$(basename "$old_dmg")
 new_archive=$(cd "$(dirname "$new_archive")" && pwd)/$(basename "$new_archive")
+[ -n "$mid_archive" ] && mid_archive=$(cd "$(dirname "$mid_archive")" && pwd)/$(basename "$mid_archive")
 apps=/Applications
 old_app=$apps/LynShen.app
 new_app=$apps/Aogiri.app
@@ -136,18 +140,19 @@ EOF
 # directory, the running bundle is moved aside and the new one takes its path.
 # Then the app relaunches the way tauri::process::restart does: it starts
 # <bundle>/Contents/MacOS/<CFBundleExecutable of the new Info.plist> and exits.
-update_in_place() { # update_in_place <bundle>
-  local bundle=$1 tmp backup exe
+update_in_place() { # update_in_place <bundle> [archive]
+  local bundle=$1 archive=${2:-$new_archive} tmp backup exe running
+  running=$(pgrep -f "^$bundle/Contents/MacOS/" | tr '\n' ' ')
   tmp=$(mktemp -d)
   backup=$(mktemp -d)
-  tar -xzf "$new_archive" -C "$tmp" --strip-components 1
+  tar -xzf "$archive" -C "$tmp" --strip-components 1
   mv "$bundle" "$backup/" && mv "$tmp" "$bundle" || { echo "could not swap $bundle"; exit 1; }
   touch "$bundle"
   exe=$(plist_value "$bundle/Contents/Info.plist" CFBundleExecutable)
   note "relaunch: $bundle/Contents/MacOS/$exe"
   nohup "$bundle/Contents/MacOS/$exe" >/dev/null 2>&1 &
   # The old process exits right after it started the new one.
-  pkill -f "^$bundle/Contents/MacOS/LynShen" 2>/dev/null
+  [ -n "$running" ] && kill $running 2>/dev/null
   rm -rf "$backup"
 }
 
@@ -241,7 +246,25 @@ updated_beside_new() {
   note "marker: $(cat "$marker" 2>&1)"
 }
 
+# --- A Mac that took 0.6.0 that way (still LynShen.app, its login item
+#     pointing into it) takes the next update.
+from_mid() {
+  install_old
+  enable_old_login_item
+  open "$old_app"
+  check "before: the old app runs" wait_for 30 running_from "$old_app"
+  update_in_place "$old_app" "$mid_archive"
+  sleep 15
+  note "on $(version_of "$old_app") now: $(ls -d "$apps"/*.app | grep -E 'LynShen|Aogiri' | tr '\n' ' '), login item $(plist_value "$agents/Aogiri.plist" 'ProgramArguments:0')"
+  check "before: the app runs from $old_app" running_from "$old_app"
+  update_in_place "$old_app"
+  sleep 15
+  check_new_app_in_place
+  check_login_item
+}
+
 run_scenario in-app-update in_app_update
+[ -n "$mid_archive" ] && run_scenario from-0.6.0 from_mid
 run_scenario fresh-beside-old fresh_beside_old
 run_scenario updated-beside-new updated_beside_new
 

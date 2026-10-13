@@ -34,6 +34,9 @@ param(
   # The public key (tauri signer, base64) the .sig files are made with, when
   # it is not the release key.
   [string]$UpdaterPubkey,
+  # A released setup.exe under the new name (0.6.0) that machines already
+  # have: the "from-" scenario updates from it.
+  [string]$MidSetup,
   [string]$OldName = 'LynShen',
   [string]$NewName = 'Aogiri',
   [string]$Publisher = 'LynShen Innovations INC.',
@@ -52,6 +55,7 @@ if ($OldMsi) { $OldMsi = (Resolve-Path $OldMsi).Path }
 if ($NewMsi) { $NewMsi = (Resolve-Path $NewMsi).Path }
 if ($NewSetupSig) { $NewSetupSig = (Resolve-Path $NewSetupSig).Path }
 if ($NewMsiSig) { $NewMsiSig = (Resolve-Path $NewMsiSig).Path }
+if ($MidSetup) { $MidSetup = (Resolve-Path $MidSetup).Path }
 
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $ApprovedKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
@@ -709,6 +713,37 @@ if ($NewSetupSig -and $NewVersion) {
     Check-OldGone $old
     Check-Shortcut $Desktop $DefaultNewDir 'desktop'
     Check-NoOldShortcuts @($oldExe) @($old) $DefaultNewDir
+  }
+}
+
+if ($MidSetup -and $NewSetupSig -and $NewVersion) {
+  # --- A machine that took the first update under the new name (0.6.0) and
+  #     kept LynShen shortcuts it did not move: one that Windows re-pointed at
+  #     Aogiri.exe when it was clicked (it works and still says LynShen), a
+  #     copy the user made and one in the Start menu whose program is gone.
+  #     The next update, taken from inside the app, clears them.
+  Scenario 'from-0.6.0' {
+    $old = Install-Old
+    $oldExe = Join-Path $old "$OldName.exe"
+    Enable-OldAutostart $old
+    New-Shortcut (Join-Path $TaskbarPins "$OldName.lnk") $oldExe
+    $code = Invoke-Program $MidSetup @('/P', '/UPDATE')
+    if ($code -ne 0) { throw "the 0.6.0 setup.exe returned $code" }
+    $newExe = Join-Path $DefaultNewDir "$NewName.exe"
+    if (-not (Test-Path -LiteralPath $newExe)) { throw "0.6.0 did not install to $DefaultNewDir" }
+    New-Shortcut (Join-Path $Desktop "$OldName.lnk") $newExe
+    New-Shortcut (Join-Path $Desktop "$OldName - 快捷方式.lnk") $oldExe
+    New-Shortcut (Join-Path $StartMenu "$OldName.lnk") $oldExe
+    $mid = (Get-Item -LiteralPath $newExe).VersionInfo.ProductVersion
+    Note "on $mid now, with: $((Get-AppShortcuts | ForEach-Object { "$($_.Place) '$($_.Name)'" }) -join ', ')"
+
+    Invoke-InAppUpdate $newExe
+
+    Check-Installed $DefaultNewDir
+    Check-Shortcut $Desktop $DefaultNewDir 'desktop'
+    Check-Shortcut $StartMenu $DefaultNewDir 'Start-menu'
+    Check-NoOldShortcuts @($oldExe) @($old) $DefaultNewDir
+    Check-Autostart $DefaultNewDir
   }
 }
 

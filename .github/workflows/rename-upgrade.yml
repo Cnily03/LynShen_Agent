@@ -41,6 +41,10 @@ concurrency:
 env:
   OLD_TAG: v0.5.1
   OLD_VERSION: 0.5.1
+  # The first release under the new name: machines that took it still have
+  # LynShen leftovers the next update must clear.
+  MID_TAG: v0.6.0
+  MID_VERSION: 0.6.0
   NEW_TAG: ${{ inputs.new_release_tag }}
   # Test builds carry a higher version than the one they replace, as a real
   # update does. They are signed with a throwaway updater key and never
@@ -110,13 +114,17 @@ jobs:
           "NEW_VERSION=$version" >> $env:GITHUB_ENV
           Get-ChildItem new | ForEach-Object Name
 
-      - name: Download the released LynShen 0.5.1 installers
+      - name: Download the released LynShen 0.5.1 and Aogiri 0.6.0 installers
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download $env:OLD_TAG --repo Libra1337/LynShen_Agent --dir old `
             --pattern "LynShen_${env:OLD_VERSION}_x64-setup.exe" --pattern "LynShen_${env:OLD_VERSION}_x64_en-US.msi"
+          # What machines updated to first under the new name.
+          if ($env:NEW_TAG -eq '') {
+            gh release download $env:MID_TAG --repo Libra1337/LynShen_Agent --dir mid --pattern "Aogiri_${env:MID_VERSION}_x64-setup.exe"
+          }
           # The files the release and the download server publish.
           $expected = @{
             "LynShen_${env:OLD_VERSION}_x64-setup.exe" = '720fb7cfbf426a4d5e82d1b1a4c4ec8a4d85165371fc291fb961d4ce47470635'
@@ -142,6 +150,7 @@ jobs:
             NewVersion = $env:NEW_VERSION
           }
           if (Test-Path new/updater.pub) { $check.UpdaterPubkey = Get-Content new/updater.pub -Raw }
+          if (Test-Path mid) { $check.MidSetup = "mid/Aogiri_${env:MID_VERSION}_x64-setup.exe" }
           if ($env:ONLY) { $check.Only = $env:ONLY -split ',' }
           ./scripts/windows-rename-upgrade-check.ps1 @check
 
@@ -206,18 +215,23 @@ jobs:
           mv new/Aogiri_aarch64.app.tar.gz new/Aogiri.app.tar.gz
           echo "NEW_VERSION=${NEW_TAG#v}" >> "$GITHUB_ENV"
 
-      - name: Download the released LynShen 0.5.1 dmg
+      - name: Download the released LynShen 0.5.1 dmg and Aogiri 0.6.0 update
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download "$OLD_TAG" --repo Libra1337/LynShen_Agent --dir old --pattern "LynShen_${OLD_VERSION}_aarch64.dmg"
+          if [ -z "$NEW_TAG" ]; then
+            gh release download "$MID_TAG" --repo Libra1337/LynShen_Agent --dir mid --pattern 'Aogiri_aarch64.app.tar.gz'
+          fi
           # The file the release and the download server publish.
           echo "5b9fc27a9fe69d0836994197307da5395c412591c9ea008927608f7ecc27e921  old/LynShen_${OLD_VERSION}_aarch64.dmg" | shasum -a 256 -c
 
       - name: Install LynShen 0.5.1, then update it as users do
         env:
           RENAME_CHECK_THROWAWAY: '1'
-        run: scripts/macos-rename-upgrade-check.sh "old/LynShen_${OLD_VERSION}_aarch64.dmg" new/Aogiri.app.tar.gz "$NEW_VERSION"
+        run: |
+          mid=""; [ -f mid/Aogiri_aarch64.app.tar.gz ] && mid=mid/Aogiri_aarch64.app.tar.gz
+          scripts/macos-rename-upgrade-check.sh "old/LynShen_${OLD_VERSION}_aarch64.dmg" new/Aogiri.app.tar.gz "$NEW_VERSION" $mid
 
   linux:
     name: Linux (deb and rpm over LynShen 0.5.1)
