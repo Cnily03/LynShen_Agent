@@ -1492,6 +1492,54 @@ describe('ChatState: the LynShen sandbox', () => {
 		expect(last?.kind === 'system' && last.text).toContain('原因：需要 jq');
 	});
 
+	it('brings a sandbox card back when the engine does not take the answer', () => {
+		const c = new ChatState();
+		const ask = {
+			type: 'approval_request',
+			call_id: 'w1',
+			name: 'write',
+			summary: '/Users/me/New/a.txt',
+			kind: 'outside_write',
+			command: null,
+			paths: ['/Users/me/New/a.txt'],
+			dir_suggestion: '/Users/me/New',
+			scopes: ['once']
+		};
+		c.handle(ask);
+		c.approvalAnswered();
+		expect(c.pendingApproval).toBeNull();
+		// add_dir named a directory that does not exist yet: the request waits
+		c.handle({ type: 'error', message: 'not an existing absolute directory: /Users/me/New' });
+		expect(c.pendingApproval?.callId).toBe('w1');
+		expect(c.pendingApproval?.sandbox?.dirSuggestion).toBe('/Users/me/New');
+		expect(c.lastError).toBeNull();
+		expect(c.messages.at(-1)?.kind).toBe('system');
+		// answered again and taken: the call runs; a later error is a failure as before
+		c.approvalAnswered();
+		c.handle({ type: 'tool_output', call_id: 'w1', output: 'ok' });
+		c.handle({ type: 'error', message: 'not an existing absolute directory: /x' });
+		expect(c.pendingApproval).toBeNull();
+		expect(c.lastError).toBe('not an existing absolute directory: /x');
+	});
+
+	it('does not bring back an older engine card or one answered long ago', () => {
+		const c = new ChatState();
+		c.handle({ type: 'approval_request', call_id: 'o1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
+		c.approvalAnswered();
+		c.handle({ type: 'error', message: 'call o1 can be allowed only once' });
+		expect(c.pendingApproval).toBeNull();
+		vi.useFakeTimers();
+		try {
+			c.handle({ type: 'approval_request', call_id: 's1', name: 'bash', kind: 'command', command: 'ls', scopes: ['once'] });
+			c.approvalAnswered();
+			vi.advanceTimersByTime(60_000);
+			c.handle({ type: 'error', message: 'call s1 can be allowed only once' });
+			expect(c.pendingApproval).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('takes an older engine refusing a sandbox op quietly', () => {
 		const c = new ChatState();
 		const before = c.messages.length;

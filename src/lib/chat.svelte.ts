@@ -339,6 +339,10 @@ const isWorktree = (workdir: string, isolation: string) =>
 	isolation === 'worktree' || (isolation === '' && /[\\/]\.lynshen[\\/]agents[\\/][^\\/]+[\\/]?$/.test(workdir));
 
 /** Mode names as a client sends them to the daemon (see backends/lynshen.ts). */
+/** The engine's refusals of an `approve` that leave the request waiting:
+ *  `add_dir` naming no existing directory, a scope or prefix it does not
+ *  offer (LynShen core `approve_with`). */
+const APPROVE_REFUSED = /^(not an existing absolute directory: |add_dir persist |call \S+ can be allowed only |call \S+ has no command prefix|prefix `)/;
 const PENDING_MODES: Record<string, ApprovalMode> = { manual: 'ask', 'auto-edit': 'edits', auto: 'auto', 'full-access': 'all', plan: 'plan' };
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const num = (v: unknown) => (typeof v === 'number' ? v : 0);
@@ -830,6 +834,11 @@ export class ChatState {
 	/** What this session's commands may do, as the engine last said
 	 *  (`sandbox`); null until it says (an engine before the contract never does). */
 	sandbox = $state<SandboxState | null>(null);
+	/** A sandbox request just answered here: an engine that cannot take the
+	 *  answer (a directory that does not exist, a scope it does not offer)
+	 *  says so in an `error` and keeps the request waiting, so its card comes
+	 *  back (see `error`). Gone once the call runs or another request comes. */
+	#answered: { approval: NonNullable<ChatState['pendingApproval']>; at: number } | null = null;
 	/** The conversation is open in its engine's TUI (on this or another
 	 *  client): its GUI ops wait until the TUI exits. */
 	inTerminal = $state(false);
@@ -1052,6 +1061,13 @@ export class ChatState {
 			/* no localStorage (e.g. tests) */
 		}
 		this.approvalMode = initialApprovalMode(saved, caps({ backendId: backend }).sandbox);
+	}
+
+	/** The pending approval was answered (its op sent): its card goes. */
+	approvalAnswered() {
+		const approval = this.pendingApproval;
+		this.#answered = approval?.sandbox ? { approval, at: Date.now() } : null;
+		this.pendingApproval = null;
 	}
 
 	/** Set the approval mode locally and persist it (the caller is responsible
@@ -1930,6 +1946,7 @@ export class ChatState {
 				// The call ran: it was decided here, on another device, or by
 				// a mode switch, so its card goes.
 				if (this.pendingApproval && this.pendingApproval.callId === str(ev.call_id)) this.pendingApproval = null;
+				if (this.#answered?.approval.callId === str(ev.call_id)) this.#answered = null;
 				// Engines that do not announce each request (codex) start the next
 				// one once the tools are back.
 				this.#segStart = Date.now();
@@ -2216,6 +2233,7 @@ export class ChatState {
 				// A LynShen sandbox request names its kind; its `scopes` are the
 				// sandbox's (once / session / project), not codex's always-allow ones.
 				const sandbox = parseSandboxRequest(ev as Record<string, unknown>);
+				this.#answered = null;
 				this.pendingApproval = {
 					callId: str(ev.call_id),
 					name: str(ev.name),
@@ -2618,6 +2636,16 @@ export class ChatState {
 				});
 				break;
 			case 'error': {
+				// The engine did not take the answer just given to a sandbox
+				// request and keeps it waiting (its words say why): the card
+				// comes back, and the turn goes on.
+				const answered = this.#answered;
+				if (answered && !this.pendingApproval && Date.now() - answered.at < 15_000 && APPROVE_REFUSED.test(str(ev.message))) {
+					this.#answered = null;
+					this.pendingApproval = answered.approval;
+					this.messages.push({ kind: 'system', text: t('chat.approvalRefused', { msg: str(ev.message) }) });
+					break;
+				}
 				// An engine without the agent trace refuses its ops: nothing failed.
 				// A daemon from before context categories answers a Claude Code
 				// session's context_usage in its own words.

@@ -937,7 +937,7 @@
 	function respondApproval(op: ApproveOp) {
 		if (!chat.pendingApproval) return;
 		send(op);
-		chat.pendingApproval = null;
+		chat.approvalAnswered();
 	}
 	// User changed the approval-mode picker: persist locally and push it to this
 	// session's engine (which enforces it and acks with an approval_mode event).

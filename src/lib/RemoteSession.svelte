@@ -622,7 +622,7 @@
 
 	function respond(op: ApproveOp) {
 		send(op);
-		chat.pendingApproval = null;
+		chat.approvalAnswered();
 	}
 	// 等你确认: a request that comes while this page is in the background
 	// (the phone locked, another app in front) notifies here, when the user

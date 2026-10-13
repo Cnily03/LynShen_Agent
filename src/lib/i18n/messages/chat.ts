@@ -7,6 +7,7 @@ const chat = {
 		reasoningFor: '推理了 {t}',
 		actionDeferred: '没有人在看，{name}（{summary}）已记为待确认动作，可在工作台处理',
 		actionDeferredWhy: '没有人在看，{name}（{summary}）已记为待确认动作，可在工作台处理。原因：{why}',
+		approvalRefused: '引擎没有接受这个回答，请求仍在等你：{msg}',
 		actionAllowed: '待确认动作 {id} 已批准',
 		actionDenied: '待确认动作 {id} 已拒绝',
 		rewindTitle: '回退到此轮并重写（会还原文件改动）',
@@ -476,6 +477,7 @@ const chat = {
 	en: {
 		actionDeferred: 'Nobody was watching: {name} ({summary}) was recorded as a pending action; decide it on the desk',
 		actionDeferredWhy: 'Nobody was watching: {name} ({summary}) was recorded as a pending action; decide it on the desk. Reason: {why}',
+		approvalRefused: 'The engine did not take that answer; the request is still waiting for you: {msg}',
 		actionAllowed: 'Pending action {id} allowed',
 		actionDenied: 'Pending action {id} denied',
 		reasoning: 'Reasoning',
