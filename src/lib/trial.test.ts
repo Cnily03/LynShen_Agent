@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
 import {
-	DISABLED_RECHECK_MS,
 	RETRY_DELAYS_MS,
 	STORAGE_KEY,
+	TRIAL_WINDOW_MS,
 	TrialClaims,
+	accountCreatedAt,
 	activePlan,
 	claimKey,
+	needsClaim,
 	credits,
 	grantText,
 	grantToAnnounce,
@@ -15,6 +17,7 @@ import {
 	parseDesktopPlan,
 	parsePlan,
 	sortedWindows,
+	tightestWindow,
 	usedShare,
 	windowLabel,
 	type ClaimOutcome,
@@ -153,26 +156,80 @@ describe('the claim state machine', () => {
 		}
 	});
 
-	it('asks again about a switched-off trial (or an older gateway) only after a while', async () => {
-		for (const outcome of [{ kind: 'disabled' }, outcomeOfFailure({ status: 404 })] as ClaimOutcome[]) {
+	it('asks again about a refusal at each later start within 72 hours, then stops at a grant', async () => {
+		const HOUR = 3_600_000;
+		for (const outcome of [{ kind: 'not_eligible' }, { kind: 'disabled' }, outcomeOfFailure({ status: 404 })] as ClaimOutcome[]) {
 			const storage = memory();
-			const first = claimer([outcome], storage);
-			await first.claims.run(KEY);
-			let now = NOW + DISABLED_RECHECK_MS - 1;
-			const replies: ClaimOutcome[] = [{ kind: 'granted', plan: PLAN }];
+			await claimer([outcome], storage).claims.run(KEY);
+			// The next start, an hour later: asked once, quietly, and refused again.
+			let now = NOW + HOUR;
+			const replies: ClaimOutcome[] = [outcome, { kind: 'granted', plan: PLAN }];
 			const claim = vi.fn(async () => replies.shift()!);
-			const later = new TrialClaims(storage, claim, () => now);
-			await later.run(KEY);
-			expect(claim).not.toHaveBeenCalled();
-			now = NOW + DISABLED_RECHECK_MS;
-			expect(await later.run(KEY)).toMatchObject({ status: 'granted', card: 'show' });
+			const second = new TrialClaims(storage, claim, () => now);
+			expect(await second.run(KEY)).toMatchObject({ status: outcome.kind, since: NOW, at: now });
+			// Sign-ins later in that run do not ask again.
+			await second.run(KEY);
+			await second.run(KEY);
 			expect(claim).toHaveBeenCalledTimes(1);
+			// The start after: granted (the admin switched the trial on).
+			now = NOW + 30 * HOUR;
+			expect(await new TrialClaims(storage, claim, () => now).run(KEY)).toMatchObject({ status: 'granted', card: 'show', since: NOW });
+			expect(claim).toHaveBeenCalledTimes(2);
+			// After a grant nothing is asked, on any later start.
+			now = NOW + 40 * HOUR;
+			await new TrialClaims(storage, claim, () => now).run(KEY);
+			expect(claim).toHaveBeenCalledTimes(2);
 		}
-		// not_eligible is final.
+	});
+
+	it('stops asking 72 hours after the first claim, or after the account was created', async () => {
 		const storage = memory();
 		await claimer([{ kind: 'not_eligible' }], storage).claims.run(KEY);
+		const claim = vi.fn(async (): Promise<ClaimOutcome> => ({ kind: 'not_eligible' }));
+		await new TrialClaims(storage, claim, () => NOW + TRIAL_WINDOW_MS).run(KEY);
+		expect(claim).not.toHaveBeenCalled();
+		await new TrialClaims(storage, claim, () => NOW + TRIAL_WINDOW_MS - 1).run(KEY);
+		expect(claim).toHaveBeenCalledTimes(1);
+		// Where the gateway says when the account was created, that counts.
+		const created = NOW - TRIAL_WINDOW_MS + 60_000;
+		await new TrialClaims(storage, claim, () => NOW + 120_000).run(KEY, created);
+		expect(claim).toHaveBeenCalledTimes(1);
+		await new TrialClaims(storage, claim, () => NOW + 30_000).run(KEY, created);
+		expect(claim).toHaveBeenCalledTimes(2);
+	});
+
+	it('reads a record from 0.7.0 (no since) by its last attempt', () => {
+		const old = { status: 'not_eligible' as const, at: NOW };
+		expect(needsClaim(old, NOW + TRIAL_WINDOW_MS - 1)).toBe(true);
+		expect(needsClaim(old, NOW + TRIAL_WINDOW_MS)).toBe(false);
+		expect(needsClaim(old, NOW + 1, { askedThisRun: true })).toBe(false);
+		// Grants and other answers are final; a network failure is always due.
+		for (const status of ['granted', 'already_granted', 'refused'] as const) expect(needsClaim({ status, at: NOW }, NOW + 1)).toBe(false);
+		expect(needsClaim({ status: 'network', at: NOW }, NOW + 1, { askedThisRun: true })).toBe(true);
+		expect(needsClaim(undefined, NOW)).toBe(true);
+		expect(needsClaim(undefined, NOW, { askedThisRun: true })).toBe(false);
+	});
+
+	it('announces a grant that follows a refusal, also a repeat (granted by hand meanwhile)', async () => {
+		const storage = memory();
+		await claimer([{ kind: 'not_eligible' }], storage).claims.run(KEY);
+		const record = await new TrialClaims(storage, async () => ({ kind: 'already_granted', plan: PLAN }), () => NOW + 1).run(KEY);
+		expect(grantToAnnounce(record, NOW + 1)).toEqual(PLAN);
+	});
+
+	it('reads when the account was created', () => {
+		expect(accountCreatedAt({ created_at: '2026-10-13T21:09:06Z' })).toBe(Date.parse('2026-10-13T21:09:06Z'));
+		expect(accountCreatedAt({ created_at: 1_791_000_000 })).toBe(1_791_000_000_000);
+		expect(accountCreatedAt({ created_at: 1_791_000_000_000 })).toBe(1_791_000_000_000);
+		for (const v of [undefined, null, '', 'soon', 0, -1]) expect(accountCreatedAt({ created_at: v })).toBeNull();
+		expect(accountCreatedAt(null)).toBeNull();
+	});
+
+	it('never asks again after an unknown answer (refused), on any start', async () => {
+		const storage = memory();
+		await claimer([{ kind: 'refused' }], storage).claims.run(KEY);
 		const claim = vi.fn();
-		await new TrialClaims(storage, claim, () => NOW + 30 * DAY).run(KEY);
+		await new TrialClaims(storage, claim, () => NOW + 1).run(KEY);
 		expect(claim).not.toHaveBeenCalled();
 	});
 
@@ -199,7 +256,7 @@ describe('the claim state machine', () => {
 		expect(claim).toHaveBeenCalledTimes(1);
 	});
 
-	it('remembers nothing when signed out (401/403), so the next sign-in asks again', async () => {
+	it('remembers nothing when signed out (401/403), so the next sign-in asks again, in the same run too', async () => {
 		const { claims, claim, storage } = claimer([{ kind: 'signed_out' }, { kind: 'not_eligible' }]);
 		expect(await claims.run(KEY)).toBeUndefined();
 		expect(storage.data.size).toBe(0);
@@ -277,6 +334,23 @@ describe('the grant card', () => {
 });
 
 describe('display helpers', () => {
+	it('picks the window with the least left for the account card', () => {
+		const plan = {
+			...PLAN,
+			windows: [
+				{ kind: '7d', quota_cny: '10.00', used_cny: '3.58', resets_at: null },
+				{ kind: '5h', quota_cny: '4.00', used_cny: '1.36', resets_at: null }
+			]
+		};
+		// 5h: 34% used, 7d: 35.8% used.
+		expect(tightestWindow(plan)).toMatchObject({ window: { kind: '7d' }, left: '6.42' });
+		expect(tightestWindow({ ...plan, windows: [{ ...plan.windows[0], used_cny: '0' }, plan.windows[1]] })).toMatchObject({ window: { kind: '5h' }, left: '2.64' });
+		// A tie: the shorter window.
+		expect(tightestWindow(PLAN)?.window.kind).toBe('5h');
+		expect(tightestWindow({ ...PLAN, windows: [{ kind: '5h', quota_cny: '4.00', used_cny: '9.00', resets_at: null }] })?.left).toBe('0.00');
+		expect(tightestWindow({ ...PLAN, windows: [] })).toBeNull();
+	});
+
 	it('formats credits, window names and order, and the share used', () => {
 		expect(credits('10.00')).toBe('10');
 		expect(credits('2.50')).toBe('2.5');

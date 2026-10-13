@@ -4,6 +4,7 @@
 	// the plan first, a used-up window fails requests (402) and never falls back
 	// to the balance, so a payer who wants to keep working picks 用余额. Shown
 	// with the plan in force, in the account card and on the account page.
+	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import { t } from '$lib/i18n';
 	import { trial } from '$lib/trial.svelte';
@@ -12,39 +13,33 @@
 	let { compact = false }: { compact?: boolean } = $props();
 
 	const plan = $derived(trial.plan);
+	// The latest pick shows at once; trial.svelte.ts sends it (one change at
+	// a time, the last pick wins) and falls back to the gateway's choice when
+	// a change fails.
 	const funding = $derived(trial.funding);
-	let error = $state('');
-	/** Bumped after a failed change, so the control shows the choice in force again. */
-	let resets = $state(0);
+	const error = $derived(trial.fundingError ? t('shell.trial.fundingFailed', { error: trial.fundingError }) : '');
 
-	async function pick(value: string) {
-		if (value === funding || trial.saving) {
-			resets++;
-			return;
-		}
-		error = '';
-		const failed = await trial.setFunding(value as PlanFunding);
-		if (failed) {
-			error = t('shell.trial.fundingFailed', { error: failed });
-			resets++;
-		}
+	function pick(value: string) {
+		if (value === funding) return;
+		void trial.setFunding(value as PlanFunding);
 	}
 </script>
 
 {#if plan && funding}
 	<div class="funding" class:compact>
 		<div class="row">
-			<span class="label">{t('shell.trial.funding')}</span>
-			{#key `${funding}:${resets}`}
-				<Segmented
-					value={funding}
-					options={[
-						{ value: 'plan', label: t(plan.trial === false ? 'shell.trial.fundingPaid' : 'shell.trial.fundingTrial') },
-						{ value: 'balance', label: t('shell.trial.fundingBalance') }
-					]}
-					onChange={pick}
-				/>
-			{/key}
+			<span class="label">
+				{t('shell.trial.funding')}
+				{#if trial.saving}<CircleNotchIcon size={11} class="spin" aria-label={t('shell.trial.fundingSaving')} />{/if}
+			</span>
+			<Segmented
+				value={funding}
+				options={[
+					{ value: 'plan', label: t(plan.trial === false ? 'shell.trial.fundingPaid' : 'shell.trial.fundingTrial') },
+					{ value: 'balance', label: t('shell.trial.fundingBalance') }
+				]}
+				onChange={pick}
+			/>
 		</div>
 		<p class="hint">
 			{funding === 'plan'
@@ -69,6 +64,9 @@
 		gap: 6px 10px;
 	}
 	.label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		color: var(--dim);
 		font-size: var(--fs-xs);
 	}

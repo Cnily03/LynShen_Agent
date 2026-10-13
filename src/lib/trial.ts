@@ -1,8 +1,11 @@
 // The first-use trial plan (gateway contract: notes/trial-plan-client.md).
-// After a sign-in the app asks the gateway once per installation and account
-// for the trial; the gateway alone decides who gets it. This module is the
-// claim's state machine and the plan's display helpers, without Tauri or
-// Svelte; trial.svelte.ts runs it for the app.
+// After a sign-in the app asks the gateway for the trial, per installation and
+// account; the gateway alone decides who gets it. A grant ends the asking. A
+// refusal (`not_eligible`, `disabled`) is asked again at later starts and
+// sign-ins while the account is in the gateway's 72-hour window, at most once
+// per run of the app: the trial may be switched on, or a rule lifted, in the
+// meantime. This module is the claim's state machine and the plan's display
+// helpers, without Tauri or Svelte; trial.svelte.ts runs it for the app.
 import { getLocale, t } from '$lib/i18n';
 
 /** One quota window of the plan, in CNY (1 积分 = ¥1). */
@@ -57,6 +60,10 @@ export interface TrialRecord {
 	status: 'granted' | 'already_granted' | 'not_eligible' | 'disabled' | 'refused' | 'network';
 	/** When the last attempt ended (ms since the epoch). */
 	at: number;
+	/** When this installation first asked for this account (ms): where the
+	 *  72-hour window starts when the gateway does not say when the account
+	 *  was created. Absent in records from before 0.7.1 (`at` stands in). */
+	since?: number;
 	plan?: TrialPlan | null;
 	/** Attempts that failed on the network so far. */
 	failures?: number;
@@ -71,12 +78,10 @@ export const STORAGE_KEY = 'lynshen-trial-claims';
  *  the app; after the last one the next sign-in or start tries again. */
 export const RETRY_DELAYS_MS = [30_000, 120_000, 600_000] as const;
 
-/** A `disabled` answer (the trial switched off, no trial product, the day's
- *  cap reached, or a gateway without the endpoint) is asked again at a start
- *  or sign-in this long after it: the trial may be on by then, and a new
- *  account stays eligible for 72 hours. Never in a loop: only a start or a
- *  sign-in asks. */
-export const DISABLED_RECHECK_MS = 6 * 3_600_000;
+/** How long after an account is created the gateway still grants it the
+ *  trial (contract: "created at most 72 hours before the claim"). A refusal is
+ *  asked again only within this window. */
+export const TRIAL_WINDOW_MS = 72 * 3_600_000;
 
 export const claimKey = (installationId: string, userId: string) => `${installationId}:${userId}`;
 
@@ -136,30 +141,65 @@ export function outcomeOfFailure(error: unknown): ClaimOutcome {
 	return { kind: 'refused' };
 }
 
-/** A claim is due: nothing remembered, the last attempt failed on the
- *  network, or a `disabled` answer is DISABLED_RECHECK_MS old. */
-export const needsClaim = (record: TrialRecord | undefined, now: number): boolean =>
-	!record || record.status === 'network' || (record.status === 'disabled' && !(now - record.at < DISABLED_RECHECK_MS));
+/** What decides whether a remembered refusal is asked again. */
+export interface ClaimContext {
+	/** This run of the app already asked for this account. */
+	askedThisRun?: boolean;
+	/** When the account was created (ms), where the gateway says so. */
+	accountSince?: number | null;
+}
+
+/** A claim is due:
+ *  - the last attempt failed on the network (timed retries, trial.svelte.ts);
+ *  - otherwise at most once per run of the app: nothing remembered yet, or a
+ *    refusal (`not_eligible`, `disabled`) while the account is younger than
+ *    TRIAL_WINDOW_MS (from its creation, else from this installation's first
+ *    claim for it).
+ *  A grant (`granted`, `already_granted`) and any other answer (`refused`)
+ *  end the asking. */
+export function needsClaim(record: TrialRecord | undefined, now: number, context: ClaimContext = {}): boolean {
+	if (record?.status === 'network') return true;
+	if (context.askedThisRun) return false;
+	if (!record) return true;
+	if (record.status !== 'not_eligible' && record.status !== 'disabled') return false;
+	const since = context.accountSince ?? record.since ?? record.at;
+	return now - since < TRIAL_WINDOW_MS;
+}
+
+/** When the account was created, from the gateway's user (`created_at`: RFC
+ *  3339, or Unix seconds or milliseconds); null when it does not say. */
+export function accountCreatedAt(user: { created_at?: unknown } | null | undefined): number | null {
+	const v = user?.created_at;
+	if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v < 1e12 ? v * 1000 : v;
+	if (typeof v === 'string' && v.trim()) {
+		const ms = Date.parse(v);
+		return Number.isNaN(ms) ? null : ms;
+	}
+	return null;
+}
 
 /** The record after an attempt; undefined when nothing is to be remembered. */
 export function recordAfter(prev: TrialRecord | undefined, outcome: ClaimOutcome, now: number): TrialRecord | undefined {
+	const since = prev?.since ?? prev?.at ?? now;
 	switch (outcome.kind) {
 		case 'signed_out':
 			return prev;
 		case 'network':
-			return { status: 'network', at: now, failures: (prev?.failures ?? 0) + 1 };
+			return { status: 'network', at: now, since, failures: (prev?.failures ?? 0) + 1 };
 		case 'granted':
 		case 'already_granted':
 			return {
 				status: outcome.kind,
 				at: now,
+				since,
 				plan: outcome.plan,
-				// A repeat after a network failure may be the grant whose answer was
-				// lost on the way: it is announced as well.
-				card: outcome.kind === 'granted' || prev?.status === 'network' ? 'show' : undefined
+				// A repeat after a network failure or a refusal may be the grant
+				// whose answer was lost on the way, or one made since: it is
+				// announced as well.
+				card: outcome.kind === 'granted' || (prev != null && prev.status !== 'granted' && prev.status !== 'already_granted') ? 'show' : undefined
 			};
 		default:
-			return { status: outcome.kind, at: now };
+			return { status: outcome.kind, at: now, since };
 	}
 }
 
@@ -185,13 +225,15 @@ export interface ClaimStorage {
 }
 
 /**
- * Claims the trial at most once per installation and account. An outcome is
- * remembered (except "signed out"), so a later run does not ask again; only a
- * network failure leaves the claim due. Concurrent runs for one key share one
- * request.
+ * Claims the trial per installation and account (`needsClaim` says when). An
+ * outcome is remembered (except "signed out"); a run of the app asks at most
+ * once per account, apart from retries after a network failure. Concurrent
+ * runs for one key share one request.
  */
 export class TrialClaims {
 	#inflight = new Map<string, Promise<TrialRecord | undefined>>();
+	/** Accounts asked for in this run of the app. */
+	#asked = new Set<string>();
 
 	constructor(
 		private readonly storage: ClaimStorage,
@@ -220,15 +262,19 @@ export class TrialClaims {
 		}
 	}
 
-	/** Claims for `key` when due; answers the record as it stands after. */
-	run(key: string): Promise<TrialRecord | undefined> {
+	/** Claims for `key` when due; answers the record as it stands after.
+	 *  `accountSince`: when the account was created, where known. */
+	run(key: string, accountSince: number | null = null): Promise<TrialRecord | undefined> {
 		const pending = this.#inflight.get(key);
 		if (pending) return pending;
 		const prev = this.get(key);
-		if (!needsClaim(prev, this.now())) return Promise.resolve(prev);
+		if (!needsClaim(prev, this.now(), { askedThisRun: this.#asked.has(key), accountSince })) return Promise.resolve(prev);
+		this.#asked.add(key);
 		const attempt = this.claim()
 			.catch((): ClaimOutcome => ({ kind: 'network' }))
 			.then((outcome) => {
+				// Not signed in after all: the next sign-in of this run asks.
+				if (outcome.kind === 'signed_out') this.#asked.delete(key);
 				const before = this.get(key);
 				const next = recordAfter(before, outcome, this.now());
 				if (next && next !== before) this.#put(key, next);
@@ -287,6 +333,21 @@ export function usedShare(w: TrialWindow): number {
 	const used = Number(w.used_cny);
 	if (!(quota > 0) || !Number.isFinite(used)) return 0;
 	return Math.min(1, Math.max(0, used / quota));
+}
+
+/** The window with the least left, as a share of its quota (the shorter one
+ *  on a tie), and what is left of it: the one line the account card shows.
+ *  Null for a plan without windows. */
+export function tightestWindow(plan: TrialPlan): { window: TrialWindow; left: string; share: number } | null {
+	let best: { window: TrialWindow; left: string; share: number } | null = null;
+	for (const w of sortedWindows(plan)) {
+		const quota = Number(w.quota_cny);
+		const used = Number(w.used_cny);
+		const left = Math.max(0, (Number.isFinite(quota) ? quota : 0) - (Number.isFinite(used) ? used : 0));
+		const share = usedShare(w);
+		if (!best || share > best.share) best = { window: w, left: left.toFixed(2), share };
+	}
+	return best;
 }
 
 /** A date for the plan: "10月20日" / "Oct 20", with the time when asked. */

@@ -912,7 +912,8 @@ const shell = {
 			fundingBalance: '用余额',
 			fundingPlanHint: '{group}的模型先用套餐额度；当前时段用完时请求会失败，不会自动改用余额。',
 			fundingBalanceHint: '所有请求都从余额扣费，不用套餐额度。',
-			fundingFailed: '计费方式没有改成：{error}'
+			fundingFailed: '计费方式没有改成：{error}',
+			fundingSaving: '正在保存计费方式'
 		},
 		sidebarCollapse: '收起侧栏',
 		sidebarExpand: '展开侧栏',
@@ -1921,7 +1922,8 @@ const shell = {
 			fundingBalance: 'Balance',
 			fundingPlanHint: 'Models in {group} use the plan first. When a window runs out, requests fail until it recovers; the balance is not used.',
 			fundingBalanceHint: 'Every request is paid from the balance; the plan is not used.',
-			fundingFailed: 'Could not change how requests are paid: {error}'
+			fundingFailed: 'Could not change how requests are paid: {error}',
+			fundingSaving: 'Saving how requests are paid'
 		},
 		sidebarCollapse: 'Collapse sidebar',
 		sidebarExpand: 'Expand sidebar',
