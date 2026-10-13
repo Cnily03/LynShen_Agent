@@ -46,6 +46,8 @@
   // its start.
   if (mode.has('chat')) {
     provideRequirements(new Requirements({} as DaemonClient));
+    // &many: more projects than the new conversation's project menu shows at once.
+    if (mode.has('many')) for (let i = 0; i < 30; i++) sessions.addProjectShell({ id: `many-${i}`, name: `项目 ${i}`, path: `/tmp/regression-many/project-${i}` });
     sessions.createProject('/tmp/regression-project');
     if (mode.has('glass')) prefs.init();
   }

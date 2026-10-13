@@ -1132,15 +1132,21 @@
 		const top = scroller.scrollTop;
 		// The scroll event of our own pin says nothing about the reader.
 		// Otherwise follow again once they scroll down near the end, never
-		// while they scroll up.
-		if (top !== pinnedTop) atBottom = top >= lastTop && scroller.scrollHeight - top - scroller.clientHeight < 60;
+		// while they scroll up. Nothing left to scroll (the content shrank
+		// under it): at the end.
+		if (scroller.scrollHeight <= scroller.clientHeight) atBottom = true;
+		else if (top !== pinnedTop) atBottom = top >= lastTop && scroller.scrollHeight - top - scroller.clientHeight < 60;
 		lastTop = top;
 	}
 	/** Wheel up leaves the end. Caught at the input: WebKit applies the
 	 *  scroll a frame later, and while a reply streams the next pin would
-	 *  undo it before any scroll event shows it. */
+	 *  undo it before any scroll event shows it. Not over a menu, which keeps
+	 *  the wheel (ui/PopMenu.svelte), nor with nothing to scroll (a new
+	 *  conversation): the jump-to-end button came up there. */
 	function onWheel(e: WheelEvent) {
-		if (e.deltaY < 0) atBottom = false;
+		if (e.deltaY >= 0 || !scroller || scroller.scrollHeight <= scroller.clientHeight) return;
+		if ((e.target as Element | null)?.closest?.('.pop')) return;
+		atBottom = false;
 	}
 	function pin() {
 		if (!scroller) return;

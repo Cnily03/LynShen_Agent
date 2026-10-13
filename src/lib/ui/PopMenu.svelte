@@ -24,19 +24,27 @@
 	// The app's list popover: an optional gray question on top, then rows of
 	// icon · label (· gray description) with a check on the current choice.
 	// Anchored to its positioned parent; `placement` says which way it opens.
+	// It keeps inside the part of the window it can be seen in (ui/menuFit.ts):
+	// a long list scrolls its own rows, and the wheel over it never scrolls
+	// the page behind it.
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import { t } from '$lib/i18n';
+	import { fitMenu, nextRow, scrollToShow, visibleBand, wheelScrolls, type Side } from './menuFit';
 
 	let {
 		items,
 		title,
 		placement = 'down-right',
+		fit = true,
 		onSelect,
 		onClose
 	}: {
 		items: PopMenuItem[];
 		title?: string;
 		placement?: 'up-left' | 'up-right' | 'down-left' | 'down-right';
+		/** Size and place against the anchor (false: the parent places the
+		 *  menu itself, as the context menu does at the pointer). */
+		fit?: boolean;
 		onSelect: (key: string) => void;
 		onClose: () => void;
 	} = $props();
@@ -54,12 +62,76 @@
 		const anchor = menu?.parentElement;
 		if (anchor && !anchor.contains(e.target as Node)) onClose();
 	}
+
+	// The side it opens on: the placement's, or the other one when the list
+	// does not fit there and has more room on that side. Measured before the
+	// first paint, again when the window or the list changes size.
+	const asked: Side = $derived(placement.startsWith('up') ? 'up' : 'down');
+	let side = $state<Side>();
+	const shown = $derived(`${side ?? asked}-${placement.split('-')[1]}`);
+	function place() {
+		const anchor = menu?.parentElement;
+		if (!fit || !menu || !anchor) return;
+		const r = anchor.getBoundingClientRect();
+		const got = fitMenu({ anchor: { top: r.top, bottom: r.bottom }, band: visibleBand(anchor, menu), natural: menu.scrollHeight, preferred: asked });
+		side = got.side;
+		// On the element at once: the scroll to the current choice below
+		// measures the height it leaves.
+		menu.style.maxHeight = `${got.maxHeight}px`;
+	}
+	$effect(() => {
+		// Again for other rows (`items`), which the observer below follows.
+		if (!menu || !items) return;
+		place();
+		// The current choice in view when the list opens scrolled.
+		const checked = menu.querySelector<HTMLElement>('.pop-row[aria-checked="true"]');
+		if (checked) show(checked);
+		const ro = new ResizeObserver(() => place());
+		for (const row of menu.children) ro.observe(row);
+		return () => ro.disconnect();
+	});
+
+	// The wheel over the menu is the menu's: it scrolls the rows, and at
+	// either end (or with nothing to scroll) it goes nowhere. Not passive, as
+	// Svelte makes `onwheel`, so it can hold the page still. A pinch (ctrl +
+	// wheel) is left to the window's zoom.
+	$effect(() => {
+		const el = menu;
+		if (!el) return;
+		const onWheel = (e: WheelEvent) => {
+			if (!e.ctrlKey && !wheelScrolls(el.scrollTop, el.scrollHeight - el.clientHeight, e.deltaY)) e.preventDefault();
+		};
+		el.addEventListener('wheel', onWheel, { passive: false });
+		return () => el.removeEventListener('wheel', onWheel);
+	});
+
+	function show(row: HTMLElement) {
+		if (!menu) return;
+		menu.scrollTop = scrollToShow(menu.scrollTop, menu.clientHeight, row.offsetTop, row.offsetHeight, 6);
+	}
+
+	// Up and down (Home, End) move through the rows, from the menu's button or
+	// a row; the row they reach is scrolled into view. Enter or space takes it
+	// (it is a button). Arrows in a text field elsewhere stay the field's.
+	function onKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') return onClose();
+		if (!menu || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+		const focus = document.activeElement;
+		const inMenu = !!focus && menu.contains(focus);
+		if (!inMenu && focus !== document.body && !(focus && menu.parentElement?.contains(focus))) return;
+		const rows = [...menu.querySelectorAll<HTMLButtonElement>('.pop-row:not(:disabled)')];
+		const to = nextRow(e.key, inMenu ? rows.indexOf(focus as HTMLButtonElement) : -1, rows.length);
+		if (to === null) return;
+		e.preventDefault();
+		rows[to].focus({ preventScroll: true });
+		show(rows[to]);
+	}
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} onpointerdowncapture={onPress} />
+<svelte:window onkeydown={onKey} onpointerdowncapture={onPress} onresize={place} />
 
 <button class="pm-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={onClose}></button>
-<div class="pop pm {placement}" role="menu" bind:this={menu} out:popOut|global>
+<div class="pop pm {shown}" role="menu" bind:this={menu} out:popOut|global>
 	{#if title}<div class="pop-head">{title}</div>{/if}
 	{#each items as it, i (it.key)}
 		{#if it.group && it.group !== items[i - 1]?.group}
@@ -98,12 +170,27 @@
 		background: none;
 		cursor: default;
 	}
+	/* Taller than the room it has: the rows scroll, and the scroll stays in
+	   the menu (place() sets the max-height; the window's height bounds a
+	   menu its parent places). */
 	.pm {
 		position: absolute;
 		z-index: 81;
 		width: max-content;
 		min-width: 200px;
 		max-width: min(480px, calc(100vw - 32px));
+		max-height: calc(100vh - 16px);
+		overflow-x: hidden;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+	/* A column that scrolls would squeeze its rows to their min-height. */
+	.pm > :global(*) {
+		flex-shrink: 0;
+	}
+	.pm .pop-row:focus-visible {
+		background: var(--surface2);
+		outline-offset: -2px;
 	}
 	.up-left {
 		left: 0;
