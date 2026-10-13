@@ -1,6 +1,6 @@
-# LynShen Desktop 工作台架构规划（Workbench Plan）
+# Aogiri 桌面端工作台架构规划（Workbench Plan）
 
-> 基准代码：`main@6f83aa4`。定位声明：LynShen Desktop 是一个 **终端 / TUI 编码代理管理器**，不是完整的 AI IDE。本文给出从当前代码到北极星目标的架构方案。
+> 基准代码：`main@6f83aa4`。定位声明：Aogiri 桌面端是一个 **终端 / TUI 编码代理管理器**，不是完整的 AI IDE。本文给出从当前代码到北极星目标的架构方案。
 
 ## Owner decisions（2026-08-28，已锁定）
 

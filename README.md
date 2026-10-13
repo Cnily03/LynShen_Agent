@@ -1,6 +1,8 @@
-# LynShen Desktop
+# Aogiri
 
-LynShen Desktop 是一个桌面应用，用来让编程智能体（coding agent）在你的项目里读代码、改代码、跑命令。一个窗口里可以开多个项目和多个会话。每个会话选一个智能体：LynShen 自带的引擎、Claude Code、Codex，或者任何支持 [ACP](https://agentclientprotocol.com) 的智能体。对话旁边是这个项目的文件、Git、终端和内置浏览器。
+Aogiri（中文名梧桐）是一个桌面应用，用来让编程智能体（coding agent）在你的项目里读代码、改代码、跑命令。一个窗口里可以开多个项目和多个会话。每个会话选一个智能体：LynShen 自带的引擎、Claude Code、Codex，或者任何支持 [ACP](https://agentclientprotocol.com) 的智能体。对话旁边是这个项目的文件、Git、终端和内置浏览器。
+
+0.5.x 及以前的版本叫 LynShen Desktop。改名只改了应用的名字：引擎仍叫 LynShen，账号仍是 LynShen 账号，数据目录 `~/.lynshen` 和 `lynshen` 命令不变。已安装的 LynShen 会自动更新成 Aogiri，见下面的「从 LynShen 更新」。
 
 本仓库是桌面端（Tauri 2 + Svelte 5）。智能体引擎、后台服务和 `lynshen` 命令行在 [LynShen-CLI](https://github.com/Libra1337/LynShen-CLI) 仓库。
 
@@ -12,18 +14,29 @@ macOS 和 Windows 的安装包在 [LynShen 官网下载页](https://www.lynshen.
 
 | 系统 | 文件 |
 | --- | --- |
-| macOS（Apple 芯片） | `LynShen_<版本>_aarch64.dmg` |
-| macOS（Intel） | `LynShen_<版本>_x64.dmg` |
-| Windows x64 | `LynShen_<版本>_x64-setup.exe`，或 `LynShen_<版本>_x64_en-US.msi` |
-| Linux x64 | `LynShen_<版本>_amd64.AppImage`、`LynShen_<版本>_amd64.deb` 或 `LynShen-<版本>-1.x86_64.rpm` |
+| macOS（Apple 芯片） | `Aogiri_<版本>_aarch64.dmg` |
+| macOS（Intel） | `Aogiri_<版本>_x64.dmg` |
+| Windows x64 | `Aogiri_<版本>_x64-setup.exe`，或 `Aogiri_<版本>_x64_en-US.msi` |
+| Linux x64 | `Aogiri_<版本>_amd64.AppImage`、`Aogiri_<版本>_amd64.deb` 或 `Aogiri-<版本>-1.x86_64.rpm` |
 
-安装包没有经过 Apple 公证，也没有 Windows 代码签名，所以第一次打开时系统会拦截。各系统的放行步骤见 [docs/install.md](docs/install.md)。在 macOS 上，如果系统提示「LynShen 已损坏」，在终端执行下面的命令，然后重新打开：
+0.5.x 及以前的安装包以 `LynShen` 开头。
+
+安装包没有经过 Apple 公证，也没有 Windows 代码签名，所以第一次打开时系统会拦截。各系统的放行步骤见 [docs/install.md](docs/install.md)。在 macOS 上，如果系统提示「Aogiri 已损坏」，在终端执行下面的命令，然后重新打开：
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/LynShen.app
+xattr -dr com.apple.quarantine /Applications/Aogiri.app
 ```
 
 装好以后，应用自己检查更新：启动时检查一次，之后每 10 分钟检查一次。新版本在后台下载并校验签名，下载完成后你点「立即重启」才安装。如果当前版本已停止支持，应用会要求先更新再使用。正在运行的任务在后台服务里继续，重启窗口不会中断它们。
+
+### 从 LynShen 更新
+
+已安装的 LynShen 0.5.x 照常提示更新，更新后应用的名字、窗口标题和图标变成 Aogiri。登录状态、对话、设置、技能、`~/.lynshen` 和 `~/Documents/LynShen` 里的文件都不动，也不需要重新授权。
+
+- **Windows（setup.exe）**：安装程序先卸载旧的 LynShen，再把 Aogiri 装到 `%LOCALAPPDATA%\Aogiri`（自选过目录的，装到旁边的 `Aogiri` 目录）。「应用和功能」里只剩 Aogiri 一项。开始菜单和桌面快捷方式、任务栏固定和开机自启都改成指向 Aogiri。
+- **Windows（MSI）**：新的 MSI 替换旧的 LynShen，装到 `C:\Program Files\Aogiri`，旧的快捷方式和目录一并删除；开机自启在 Aogiri 第一次启动时改过来。
+- **macOS**：应用在原位置更新，文件仍叫 `/Applications/LynShen.app`，所以访达和启动台里显示的还是 LynShen，打开后是 Aogiri。不需要再从 dmg 装一份 Aogiri，否则会有两个应用。
+- **Linux**：deb 和 rpm 包改名为 `aogiri`，更新时替换旧的 `lyn-shen` 包；命令 `LynShen` 保留，启动的是 Aogiri。AppImage 在原文件上更新，文件名不变。
 
 ## 第一次打开
 
@@ -37,7 +50,7 @@ xattr -dr com.apple.quarantine /Applications/LynShen.app
 
 LynShen 账号在 [LynShen Console](https://www.lynshen.org)（LynShen 官网）注册和管理。登录后，应用通过 LynShen 网关调用模型，使用账号的额度。
 
-登录用浏览器授权。应用打开官网，你在网页上登录或注册，核对网页和应用显示的代码，然后同意授权。应用拿到的是这台设备专用的 30 天凭据，不是你的密码，也不是网站的登录状态。在应用里退出登录会吊销这份凭据。你也可以在官网控制台的 API 密钥管理里删除对应的 `LynShen Desktop` 项。
+登录用浏览器授权。应用打开官网，你在网页上登录或注册，核对网页和应用显示的代码，然后同意授权。应用拿到的是这台设备专用的 30 天凭据，不是你的密码，也不是网站的登录状态。在应用里退出登录会吊销这份凭据。你也可以在官网控制台的 API 密钥管理里删除对应的 `LynShen Desktop` 项（官网上的名字没有改）。
 
 应用自带一份 LynShen CLI，放在 `~/.lynshen/bin`，随应用一起更新。如果想在终端里直接用 `lynshen` 命令，到「设置 → 编码智能体」里把它加成终端命令。
 
@@ -48,7 +61,7 @@ LynShen 账号在 [LynShen Console](https://www.lynshen.org)（LynShen 官网）
 - 每个会话用一个智能体：LynShen 引擎、Claude Code、Codex，或在「设置 → 外部智能体（ACP）」里添加的 ACP 智能体（例如 `gemini --experimental-acp`）。
 - Claude Code 和 Codex 会话可以用本机已有的登录，也可以走 LynShen 网关，用 LynShen 账号的额度。
 - 不属于任何项目的对话（独立对话）各有一个文件夹，在 `~/Documents/LynShen`（文稿/LynShen）下，按日期和第一条消息命名，不同对话的文件不会混在一起。
-- 「设置 → 从其他工具导入」一次扫描本机的 Claude Code、Codex、opencode、zcode 和 omp，列出它们的历史对话、技能和 MCP 服务器，勾选后一键导入。对话导入后在 LynShen 里接着聊。应用只复制，不改原文件。
+- 「设置 → 从其他工具导入」一次扫描本机的 Claude Code、Codex、opencode、zcode 和 omp，列出它们的历史对话、技能和 MCP 服务器，勾选后一键导入。对话导入后在 Aogiri 里接着聊。应用只复制，不改原文件。
 - 想用智能体原本的终端界面时，可以在标签页里运行真正的 `lynshen`、`codex` 或 `claude` TUI。从命令面板（`⌘K`）或面板的「+」菜单打开。
 
 **审批和计划**
@@ -188,7 +201,9 @@ Apache License 2.0，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。Copyright 202
 
 ## English
 
-LynShen Desktop is a desktop app for working with coding agents. One window holds several projects and sessions. Each session runs one agent: LynShen's own engine, Claude Code, Codex, or any [ACP](https://agentclientprotocol.com) agent. The project's files, git, terminal and a built-in browser sit next to the conversation. The engine, the background service and the `lynshen` CLI live in [LynShen-CLI](https://github.com/Libra1337/LynShen-CLI).
+Aogiri (Chinese name 梧桐) is a desktop app for working with coding agents. One window holds several projects and sessions. Each session runs one agent: LynShen's own engine, Claude Code, Codex, or any [ACP](https://agentclientprotocol.com) agent. The project's files, git, terminal and a built-in browser sit next to the conversation. The engine, the background service and the `lynshen` CLI live in [LynShen-CLI](https://github.com/Libra1337/LynShen-CLI).
+
+Up to 0.5.x the app was called LynShen Desktop. Only the app's name changed: the engine is still LynShen, the account is still a LynShen account, and `~/.lynshen` and the `lynshen` command stay. An installed LynShen updates itself to Aogiri. On Windows the installer replaces the LynShen install and moves its shortcuts and its start at login; the Linux packages `aogiri` replace `lyn-shen` and keep a `LynShen` command; on macOS the app updates in place and its file stays `/Applications/LynShen.app`.
 
 **Install.** Get the macOS and Windows installers from the [download page](https://www.lynshen.org/download), or any platform (Linux included) from [GitHub Releases](https://github.com/Libra1337/LynShen_Agent/releases). The builds are not notarized or code-signed, so macOS and Windows block the first launch. [docs/install.md](docs/install.md) shows how to open the app. After that, the app updates itself.
 

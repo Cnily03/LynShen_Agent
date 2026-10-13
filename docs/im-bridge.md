@@ -1,6 +1,6 @@
 # IM 桥设计（IM Bridge）
 
-> 配套阅读：`docs/workbench-plan.md` §3.7。定位：IM 是 LynShen Desktop 唯一的第三方集成方向。
+> 配套阅读：`docs/workbench-plan.md` §3.7。定位：IM 是 Aogiri 桌面端唯一的第三方集成方向。
 >
 > **Owner 决策（2026-08-28，已锁定）**：IM 使用独立 agent；v1 优先接 OpenClaw 网关并默认 confirm-before-assign；不做 always-on daemon，后续有明确需要再评估。
 
@@ -13,7 +13,7 @@ IM 桥是一个 **独立 agent**，不是聊天会话里的一个功能：
 - 它不直接持有任何引擎 adapter，也不读写用户文件系统。
 
 ```
-IM 渠道 ── OpenClaw 网关 ── IM agent ── MCP(localhost+token) ── LynShen Desktop
+IM 渠道 ── OpenClaw 网关 ── IM agent ── MCP(localhost+token) ── Aogiri 桌面端
  (微信/TG/Discord/飞书)                                          (workspace/会话)
 ```
 
