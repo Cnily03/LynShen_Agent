@@ -97,7 +97,7 @@
 			</header>
 			<!-- A click beside the image closes; on it, switches the size. -->
 			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-			<div class="stage" class:actual onpointerdown={away.onpointerdown} onclick={away.onclick}>
+			<div class="stage" class:actual onpointerdown={away.onpointerdown} onpointerup={away.onpointerup} onclick={away.onclick}>
 				{#if failed}
 					<p class="failed">{t('common.image.failed')}</p>
 				{:else if src}

@@ -329,6 +329,17 @@ try {
   const bodyField = feedback.getByPlaceholder(/做了什么、期望看到什么/);
   await dragSelect(titleField, '设置页打不开', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height / 2]);
   await dragSelect(bodyField, '点击设置以后\n窗口没有反应', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height + 20]);
+  // A drag from the scrim into a field (selecting its text from outside) keeps it open too.
+  {
+    const b = await titleField.boundingBox();
+    await page.mouse.move(sheetBox.x - 40, b.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width - 4, b.y + 8, {steps:8});
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.equal(await feedbackClosed.textContent(), '0', 'a drag from the scrim into the dialog closed it');
+    await expect(feedback).toBeVisible();
+  }
   await page.mouse.click(sheetBox.x - 60, sheetBox.y + 20);
   await expect(feedback).toHaveCount(0);
   await expect(feedbackClosed).toHaveText('1');
@@ -385,6 +396,30 @@ try {
   assert.equal((await uploads()).length, 1);
   await page.goto(base + '?sidebar&avatar');
   await expect(page.locator('.sb-foot .avatar img')).toHaveAttribute('src', kept, {timeout:30000});
+  // Changed on the website: the app reads the account again when its window
+  // comes back to the front a minute or more after the last read, and shows
+  // the new avatar.
+  {
+    const back = await browser.newPage();
+    back.on('pageerror', e => errors.push(e.message));
+    await back.clock.install();
+    await back.addInitScript(() => { window.__avatarUrl = '/api/desktop/oauth/avatars/a1'; });
+    await back.goto(base + '?sidebar&avatar&loggedIn');
+    const rowAvatar = back.locator('.sb-foot .avatar img');
+    await expect(rowAvatar).toHaveAttribute('src', kept, {timeout:30000});
+    const syncs = () => back.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_avatar_sync').length);
+    assert.equal(await syncs(), 0, 'the kept avatar was downloaded again');
+    await back.evaluate(() => { window.__avatarUrl = '/api/desktop/oauth/avatars/a3'; });
+    await back.clock.fastForward(30_000);
+    await back.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await back.waitForTimeout(200);
+    await expect(rowAvatar).toHaveAttribute('src', kept);
+    await back.clock.fastForward(31_000);
+    await back.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(rowAvatar).toHaveAttribute('src', /avatars%2Fa3/);
+    assert.equal(await syncs(), 1);
+    await back.close();
+  }
   // Settings → 通用 offers the conversation width, 自适应 by default; a
   // choice is stored; the search finds the row.
   await page.goto(base);

@@ -54,11 +54,16 @@
 	const name = $derived(user?.username ?? (loggedIn ? 'LynShen' : t('shell.notLoggedIn')));
 
 	// Who is signed in and the balance; again on each open of the card, since
-	// the balance moves with every call. The avatar follows each fresh user;
-	// the picture the app kept shows before that, also offline.
+	// the balance moves with every call, and when the window comes back to the
+	// front a minute or more after the last read (an avatar changed on the
+	// website then shows here). The avatar follows each fresh user; the
+	// picture the app kept shows before that, also offline.
+	const FOCUS_RELOAD_MS = 60_000;
 	let generation = 0;
+	let loadedAt = 0;
 	function load() {
 		const g = ++generation;
+		loadedAt = Date.now();
 		Promise.all([monoizeSession(), fetchMonoizeBalance().catch(() => null)])
 			.then(([s, b]) => {
 				if (g !== generation) return;
@@ -152,7 +157,12 @@
 	{/if}
 </div>
 
-<svelte:window onpointerdown={outsideDown} onkeydown={(e) => e.key === 'Escape' && card && closeCard()} onresize={() => card && closeCard()} />
+<svelte:window
+	onpointerdown={outsideDown}
+	onkeydown={(e) => e.key === 'Escape' && card && closeCard()}
+	onresize={() => card && closeCard()}
+	onfocus={() => loggedIn && Date.now() - loadedAt >= FOCUS_RELOAD_MS && load()}
+/>
 
 {#if card}
 	<AccountCard

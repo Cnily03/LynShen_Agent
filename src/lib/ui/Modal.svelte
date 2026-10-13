@@ -1,8 +1,8 @@
 <script lang="ts">
 	// The app's modal: scrim, a centred sheet with an optional title row and
 	// footer, focus kept inside, Escape and a scrim click close it (a press
-	// that starts in the sheet does not; ui/scrimClick). Callers render it
-	// inside {#if}; entrance and exit use ui/motion.
+	// that starts or ends in the sheet does not; ui/scrimClick). Callers
+	// render it inside {#if}; entrance and exit use ui/motion.
 	import type { Snippet } from 'svelte';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import { focusTrap } from '$lib/focusTrap';
@@ -69,6 +69,7 @@
 	in:scrim|global
 	out:scrim|global
 	onpointerdown={away.onpointerdown}
+	onpointerup={away.onpointerup}
 	onclick={away.onclick}
 	onkeydown={onKey}
 >
