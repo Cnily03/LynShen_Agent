@@ -440,28 +440,32 @@
 		});
 	});
 
-	// The approval mode, as on the desktop: claude adds plan and auto; a
-	// LynShen session has 谨慎 / 计划 / 自动 / 全自动 over its sandbox; an
-	// agent's session follows the agent (changed on its page). This page
-	// cannot tell the computer's system: commands count as isolated until
-	// its engine says otherwise.
+	// The approval mode, as on the desktop: the same five in the same order
+	// (MODE_ORDER: 谨慎 / 自动改文件 / 计划 / 自动 / 全自动) where the engine has
+	// them; an agent's session follows the agent (changed on its page). This
+	// page cannot tell the computer's system: commands count as isolated
+	// until its engine says otherwise.
 	const isAgent = $derived(!!(agent || chat.agent || view?.agent));
 	const sandboxed = $derived(bcaps.sandbox && !isAgent);
 	const isolated = $derived(commandsIsolated(chat.sandbox, false));
-	const modeDesc = (key: 'Ask' | 'Auto' | 'All') =>
+	const modeDesc = (key: 'Ask' | 'Edits' | 'Auto' | 'All') =>
 		t(sandboxed ? `chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}` : `chat.approval${key}Desc`);
 	const APPROVAL_MODES: Record<string, PopMenuItem> = $derived({
 		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: modeDesc('Ask'), icon: HandIcon },
+		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: modeDesc('Edits'), icon: NotePencilIcon },
 		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc'), icon: ClipboardTextIcon },
 		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: modeDesc('Auto'), icon: ShieldCheckIcon },
-		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: t('chat.approvalEditsDesc'), icon: NotePencilIcon },
 		all: { key: 'all', label: t('chat.approvalAll'), desc: modeDesc('All'), icon: ShieldWarningIcon, tone: 'warn' }
 	});
 	/** Picked before the first message: applied once the session is open. */
 	let draftMode = $state<ApprovalMode | null>(null);
 	const shownMode = $derived(draftMode ?? chat.approvalMode);
 	const APPROVAL = $derived(
-		approvalModeKeys(bcaps, isAgent).map((k) => ({ ...APPROVAL_MODES[k], checked: shownMode === k, disabled: isAgent }))
+		approvalModeKeys(bcaps, isAgent).map((k) => {
+			// A mode the computer's engine refused (an older engine) is listed, not offered.
+			const old = chat.unsupportedModes.includes(k) && k !== shownMode;
+			return { ...APPROVAL_MODES[k], checked: shownMode === k, disabled: isAgent || old, ...(old ? { desc: t('chat.modeOld') } : {}) };
+		})
 	);
 	const approvalCurrent = $derived(APPROVAL.find((a) => a.checked) ?? APPROVAL_MODES[shownMode] ?? APPROVAL_MODES.ask);
 	const modeMenuTitle = $derived(

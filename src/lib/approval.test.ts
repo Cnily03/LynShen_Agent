@@ -6,9 +6,13 @@ import {
 	buildSetApprovalModeOp,
 	fromEngineMode,
 	initialApprovalMode,
+	MODE_ORDER,
+	modeOfEngineName,
 	needsClaudeYoloRespawn,
+	nextApprovalMode,
 	parseHunks,
 	reconcileMode,
+	refusedApprovalMode,
 	selectionState,
 	toEngineMode,
 	toggleHunk,
@@ -157,12 +161,39 @@ describe('approval modes per backend', () => {
 	const claude = { sandbox: false, extendedApprovalModes: true, planMode: true };
 	const acpLike = { sandbox: false, extendedApprovalModes: false, planMode: false };
 
-	it('offers a LynShen session 谨慎 / 计划 / 自动 / 全自动', () => {
-		expect(approvalModeKeys(lynshen)).toEqual(['ask', 'plan', 'auto', 'all']);
-		// An agent's session shows the agent's modes.
+	it('offers five modes in Claude Code\'s order: 谨慎 / 自动改文件 / 计划 / 自动 / 全自动', () => {
+		expect(MODE_ORDER).toEqual(['ask', 'edits', 'plan', 'auto', 'all']);
+		expect(approvalModeKeys(lynshen)).toEqual(['ask', 'edits', 'plan', 'auto', 'all']);
+		// An agent's session shows the agent's modes, in the same order.
 		expect(approvalModeKeys(lynshen, true)).toEqual(['ask', 'edits', 'auto', 'all']);
-		expect(approvalModeKeys(claude)).toEqual(['ask', 'plan', 'auto', 'edits', 'all']);
+		expect(approvalModeKeys(claude)).toEqual(['ask', 'edits', 'plan', 'auto', 'all']);
+		expect(approvalModeKeys({ sandbox: false, extendedApprovalModes: false, planMode: true })).toEqual(['ask', 'edits', 'plan', 'all']);
 		expect(approvalModeKeys(acpLike)).toEqual(['ask', 'edits', 'all']);
+		// Every list keeps the shared order.
+		for (const keys of [approvalModeKeys(lynshen, true), approvalModeKeys(acpLike)])
+			expect([...keys].sort((a, b) => MODE_ORDER.indexOf(a) - MODE_ORDER.indexOf(b))).toEqual(keys);
+	});
+
+	it('cycles to the next mode (Shift+Tab), skipping the ones the engine refused', () => {
+		const keys = approvalModeKeys(lynshen);
+		expect(nextApprovalMode(keys, 'ask')).toBe('edits');
+		expect(nextApprovalMode(keys, 'auto')).toBe('all');
+		expect(nextApprovalMode(keys, 'all')).toBe('ask');
+		expect(nextApprovalMode(keys, 'edits', ['plan', 'auto'])).toBe('all');
+		// A mode outside the list (an agent's) starts the list over.
+		expect(nextApprovalMode(['ask', 'all'], 'plan')).toBe('ask');
+		expect(nextApprovalMode(['ask'], 'ask')).toBe('ask');
+	});
+
+	it('reads the mode an older engine refused', () => {
+		expect(refusedApprovalMode("unknown approval mode 'auto': use manual, auto-edit, full-access, or plan")).toBe('auto');
+		expect(refusedApprovalMode("unknown approval mode 'auto-edit': use manual, full-access")).toBe('edits');
+		expect(refusedApprovalMode("unknown approval mode 'full-access'")).toBe('all');
+		expect(refusedApprovalMode("unknown approval mode 'manual'")).toBe('ask');
+		expect(refusedApprovalMode('unknown op: set_sandbox')).toBeNull();
+		expect(refusedApprovalMode("unknown approval mode 'yolo'")).toBeNull();
+		expect(modeOfEngineName('read-only')).toBe('ask');
+		expect(modeOfEngineName('full-auto')).toBe('all');
 	});
 
 	it('starts a LynShen session in 自动, keeping only a saved 全自动', () => {
