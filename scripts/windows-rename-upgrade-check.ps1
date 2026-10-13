@@ -17,8 +17,9 @@ runner):
 
 The MSI parameters are optional; the MSI scenarios need an elevated shell.
 With the .sig files, the "inapp-" scenarios update the way users do: the old
-app runs, finds the update on a local feed, downloads and verifies it, and
-starts the installer itself (scripts/rename-inapp-update.mjs, Node 22).
+app runs and finds the update on a local feed (scripts/rename-update-feed.mjs,
+Node); "Update now" and "Restart now" are clicked through UI Automation; the
+app downloads and verifies the update and starts the installer itself.
 -UpdaterPubkey is for installers signed with a test key: the installed old app
 is made to trust that key instead of the release key.
 #>
@@ -78,9 +79,8 @@ public static extern int SHSetKnownFolderPath(ref Guid id, uint flags, IntPtr to
 
 # The in-app update: a local https feed the old app is pointed at.
 $Repo = Split-Path $PSScriptRoot
-$UpdateScript = Join-Path $PSScriptRoot 'rename-inapp-update.mjs'
+$FeedScript = Join-Path $PSScriptRoot 'rename-update-feed.mjs'
 $FeedPort = 8443
-$DevToolsPort = 9222
 $FeedRoot = Join-Path ([IO.Path]::GetTempPath()) 'rename-feed'
 $FeedDir = Join-Path $FeedRoot 'v1\public\releases\desktop'
 $HostsFile = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
@@ -325,7 +325,7 @@ function Start-UpdateFeed {
   Export-PfxCertificate -Cert $leaf -FilePath $pfx -Password $password -CryptoAlgorithmOption AES256_SHA256 | Out-Null
 
   $log = Join-Path $FeedRoot 'feed.log'
-  $arguments = "`"$UpdateScript`" serve `"$FeedRoot`" `"$pfx`" rename-check $FeedPort"
+  $arguments = "`"$FeedScript`" `"$FeedRoot`" `"$pfx`" rename-check $FeedPort"
   $script:Feed = Start-Process -FilePath 'node' -ArgumentList $arguments -NoNewWindow -PassThru `
     -RedirectStandardOutput $log -RedirectStandardError "$log.err"
   # The release feeds are out of reach: the update can only come from here.
@@ -347,25 +347,46 @@ function Stop-UpdateFeed {
     Where-Object { $_.Subject -in @('CN=Rename Upgrade Check CA', 'CN=localhost') } | Remove-Item -ErrorAction SilentlyContinue
 }
 
-# Why the app's page did not show on the DevTools port.
-function Show-AppState([string]$Exe) {
-  $name = Split-Path $Exe -Leaf
-  Note "this shell runs in session $((Get-Process -Id $PID).SessionId)"
-  $runtime = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
-  Note "WebView2 runtime: $(if ($runtime) { $runtime.pv } else { 'not registered' })"
-  foreach ($process in @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @($name, 'msedgewebview2.exe') })) {
-    $line = "$($process.CommandLine)"
-    if ($line.Length -gt 300) { $line = $line.Substring(0, 300) + '...' }
-    Note "process $($process.ProcessId) $($process.Name) (session $($process.SessionId)): $line"
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+
+# The buttons on screen in the windows of process $ProcessId, its WebView
+# included (UI Automation stitches the WebView's tree into the window's).
+function Get-AppButtons([int]$ProcessId) {
+  $element = [System.Windows.Automation.AutomationElement]
+  $ofApp = New-Object System.Windows.Automation.PropertyCondition($element::ProcessIdProperty, $ProcessId)
+  $isButton = New-Object System.Windows.Automation.PropertyCondition($element::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+  foreach ($window in $element::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $ofApp)) {
+    foreach ($button in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $isButton)) { $button }
   }
-  $listening = @(Get-NetTCPConnection -LocalPort $DevToolsPort -State Listen -ErrorAction SilentlyContinue)
-  Note "port $($DevToolsPort): $(if ($listening.Count) { ($listening | ForEach-Object { $_.LocalAddress }) -join ', ' } else { 'nothing listens' })"
 }
 
-# The update the way users get it: the old app is running, finds the update
-# on the feed, downloads and verifies it, and on "restart and install" starts
-# the installer itself and exits (scripts/rename-inapp-update.mjs). The
-# installer then starts the new app.
+# Clicks, as a user does, the first button named one of $Names in the app
+# (its zh and en labels); waits up to $Seconds for it to show.
+function Invoke-AppButton([int]$ProcessId, [string[]]$Names, [int]$Seconds = 120) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  $seen = @()
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $buttons = @(Get-AppButtons $ProcessId)
+      $seen = @($buttons | ForEach-Object { "$($_.Current.Name)".Trim() })
+      $button = $buttons | Where-Object { $Names -contains "$($_.Current.Name)".Trim() } | Select-Object -First 1
+      if ($button) {
+        $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Note "clicked '$("$($button.Current.Name)".Trim())'"
+        return
+      }
+    } catch {
+      # The tree changes while the page renders; look again.
+    }
+    Start-Sleep -Seconds 1
+  }
+  throw "no button '$($Names -join "' or '")' in the app; buttons seen: $(($seen | Select-Object -Unique) -join ' | ')"
+}
+
+# The update the way users get it: the old app runs and, a few seconds after
+# it starts, finds the update on the feed and offers it. "Update now"
+# downloads and verifies it; "Restart now" makes the app start the installer
+# itself (the updater plugin) and exit. The installer then starts the new app.
 function Invoke-InAppUpdate([string]$OldExe) {
   Start-UpdateFeed
   if ($UpdaterPubkey) { Set-UpdaterPubkey $OldExe $UpdaterPubkey }
@@ -374,29 +395,17 @@ function Invoke-InAppUpdate([string]$OldExe) {
   Set-Content -LiteralPath $config -Value "{`"desktop_update_url`": `"https://localhost:$FeedPort`"}"
   $feedLog = Join-Path $FeedRoot 'feed.log'
   $seen = @(Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue).Count
-  # The DevTools port, by environment and by WebView2's own policy key.
-  $arguments = "--remote-debugging-port=$DevToolsPort"
-  $policy = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-  New-Item -Path $policy -Force | Out-Null
-  New-ItemProperty -Path $policy -Name (Split-Path $OldExe -Leaf) -Value $arguments -PropertyType String -Force | Out-Null
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $arguments
   try {
     Write-Host "  run   $OldExe (then update it from inside)"
     $app = Start-Process -FilePath $OldExe -PassThru
     $null = $app.Handle
-    & node $UpdateScript update $DevToolsPort $NewVersion 2>&1 | ForEach-Object { Note "app   $_" }
-    $code = $LASTEXITCODE
+    Invoke-AppButton $app.Id @('立即更新', 'Update now') 120
+    Invoke-AppButton $app.Id @('立即重启', 'Restart now') 180
+    Check (Wait-Until { $app.HasExited } 60) "the old app exited to install the update"
   } finally {
-    Remove-Item Env:\WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Split-Path $policy) -Recurse -Force -ErrorAction SilentlyContinue
+    Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue | Select-Object -Skip $seen | ForEach-Object { Note "feed  $_" }
+    Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
   }
-  Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue | Select-Object -Skip $seen | ForEach-Object { Note "feed  $_" }
-  Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
-  if ($code -ne 0) {
-    Show-AppState $OldExe
-    throw "the app did not install the update (rename-inapp-update.mjs exited with $code)"
-  }
-  Check (Wait-Until { $app.HasExited } 30) "the old app exited to install the update"
   Wait-InstalledAndRunning
 }
 
