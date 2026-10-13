@@ -25,8 +25,9 @@
 !define RENAME_AUTOSTART_ARG "--autostart"
 
 Var LegacyDir         ; where LynShen is installed; "" when it is not
-Var LegacyStartLnk    ; 1: it had a Start-menu shortcut
-Var LegacyDesktopLnk  ; 1: it had a desktop shortcut
+Var LegacyStartLnk    ; 1: the Start-menu LynShen.lnk is the old app's
+Var LegacyDesktopLnk  ; 1: the desktop LynShen.lnk is the old app's
+Var LegacyDefaultDir  ; where LynShen installs for this user by default
 
 ; With no directory page (silent, or passive as the updater runs it) and no
 ; install location of this product's own yet, follow the LynShen location when
@@ -131,8 +132,59 @@ Var LegacyDesktopLnk  ; 1: it had a desktop shortcut
   ${Loop}
 !macroend
 
+; The program the shortcut ${lnk} starts, in $R4: "" when there is no such
+; shortcut or it starts no file. Changes $0-$2.
+!macro RENAME_LNK_TARGET lnk
+  StrCpy $R4 ""
+  ${If} ${FileExists} "${lnk}"
+    !insertmacro ComHlpr_CreateInProcInstance ${CLSID_ShellLink} ${IID_IShellLink} r0 ""
+    ${If} $0 P<> 0
+      ${IUnknown::QueryInterface} $0 '("${IID_IPersistFile}", .r1)'
+      ${If} $1 P<> 0
+        ${IPersistFile::Load} $1 '("${lnk}", ${STGM_READ})'
+        StrCpy $2 ""
+        ${IShellLink::GetPath} $0 '(.r2, ${NSIS_MAX_STRLEN}, 0, 0)'
+        StrCpy $R4 $2
+        ${IUnknown::Release} $1 ""
+      ${EndIf}
+      ${IUnknown::Release} $0 ""
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Whether the shortcut ${lnk} is the old app's, in $R5 (1 or 0): it starts a
+; file in the LynShen install directory, or LynShen's own default directory
+; when that file is gone (a shortcut left from an earlier install), or this
+; product's executable (a shortcut that still has the old name). A shortcut
+; that starts anything else is someone else's. Changes $0-$2, $R3, $R4.
+!macro RENAME_LNK_IS_OURS lnk
+  StrCpy $R5 0
+  !insertmacro RENAME_LNK_TARGET "${lnk}"
+  ${If} $R4 != ""
+    ${If} $R4 == "$INSTDIR\${MAINBINARYNAME}.exe"
+      StrCpy $R5 1
+    ${EndIf}
+    ${If} $LegacyDir != ""
+      StrLen $R3 "$LegacyDir\"
+      StrCpy $R3 $R4 $R3
+      ${If} $R3 == "$LegacyDir\"
+        StrCpy $R5 1
+      ${EndIf}
+    ${EndIf}
+    ${IfNot} ${FileExists} "$R4"
+      StrLen $R3 "$LegacyDefaultDir\"
+      StrCpy $R3 $R4 $R3
+      ${If} $R3 == "$LegacyDefaultDir\"
+        StrCpy $R5 1
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 ; Shortcuts the LynShen install had become shortcuts to this product. In update
-; mode the template creates none, so they are made here.
+; mode the template creates none, so they are made here. Whether a LynShen.lnk
+; is the old app's is decided before the old install goes (NSIS_HOOK_PREINSTALL),
+; while its files are still there to compare with.
 !macro RENAME_MOVE_SHORTCUTS
   ${If} $LegacyStartLnk = 1
     Delete "$SMPROGRAMS\${LEGACY_NAME}.lnk"
@@ -150,11 +202,23 @@ Var LegacyDesktopLnk  ; 1: it had a desktop shortcut
   ${EndIf}
   ; A taskbar pin is a .lnk of its own, and Explorer finds it by file name:
   ; it keeps its name and gets the new target, so the pin goes on working.
-  !insertmacro IsShortcutTarget "$APPDATA\${RENAME_TASKBARPINS}\${LEGACY_NAME}.lnk" "$LegacyDir\${LEGACY_EXE}"
-  Pop $R8
-  ${If} $R8 = 1
+  !insertmacro RENAME_LNK_IS_OURS "$APPDATA\${RENAME_TASKBARPINS}\${LEGACY_NAME}.lnk"
+  ${If} $R5 = 1
+  ${AndIf} $R4 != "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro SetShortcutTarget "$APPDATA\${RENAME_TASKBARPINS}\${LEGACY_NAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   ${EndIf}
+  ; The Public Desktop and the all-users Start menu: only an elevated install
+  ; can remove what is there; otherwise the app reports it (renamed.rs).
+  SetShellVarContext all
+  !insertmacro RENAME_LNK_IS_OURS "$DESKTOP\${LEGACY_NAME}.lnk"
+  ${If} $R5 = 1
+    Delete "$DESKTOP\${LEGACY_NAME}.lnk"
+  ${EndIf}
+  !insertmacro RENAME_LNK_IS_OURS "$SMPROGRAMS\${LEGACY_NAME}.lnk"
+  ${If} $R5 = 1
+    Delete "$SMPROGRAMS\${LEGACY_NAME}.lnk"
+  ${EndIf}
+  !insertmacro SetContext
 !macroend
 
 ; "Start at login" is a value in the Run key named after the product, holding
@@ -193,8 +257,7 @@ Var LegacyDesktopLnk  ; 1: it had a desktop shortcut
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
-  StrCpy $LegacyStartLnk 0
-  StrCpy $LegacyDesktopLnk 0
+  StrCpy $LegacyDefaultDir "$LOCALAPPDATA\${LEGACY_NAME}"
   ReadRegStr $LegacyDir SHCTX "${LEGACY_PRODUCTKEY}" ""
   ; no trailing backslash, so the path compares and splits cleanly
   StrCpy $R8 $LegacyDir 1 -1
@@ -203,19 +266,23 @@ Var LegacyDesktopLnk  ; 1: it had a desktop shortcut
   ${EndIf}
   ${If} $LegacyDir != ""
     !insertmacro RENAME_ADOPT_LOCATION
-    ; Which shortcuts are the old install's own (they point at its executable).
-    !insertmacro IsShortcutTarget "$SMPROGRAMS\${LEGACY_NAME}.lnk" "$LegacyDir\${LEGACY_EXE}"
-    Pop $LegacyStartLnk
-    !insertmacro IsShortcutTarget "$DESKTOP\${LEGACY_NAME}.lnk" "$LegacyDir\${LEGACY_EXE}"
-    Pop $LegacyDesktopLnk
+  ${EndIf}
+  ; Which LynShen.lnk shortcuts are the old app's, while its files are there.
+  !insertmacro RENAME_LNK_IS_OURS "$SMPROGRAMS\${LEGACY_NAME}.lnk"
+  StrCpy $LegacyStartLnk $R5
+  !insertmacro RENAME_LNK_IS_OURS "$DESKTOP\${LEGACY_NAME}.lnk"
+  StrCpy $LegacyDesktopLnk $R5
+  ${If} $LegacyDir != ""
     !insertmacro RENAME_REMOVE_NSIS_INSTALL
   ${EndIf}
   !insertmacro RENAME_REMOVE_MSI_INSTALL
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  !insertmacro RENAME_MOVE_SHORTCUTS
+  ; Where LynShen was, for the app's own look at what is left (renamed.rs).
   ${If} $LegacyDir != ""
-    !insertmacro RENAME_MOVE_SHORTCUTS
+    WriteRegStr SHCTX "${MANUPRODUCTKEY}" "LegacyInstallDir" "$LegacyDir"
   ${EndIf}
   !insertmacro RENAME_MOVE_AUTOSTART
 !macroend

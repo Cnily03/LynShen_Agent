@@ -13,7 +13,7 @@ Aogiri（梧桐）内测版还没有做代码签名。macOS 和 Windows 在第�
 
 发布流程覆盖 Apple Silicon 和 Intel Mac；是否已有安装包以下载页为准。
 
-应用在 0.5.x 及以前叫 LynShen，安装包以 `LynShen` 开头。已经装了 LynShen 的电脑不需要重新下载，应用内更新后就是 Aogiri；在 macOS 上，更新后的应用仍是 `/Applications/LynShen.app`。
+应用在 0.5.x 及以前叫 LynShen，安装包以 `LynShen` 开头。已经装了 LynShen 的电脑不需要重新下载，应用内更新后就是 Aogiri。在 macOS 上，0.6.0 更新后的应用仍是 `/Applications/LynShen.app`；从 0.7.0 起，更新后第一次启动时它自己改名为 `/Applications/Aogiri.app`。
 
 ## macOS
 

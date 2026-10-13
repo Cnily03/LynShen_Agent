@@ -1,8 +1,8 @@
 //! What an installation from before the rename left under the old name.
 //!
-//! Up to 0.5.x the product was called LynShen. Two things on the user's
-//! machine are named after the product or its executable, and an update does
-//! not move them:
+//! Up to 0.5.x the product was called LynShen. Things on the user's machine
+//! that are named after the product or its executable, and that an update does
+//! not move:
 //!
 //! - The login item ("start at login"). tauri-plugin-autostart names it after
 //!   the product and stores the executable's path in it: the Run value
@@ -12,15 +12,26 @@
 //!   or points at an executable that is gone.
 //! - On Linux, the `lynshen://` handler the deep-link plugin writes at start,
 //!   `<data dir>/applications/<executable name>-handler.desktop`.
+//! - On Windows, shortcuts named LynShen or starting LynShen.exe that the
+//!   installers did not move (`shortcuts.rs`).
+//! - On macOS, the bundle itself: the updater keeps its path, so an updated
+//!   install is still `LynShen.app` (`bundle.rs`).
 //!
 //! `adopt` runs at start-up and moves them over. The Windows setup.exe moves
-//! the login item itself (src-tauri/windows/hooks.nsh); this covers the MSI,
-//! macOS, Linux, and an item an installer did not see.
+//! the login item and its own shortcuts itself (src-tauri/windows/hooks.nsh);
+//! this covers the MSI, macOS, Linux, and anything an installer did not see.
+//! What runs once is recorded in `<app config dir>/rename-cleanup.json`.
 //! See docs/rename-aogiri-notes.md.
 
 use std::io;
-use tauri::AppHandle;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
+
+#[cfg(target_os = "macos")]
+pub(crate) mod bundle;
+#[cfg(windows)]
+mod shortcuts;
 
 /// The product's name up to 0.5.x.
 const OLD_NAME: &str = "LynShen";
@@ -33,11 +44,134 @@ pub(crate) fn adopt(app: &AppHandle) {
                 eprintln!("could not register the login item under the new name: {error}");
             }
         }
-        Ok(false) => {}
+        Ok(false) => repair_login_item(app),
         Err(error) => eprintln!("could not move the {OLD_NAME} login item: {error}"),
     }
     #[cfg(target_os = "linux")]
     remove_old_link_handler(app);
+    #[cfg(windows)]
+    shortcuts::tidy_once(app);
+    #[cfg(target_os = "macos")]
+    bundle::ask_about_copies(app);
+}
+
+/// What `adopt` has done once and must not do again.
+#[cfg(any(windows, target_os = "macos", test))]
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug, PartialEq)]
+pub(crate) struct Record {
+    /// Windows: the shortcuts have been looked through (shortcuts.rs).
+    #[serde(default)]
+    pub shortcuts: bool,
+    /// macOS: the old bundles the user has been asked about (bundle.rs).
+    #[serde(default)]
+    pub asked: Vec<String>,
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
+impl Record {
+    pub fn path(app: &AppHandle) -> Option<PathBuf> {
+        app.path()
+            .app_config_dir()
+            .ok()
+            .map(|dir| dir.join("rename-cleanup.json"))
+    }
+
+    /// The record at `path`; a missing or unreadable one is empty.
+    pub fn read(path: &Path) -> Record {
+        serde_json::from_value(crate::read_json(path)).unwrap_or_default()
+    }
+
+    pub fn write(&self, path: &Path) -> Result<(), String> {
+        let value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        crate::write_json(path, &value)
+    }
+}
+
+/// A login item under the current name whose program is gone (the app moved:
+/// its bundle took the new name, or it was installed elsewhere) is registered
+/// again for the running executable. Not in development builds, which run
+/// from the build directory.
+fn repair_login_item(app: &AppHandle) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let Some(program) = login_item_program(&app.package_info().name) else {
+        return;
+    };
+    if program.exists() {
+        return;
+    }
+    if let Err(error) = app.autolaunch().enable() {
+        eprintln!(
+            "could not point the login item at this executable (it starts {}): {error}",
+            program.display()
+        );
+    }
+}
+
+/// The program the login item registered under `name` starts; None when
+/// there is none.
+#[cfg(windows)]
+fn login_item_program(name: &str) -> Option<PathBuf> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    let command: String = winreg::RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .ok()?
+        .get_value(name)
+        .ok()?;
+    command_program(&command)
+}
+
+#[cfg(target_os = "macos")]
+fn login_item_program(name: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let agent = Path::new(&home)
+        .join("Library")
+        .join("LaunchAgents")
+        .join(format!("{name}.plist"));
+    launch_agent_program(&std::fs::read_to_string(agent).ok()?)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn login_item_program(name: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let entry = Path::new(&home)
+        .join(".config")
+        .join("autostart")
+        .join(format!("{name}.desktop"));
+    let text = std::fs::read_to_string(entry).ok()?;
+    let exec = text.lines().find_map(|line| line.strip_prefix("Exec="))?;
+    command_program(exec)
+}
+
+/// The program a command line starts: quoted, or up to the first space
+/// (Windows: up to ".exe", since the plugin does not quote the path).
+#[cfg(any(windows, all(unix, not(target_os = "macos")), test))]
+fn command_program(command: &str) -> Option<PathBuf> {
+    let command = command.trim();
+    let program = if let Some(rest) = command.strip_prefix('"') {
+        &rest[..rest.find('"')?]
+    } else if let Some(end) = command.to_ascii_lowercase().find(".exe") {
+        &command[..end + 4]
+    } else {
+        command.split_whitespace().next()?
+    };
+    (!program.is_empty()).then(|| PathBuf::from(program))
+}
+
+/// The first of `ProgramArguments` in a LaunchAgent as auto-launch writes it.
+#[cfg(any(target_os = "macos", test))]
+fn launch_agent_program(plist: &str) -> Option<PathBuf> {
+    let after = &plist[plist.find("<key>ProgramArguments</key>")?..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = start + after[start..].find("</string>")?;
+    let program = after[start..end]
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&");
+    Some(PathBuf::from(program))
 }
 
 /// Removes the login item registered under the old name. True when there was
@@ -56,9 +190,7 @@ fn take_old_login_item() -> io::Result<bool> {
     let Some(home) = std::env::var_os("HOME") else {
         return Ok(false);
     };
-    let agents = std::path::Path::new(&home)
-        .join("Library")
-        .join("LaunchAgents");
+    let agents = Path::new(&home).join("Library").join("LaunchAgents");
     take_login_file(&agents.join(format!("{OLD_NAME}.plist")))
 }
 
@@ -67,9 +199,7 @@ fn take_old_login_item() -> io::Result<bool> {
     let Some(home) = std::env::var_os("HOME") else {
         return Ok(false);
     };
-    let autostart = std::path::Path::new(&home)
-        .join(".config")
-        .join("autostart");
+    let autostart = Path::new(&home).join(".config").join("autostart");
     take_login_file(&autostart.join(format!("{OLD_NAME}.desktop")))
 }
 
@@ -130,7 +260,6 @@ fn take_run_value(run: &str, approved: &str, name: &str) -> io::Result<bool> {
 /// plugin registers the new one right after (`register_all` in lib.rs).
 #[cfg(target_os = "linux")]
 fn remove_old_link_handler(app: &AppHandle) {
-    use tauri::Manager;
     let Ok(data) = app.path().data_dir() else {
         return;
     };
@@ -153,8 +282,53 @@ fn take_link_handler(path: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use super::*;
+
+    #[test]
+    fn the_program_a_login_item_starts() {
+        // Windows: auto-launch does not quote the path; the setup.exe does.
+        assert_eq!(
+            command_program(r"C:\Users\me\AppData\Local\Aogiri\Aogiri.exe --autostart"),
+            Some(PathBuf::from(r"C:\Users\me\AppData\Local\Aogiri\Aogiri.exe"))
+        );
+        assert_eq!(
+            command_program(r#""C:\My Apps\Aogiri\Aogiri.exe" --autostart"#),
+            Some(PathBuf::from(r"C:\My Apps\Aogiri\Aogiri.exe"))
+        );
+        // Linux autostart entry.
+        assert_eq!(command_program("/usr/bin/Aogiri --autostart"), Some(PathBuf::from("/usr/bin/Aogiri")));
+        assert_eq!(command_program("  "), None);
+        // macOS LaunchAgent as auto-launch 0.5 writes it.
+        let agent = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>Aogiri</string>\
+                     <key>ProgramArguments</key><array><string>/Applications/LynShen.app/Contents/MacOS/Aogiri</string>\
+                     <string>--autostart</string></array><key>RunAtLoad</key><true/></dict></plist>";
+        assert_eq!(
+            launch_agent_program(agent),
+            Some(PathBuf::from("/Applications/LynShen.app/Contents/MacOS/Aogiri"))
+        );
+        assert_eq!(
+            launch_agent_program("<key>ProgramArguments</key><array><string>/Apps/R&amp;D.app/x</string>"),
+            Some(PathBuf::from("/Apps/R&D.app/x"))
+        );
+        assert_eq!(launch_agent_program("<plist></plist>"), None);
+    }
+
+    #[test]
+    fn the_record_reads_back_and_starts_empty() {
+        let dir = std::env::temp_dir().join(format!("lynshen-renamed-record-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("rename-cleanup.json");
+        assert_eq!(Record::read(&path), Record::default());
+        let record = Record { shortcuts: true, asked: vec!["/Applications/LynShen.app".into()] };
+        record.write(&path).unwrap();
+        assert_eq!(Record::read(&path), record);
+        // A record from a later version with more in it still reads.
+        std::fs::write(&path, r#"{"shortcuts":true,"later":1}"#).unwrap();
+        assert!(Record::read(&path).shortcuts);
+        std::fs::write(&path, "not json").unwrap();
+        assert_eq!(Record::read(&path), Record::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[cfg(unix)]
     fn temp(name: &str) -> std::path::PathBuf {
