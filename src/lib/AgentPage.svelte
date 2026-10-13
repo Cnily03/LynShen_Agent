@@ -111,6 +111,23 @@
 		}
 	}
 
+	// 不限制 (full access) turns the agent's sandbox off: only after a
+	// confirmation. A declined one remounts the picker on the old value.
+	let sandboxKey = $state(0);
+	async function setSandbox(sandbox: AgentView['sandbox']) {
+		if (
+			sandbox === 'full-access' &&
+			!(await confirm({
+				title: t('shell.agentPage.sandboxFullConfirmTitle', { name: detail?.agent.name ?? agentId }),
+				message: t('shell.agentPage.sandboxFullConfirmBody'),
+				confirmLabel: t('shell.agentPage.sandboxFullConfirm'),
+				danger: true
+			}))
+		)
+			return void sandboxKey++;
+		await change({ sandbox });
+	}
+
 	const SANDBOXES = $derived([
 		{ value: 'read-only', label: t('shell.agentPage.sandboxReadOnly') },
 		{ value: 'workspace-write', label: t('shell.agentPage.sandboxWorkspace') },
@@ -404,11 +421,13 @@
 					</SettingsRow>
 					<SettingsRow title={t('shell.agentPage.sandbox')} description={t('shell.agentPage.sandboxHint')}>
 						<div class="pick">
-							<Select
-								value={detail.agent.sandbox}
-								options={SANDBOXES}
-								onChange={(sandbox) => change({ sandbox: sandbox as AgentView['sandbox'] })}
-							/>
+							{#key sandboxKey}
+								<Select
+									value={detail.agent.sandbox}
+									options={SANDBOXES}
+									onChange={(sandbox) => setSandbox(sandbox as AgentView['sandbox'])}
+								/>
+							{/key}
 						</div>
 					</SettingsRow>
 					<SettingsRow title={t('shell.agentPage.network')}>

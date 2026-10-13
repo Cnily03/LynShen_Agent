@@ -762,7 +762,16 @@ try {
   await page.goto(base);
   await page.getByRole('button',{name:'权限与沙箱'}).first().click();
   await page.getByRole('switch',{name:'允许联网'}).click();
-  await expect.poll(() => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)))).toContain('{"sandbox_network":false}');
+  const configPatches = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
+  await expect.poll(configPatches).toContain('{"sandbox_network":false}');
+  // 完全访问 only after a confirmation: declined, nothing is written.
+  await page.getByRole('button',{name:'完全访问',exact:true}).click();
+  await expect(page.getByText('关闭沙箱，改为完全访问？')).toBeVisible();
+  await page.getByRole('button',{name:'取消',exact:true}).click();
+  assert.ok(!(await configPatches()).some((p) => p.includes('"sandbox":')));
+  await page.getByRole('button',{name:'完全访问',exact:true}).click();
+  await page.getByRole('button',{name:'改为完全访问'}).click();
+  await expect.poll(configPatches).toContain('{"sandbox":"full-access"}');
   // The product is named Aogiri; its engine and the account keep the name LynShen.
   await page.goto(base + '?sidebar');
   await expect(page.locator('.brand .word')).toHaveText('Aogiri');

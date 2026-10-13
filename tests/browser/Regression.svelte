@@ -6,6 +6,7 @@
   import HomePage from '../../src/lib/HomePage.svelte';
   import TitleBar from '../../src/lib/shell/TitleBar.svelte';
   import Probe from './Probe.svelte';
+  import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
   import MessageList from '../../src/lib/MessageList.svelte';
   import { ChatState } from '../../src/lib/chat.svelte';
   import ChatPane from '../../src/lib/ChatPane.svelte';
@@ -54,6 +55,8 @@
   const paneSession = $derived(sessionMap.get(sessions.activeId));
   (window as unknown as { __paneChat: () => ChatState | undefined }).__paneChat = () => paneSession?.chat;
 </script>
+<!-- Confirmations (完全访问 in Settings → 权限与沙箱). -->
+<ConfirmHost />
 {#if mode.has('mosaic')}
   <button onclick={() => (tiles = splitLeaf(tiles, leavesOf(tiles.root)[0].id, 'right', { id: 't1', panel: 'b' }).layout)}>拆分</button>
   <button onclick={() => (tiles = moveTab(tiles, 't0', lastLeaf(), 'bottom'))}>移动</button>
