@@ -19,6 +19,10 @@ on:
         description: Check this published release (e.g. v0.6.0) instead of building the branch
         required: false
         default: ''
+      scenarios:
+        description: Only these Windows scenarios (comma-separated; default all)
+        required: false
+        default: ''
   pull_request:
     paths:
       - src-tauri/windows/**
@@ -31,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rename-upgrade-${{ github.ref }}-${{ inputs.new_release_tag }}
+  group: rename-upgrade-${{ github.ref }}-${{ inputs.new_release_tag }}-${{ inputs.scenarios }}
   cancel-in-progress: true
 
 env:
@@ -125,6 +129,8 @@ jobs:
 
       - name: Install LynShen 0.5.1, then update it as users do
         shell: pwsh
+        env:
+          ONLY: ${{ inputs.scenarios }}
         run: |
           $check = @{
             OldSetup = "old/LynShen_${env:OLD_VERSION}_x64-setup.exe"
@@ -136,6 +142,7 @@ jobs:
             NewVersion = $env:NEW_VERSION
           }
           if (Test-Path new/updater.pub) { $check.UpdaterPubkey = Get-Content new/updater.pub -Raw }
+          if ($env:ONLY) { $check.Only = $env:ONLY -split ',' }
           ./scripts/windows-rename-upgrade-check.ps1 @check
 
       - name: Keep the test installers

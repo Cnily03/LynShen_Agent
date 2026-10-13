@@ -138,18 +138,66 @@ function Get-RegDefault([string]$Key) {
   return (Get-Item -LiteralPath $Key).GetValue('')
 }
 
+# Shortcuts through IShellLinkW: WScript.Shell goes through the ANSI code page
+# and cannot save a name like "LynShen - 快捷方式.lnk" on an English system.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+
+namespace RenameCheck {
+  [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+  class ShellLink { }
+
+  [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+  interface IShellLinkW {
+    void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int size, IntPtr data, int flags);
+    void GetIDList(out IntPtr list);
+    void SetIDList(IntPtr list);
+    void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int size);
+    void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+    void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder dir, int size);
+    void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string dir);
+    void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder args, int size);
+    void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string args);
+    void GetHotkey(out short key);
+    void SetHotkey(short key);
+    void GetShowCmd(out int show);
+    void SetShowCmd(int show);
+    void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int size, out int index);
+    void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
+    void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, int reserved);
+    void Resolve(IntPtr window, int flags);
+    void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
+  }
+
+  public static class Lnk {
+    public static string Target(string path) {
+      var link = (IShellLinkW)new ShellLink();
+      ((IPersistFile)link).Load(path, 0);
+      var target = new StringBuilder(32768);
+      link.GetPath(target, target.Capacity, IntPtr.Zero, 0);
+      return target.ToString();
+    }
+
+    public static void Create(string path, string target) {
+      var link = (IShellLinkW)new ShellLink();
+      link.SetPath(target);
+      ((IPersistFile)link).Save(path, true);
+    }
+  }
+}
+'@
+
 function Get-ShortcutTarget([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $null }
-  $shell = New-Object -ComObject WScript.Shell
-  return $shell.CreateShortcut($Path).TargetPath
+  return [RenameCheck.Lnk]::Target($Path)
 }
 
 function New-Shortcut([string]$Path, [string]$Target) {
   New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
-  $shell = New-Object -ComObject WScript.Shell
-  $link = $shell.CreateShortcut($Path)
-  $link.TargetPath = $Target
-  $link.Save()
+  [RenameCheck.Lnk]::Create($Path, $Target)
 }
 
 # The executable a Run-key command line starts: quoted, or up to ".exe".
@@ -299,6 +347,21 @@ function Stop-UpdateFeed {
     Where-Object { $_.Subject -in @('CN=Rename Upgrade Check CA', 'CN=localhost') } | Remove-Item -ErrorAction SilentlyContinue
 }
 
+# Why the app's page did not show on the DevTools port.
+function Show-AppState([string]$Exe) {
+  $name = Split-Path $Exe -Leaf
+  Note "this shell runs in session $((Get-Process -Id $PID).SessionId)"
+  $runtime = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
+  Note "WebView2 runtime: $(if ($runtime) { $runtime.pv } else { 'not registered' })"
+  foreach ($process in @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @($name, 'msedgewebview2.exe') })) {
+    $line = "$($process.CommandLine)"
+    if ($line.Length -gt 300) { $line = $line.Substring(0, 300) + '...' }
+    Note "process $($process.ProcessId) $($process.Name) (session $($process.SessionId)): $line"
+  }
+  $listening = @(Get-NetTCPConnection -LocalPort $DevToolsPort -State Listen -ErrorAction SilentlyContinue)
+  Note "port $($DevToolsPort): $(if ($listening.Count) { ($listening | ForEach-Object { $_.LocalAddress }) -join ', ' } else { 'nothing listens' })"
+}
+
 # The update the way users get it: the old app is running, finds the update
 # on the feed, downloads and verifies it, and on "restart and install" starts
 # the installer itself and exits (scripts/rename-inapp-update.mjs). The
@@ -311,7 +374,12 @@ function Invoke-InAppUpdate([string]$OldExe) {
   Set-Content -LiteralPath $config -Value "{`"desktop_update_url`": `"https://localhost:$FeedPort`"}"
   $feedLog = Join-Path $FeedRoot 'feed.log'
   $seen = @(Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue).Count
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DevToolsPort"
+  # The DevTools port, by environment and by WebView2's own policy key.
+  $arguments = "--remote-debugging-port=$DevToolsPort"
+  $policy = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+  New-Item -Path $policy -Force | Out-Null
+  New-ItemProperty -Path $policy -Name (Split-Path $OldExe -Leaf) -Value $arguments -PropertyType String -Force | Out-Null
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $arguments
   try {
     Write-Host "  run   $OldExe (then update it from inside)"
     $app = Start-Process -FilePath $OldExe -PassThru
@@ -320,13 +388,21 @@ function Invoke-InAppUpdate([string]$OldExe) {
     $code = $LASTEXITCODE
   } finally {
     Remove-Item Env:\WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Split-Path $policy) -Recurse -Force -ErrorAction SilentlyContinue
   }
   Get-Content -LiteralPath $feedLog -ErrorAction SilentlyContinue | Select-Object -Skip $seen | ForEach-Object { Note "feed  $_" }
   Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
-  if ($code -ne 0) { throw "the app did not install the update (rename-inapp-update.mjs exited with $code)" }
+  if ($code -ne 0) {
+    Show-AppState $OldExe
+    throw "the app did not install the update (rename-inapp-update.mjs exited with $code)"
+  }
   Check (Wait-Until { $app.HasExited } 30) "the old app exited to install the update"
-  # The setup.exe runs from %TEMP% as <app>-<version>-installer.exe; the MSI
-  # through msiexec. Either starts the new app when it is done.
+  Wait-InstalledAndRunning
+}
+
+# The installer ran: the setup.exe from %TEMP% as <app>-<version>-installer.exe,
+# the MSI through msiexec. Either starts the new app when it is done.
+function Wait-InstalledAndRunning {
   $installed = Wait-Until {
     (@(Get-Process | Where-Object { $_.Name -like '*-installer' }).Count -eq 0) -and
     (@(Get-AppEntries | Where-Object { $_.DisplayName -eq $NewName -and $_.DisplayVersion -eq $NewVersion }).Count -eq 1) -and
@@ -448,6 +524,7 @@ function Install-Old([string]$Directory) {
 # with the argument --autostart): the Run value and Task Manager's switch.
 function Enable-OldAutostart([string]$Directory, [bool]$TurnedOffInTaskManager = $false) {
   $exe = Join-Path $Directory "$OldName.exe"
+  if (-not (Test-Path $RunKey)) { New-Item -Path $RunKey -Force | Out-Null }
   New-ItemProperty -Path $RunKey -Name $OldName -Value "$exe --autostart" -PropertyType String -Force | Out-Null
   if (-not (Test-Path $ApprovedKey)) { New-Item -Path $ApprovedKey -Force | Out-Null }
   [byte[]]$state = 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0

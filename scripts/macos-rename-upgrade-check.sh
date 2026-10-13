@@ -160,8 +160,9 @@ check_new_app_in_place() {
   check "nothing runs from $old_app" absent running_from "$old_app"
   check "$new_app is still validly signed" codesign --verify --deep --strict "$new_app"
   note "running: $(pgrep -fl "^$apps/(LynShen|Aogiri)\.app/Contents/MacOS/" | tr '\n' ' ')"
+  # What Finder, Launchpad and Spotlight call it: the bundle's file name.
   note "Finder name: $(osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSFileManager.defaultManager.displayNameAtPath('$new_app').js" 2>&1)"
-  note "LaunchServices: $(osascript -e "POSIX path of (path to application id \"$bundle_id\")" 2>&1)"
+  note "Spotlight name: $(mdls -raw -name kMDItemDisplayName "$new_app" 2>&1)"
 }
 
 check_login_item() {
