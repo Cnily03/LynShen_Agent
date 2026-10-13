@@ -931,6 +931,7 @@ dependencies = [
  "toml 0.8.2",
  "ureq",
  "window-vibrancy 0.5.3",
+ "windows-registry 0.6.1",
  "windows-version",
  "winreg 0.10.1",
 ]

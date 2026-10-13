@@ -200,6 +200,55 @@ fn installation_id() -> Option<String> {
     Some(id)
 }
 
+/// The device authorisation's token request: the device code, this
+/// installation's id and, when the machine id could be read, the device hash
+/// (`device_id.rs`; left out otherwise, and old gateways ignore it).
+fn token_request(device_code: &str, installation: Option<String>, device_hash: Option<String>) -> Value {
+    let mut body = json!({
+        "client_id": "lynshen-desktop",
+        "device_code": device_code,
+        "installation_id": installation,
+    });
+    if let Some(hash) = device_hash {
+        body["device_hash"] = json!(hash);
+    }
+    body
+}
+
+/// The trial claim's body: this installation's id and, when there is one, the
+/// device hash.
+fn trial_claim_request(installation: &str, device_hash: Option<String>) -> Value {
+    let mut body = json!({ "installation_id": installation });
+    if let Some(hash) = device_hash {
+        body["device_hash"] = json!(hash);
+    }
+    body
+}
+
+/// This installation's id (DA-4a), which the app keys its trial claim by.
+#[tauri::command(async)]
+pub fn desktop_installation_id() -> Option<String> {
+    installation_id()
+}
+
+/// Claims the first-use trial plan (`POST /api/dashboard/trial/claim` with
+/// the device key). The gateway decides who gets it; the answer is its body
+/// (`granted`, `already_granted`, `not_eligible`, `disabled`). A refusal is
+/// [`gateway_key_call`]'s JSON error: a 404 is a gateway without the
+/// endpoint, a status of null a network failure. The app calls it once per
+/// installation and account (src/lib/trial.ts).
+#[tauri::command(async)]
+pub fn monoize_trial_claim() -> Result<Value, String> {
+    let installation = installation_id().ok_or_else(|| {
+        json!({ "status": null, "code": "no_installation_id", "message": "no installation id" }).to_string()
+    })?;
+    gateway_key_call(
+        "POST",
+        "/api/dashboard/trial/claim",
+        Some(trial_claim_request(&installation, crate::device_id::device_hash())),
+    )
+}
+
 fn clear_session() {
     let _ = std::fs::remove_file(session_path());
 }
@@ -274,11 +323,11 @@ pub fn monoize_oauth_poll(user_code: String) -> Result<Value, String> {
         "POST",
         "/api/desktop/oauth/token",
         None,
-        Some(json!({
-            "client_id": "lynshen-desktop",
-            "device_code": attempt.device_code,
-            "installation_id": installation_id(),
-        })),
+        Some(token_request(
+            &attempt.device_code,
+            installation_id(),
+            crate::device_id::device_hash(),
+        )),
     )?;
     if let Some(error) = response["error"].as_str() {
         return match error {
@@ -410,4 +459,44 @@ pub fn monoize_marketplace() -> Result<Value, String> {
         }))
         })
         .collect::<Vec<_>>()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HASH: &str = "24401ae4dace2b94ffa466898373967a78f2b066a98891c8f94b41590cef7cdd";
+
+    #[test]
+    fn the_token_request_carries_the_device_hash_when_there_is_one() {
+        let body = token_request("dc-1", Some("inst-1".into()), Some(HASH.into()));
+        assert_eq!(
+            body,
+            json!({
+                "client_id": "lynshen-desktop",
+                "device_code": "dc-1",
+                "installation_id": "inst-1",
+                "device_hash": HASH,
+            })
+        );
+    }
+
+    #[test]
+    fn the_token_request_leaves_out_a_missing_device_hash() {
+        let body = token_request("dc-1", Some("inst-1".into()), None);
+        assert!(body.get("device_hash").is_none());
+        assert_eq!(body["installation_id"], "inst-1");
+    }
+
+    #[test]
+    fn the_trial_claim_sends_the_installation_and_the_device_hash() {
+        assert_eq!(
+            trial_claim_request("inst-1", Some(HASH.into())),
+            json!({ "installation_id": "inst-1", "device_hash": HASH })
+        );
+        assert_eq!(
+            trial_claim_request("inst-1", None),
+            json!({ "installation_id": "inst-1" })
+        );
+    }
 }
