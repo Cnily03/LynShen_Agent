@@ -36,7 +36,7 @@
 	});
 </script>
 
-<svelte:head><title>{chat.title || 'LynShen'}</title></svelte:head>
+<svelte:head><title>{chat.title || 'Aogiri'}</title></svelte:head>
 
 {#if !auth.signedIn}
 	<SignIn />

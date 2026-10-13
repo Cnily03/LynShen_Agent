@@ -26,7 +26,7 @@
 	import ArrowsInLineVerticalIcon from 'phosphor-svelte/lib/ArrowsInLineVerticalIcon';
 	import ArrowsOutLineVerticalIcon from 'phosphor-svelte/lib/ArrowsOutLineVerticalIcon';
 	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
-	import mark from '$lib/lynshen-mark.svg?raw';
+	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import { rowIn } from '$lib/ui/motion';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -449,7 +449,7 @@
 			<span class="logo" aria-hidden="true"><span class="mark">{@html mark}</span></span>
 		{/if}
 		<div class="brand-rest" inert={folded}>
-			<span class="word">LynShen</span>
+			<span class="word">Aogiri</span>
 		</div>
 	</div>
 

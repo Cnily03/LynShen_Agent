@@ -57,7 +57,7 @@ const settings = {
 			loadFailed: '读取技能失败：{msg}',
 			toggleFailed: '切换失败：{msg}',
 			removeFailed: '删除失败：{msg}',
-			unsupported: '当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 LynShen 后再试；技能市场仍可使用。',
+			unsupported: '当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试；技能市场仍可使用。',
 			appliesNext: '开关对之后的每一轮对话生效。',
 			diag: {
 				title: '技能加载诊断：{errors} 个错误，{warnings} 个警告',
@@ -105,7 +105,7 @@ const settings = {
 		},
 		import: {
 			title: '从其他工具导入',
-			intro: '把本机 Claude Code、Codex、opencode、zcode、omp 里的会话、技能和 MCP 服务器导入 LynShen。原工具的文件不会改动。',
+			intro: '把本机 Claude Code、Codex、opencode、zcode、omp 里的会话、技能和 MCP 服务器导入 Aogiri。原工具的文件不会改动。',
 			scan: '扫描',
 			rescan: '重新扫描',
 			scanning: '正在扫描…',
@@ -272,7 +272,7 @@ const settings = {
 		},
 		autostart: {
 			title: '开机自动启动',
-			hint: '登录电脑后自动打开 LynShen',
+			hint: '登录电脑后自动打开 Aogiri',
 			mode: '启动方式',
 			modeHint: '静默启动时不打开窗口，点托盘图标再打开',
 			window: '显示窗口',
@@ -399,7 +399,7 @@ const settings = {
 			signIn: '登录 LynShen 账号后才能查看。'
 		},
 		monoize: {
-            browserLogin: '在浏览器中授权 LynShen',
+            browserLogin: '在浏览器中授权 Aogiri',
             browserWaiting: '等待浏览器授权…',
             browserCancel: '取消授权',
             browserAlternate: '浏览器打不开授权页？',
@@ -523,7 +523,7 @@ const settings = {
 			feedbackOpen: '反馈问题',
 			telemetry: '发送匿名使用数据',
 			telemetryHint: '不含对话、代码和文件路径',
-			notice: 'LynShen 会发送匿名使用数据（功能使用次数和错误类型，不含任何内容），用于改进产品。可以在设置里关闭。',
+			notice: 'Aogiri 会发送匿名使用数据（功能使用次数和错误类型，不含任何内容），用于改进产品。可以在设置里关闭。',
 			noticeAction: '设置'
 		},
 		behavior: {
@@ -545,7 +545,7 @@ const settings = {
 			backgroundVisibility: '背景强度',
 			backgroundStrength: { faint: '淡', medium: '中', strong: '浓' },
 			vibrancyHint: '侧栏和窗口边框呈毛玻璃效果',
-			vibrancyHintRestart: '侧栏和窗口边框呈毛玻璃效果。更改在重启 LynShen 后生效。',
+			vibrancyHintRestart: '侧栏和窗口边框呈毛玻璃效果。更改在重启 Aogiri 后生效。',
 			glass: '玻璃透明度',
 			glassHint: '侧栏、标题栏、输入框和菜单透出背后的内容并模糊；0 为不透明',
 			defaultSurface: '对话界面',
@@ -682,7 +682,7 @@ const settings = {
 			engineVersion: '引擎版本',
 			logs: '日志',
 			openLogs: '打开日志文件夹',
-			currentVersion: '当前版本',
+			currentVersion: 'Aogiri 版本',
 			check: '检查更新',
 			checking: '检查中…',
 			latest: '已是最新版本',
@@ -724,10 +724,10 @@ const settings = {
 			notOffered: '不提供安装',
 			installFailed: '安装失败：{msg}',
 			uninstallFailed: '卸载失败：{msg}',
-			needsEngine: '当前引擎不支持在这里卸载，请先更新 LynShen',
+			needsEngine: '当前引擎不支持在这里卸载，请先更新 Aogiri',
 			sourceFailed: '{source} 暂时无法读取：{error}',
 			licenseNotice:
-				'Anthropic 的 docx、pdf、pptx 与 xlsx 技能仅源码可见且不可再分发，LynShen 不提供安装，可在 Anthropic 的仓库查看。'
+				'Anthropic 的 docx、pdf、pptx 与 xlsx 技能仅源码可见且不可再分发，Aogiri 不提供安装，可在 Anthropic 的仓库查看。'
 		},
 		overview: {
 			noData: '暂无用量数据',
@@ -818,7 +818,7 @@ const settings = {
 			loadFailed: 'Could not read the skills: {msg}',
 			toggleFailed: 'Could not switch it: {msg}',
 			removeFailed: 'Could not delete it: {msg}',
-			unsupported: 'This LynShen engine cannot manage skills here yet. Update LynShen under Updates, then try again; the marketplace still works.',
+			unsupported: 'This LynShen engine cannot manage skills here yet. Update Aogiri under Updates, then try again; the marketplace still works.',
 			appliesNext: 'A switch takes effect from the next turn of every conversation.',
 			diag: {
 				title: 'Skill loading: {errors} errors, {warnings} warnings',
@@ -1033,7 +1033,7 @@ const settings = {
 		},
 		autostart: {
 			title: 'Launch at login',
-			hint: 'Open LynShen when you log in to your computer',
+			hint: 'Open Aogiri when you log in to your computer',
 			mode: 'Start as',
 			modeHint: 'A silent start opens no window; click the tray icon to open it',
 			window: 'Show the window',
@@ -1160,7 +1160,7 @@ const settings = {
 			signIn: 'Sign in to your LynShen account to see this.'
 		},
 		monoize: {
-            browserLogin: 'Authorize LynShen in browser',
+            browserLogin: 'Authorize Aogiri in browser',
             browserWaiting: 'Waiting for browser approval…',
             browserCancel: 'Cancel authorization',
             browserAlternate: 'Page not loading?',
@@ -1284,7 +1284,7 @@ const settings = {
 			feedbackOpen: 'Send feedback',
 			telemetry: 'Send anonymous usage data',
 			telemetryHint: 'No conversations, code or file paths',
-			notice: 'LynShen sends anonymous usage data (how often features are used and kinds of errors, no content) to improve the product. You can turn it off in Settings.',
+			notice: 'Aogiri sends anonymous usage data (how often features are used and kinds of errors, no content) to improve the product. You can turn it off in Settings.',
 			noticeAction: 'Settings'
 		},
 		behavior: {
@@ -1305,7 +1305,7 @@ const settings = {
 			backgroundVisibility: 'Background strength',
 			backgroundStrength: { faint: 'Faint', medium: 'Medium', strong: 'Strong' },
 			vibrancyHint: 'Frosted sidebar and window frame',
-			vibrancyHintRestart: 'Frosted sidebar and window frame. A change applies after LynShen restarts.',
+			vibrancyHintRestart: 'Frosted sidebar and window frame. A change applies after Aogiri restarts.',
 			glass: 'Glass transparency',
 			glassHint: 'The sidebar, title bar, composer and menus show what is behind them, blurred; 0 is solid',
 			defaultSurface: 'Conversation view',
@@ -1443,7 +1443,7 @@ const settings = {
 			engineVersion: 'Engine version',
 			logs: 'Logs',
 			openLogs: 'Open logs folder',
-			currentVersion: 'Current version',
+			currentVersion: 'Aogiri version',
 			check: 'Check for updates',
 			checking: 'Checking…',
 			latest: 'You are on the latest version',
@@ -1485,10 +1485,10 @@ const settings = {
 			notOffered: 'Not offered',
 			installFailed: 'Install failed: {msg}',
 			uninstallFailed: 'Uninstall failed: {msg}',
-			needsEngine: 'This engine cannot uninstall here; update LynShen first',
+			needsEngine: 'This engine cannot uninstall here; update Aogiri first',
 			sourceFailed: '{source} cannot be read right now: {error}',
 			licenseNotice:
-				'Anthropic’s docx, pdf, pptx, and xlsx skills are source-available and not for redistribution; LynShen does not install them. See them in Anthropic’s repository.'
+				'Anthropic’s docx, pdf, pptx, and xlsx skills are source-available and not for redistribution; Aogiri does not install them. See them in Anthropic’s repository.'
 		},
 		overview: {
 			noData: 'No usage yet',

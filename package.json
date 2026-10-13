@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:relay-interop": "node scripts/relay-interop.mjs",
-    "notices": "node scripts/third-party-notices.mjs --cargo src-tauri/Cargo.toml --pnpm . --title \"LynShen Desktop: third-party software\" --out static/third-party-notices.txt"
+    "notices": "node scripts/third-party-notices.mjs --cargo src-tauri/Cargo.toml --pnpm . --title \"Aogiri: third-party software\" --out static/third-party-notices.txt"
   },
   "license": "Apache-2.0",
   "dependencies": {

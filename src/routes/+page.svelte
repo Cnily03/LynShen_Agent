@@ -184,7 +184,7 @@
 		}
 	}
 	const notifyDone = (title: string) =>
-		notify('LynShen', t('shell.notifyDone', { title: shownTitle(title) }));
+		notify('Aogiri', t('shell.notifyDone', { title: shownTitle(title) }));
 	// An agent's question, pending action or report while the window is in
 	// the background.
 	agentDirectory.onArrival = (kind, agent, text, agentId) => {
@@ -1493,7 +1493,7 @@
 		sidebarOpen={!sidebarCollapsed}
 		onToggleSidebar={toggleSidebar}
 		showToggle={!showSetup}
-		title={showSettings ? t('settings.title') : showDesk ? t('shell.desk.title') : showSetup ? 'LynShen' : pageProject ? pageProject.name : showHome || !active ? t('shell.home.title') : shownTitle(active.chat.title)}
+		title={showSettings ? t('settings.title') : showDesk ? t('shell.desk.title') : showSetup ? 'Aogiri' : pageProject ? pageProject.name : showHome || !active ? t('shell.home.title') : shownTitle(active.chat.title)}
 		subtitle={showSettings || showDesk || showSetup || showHome || pageProject || !activeProject || activeProject.home ? '' : activeProject.name}
 		addOptions={showSettings || showDesk || showSetup ? [] : addOptions}
 		onAdd={(key) => mosaicAdd(focusedLeaf, key)}

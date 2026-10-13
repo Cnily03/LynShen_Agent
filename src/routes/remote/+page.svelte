@@ -431,7 +431,7 @@
 </script>
 
 <svelte:head>
-	<title>LynShen</title>
+	<title>Aogiri</title>
 </svelte:head>
 
 <svelte:window onkeydown={(e) => switchMenu && e.key === 'Escape' && (switchMenu = false)} ononline={wakeAll} />

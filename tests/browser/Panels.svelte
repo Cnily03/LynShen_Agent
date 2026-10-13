@@ -1,9 +1,14 @@
 <script lang="ts">
 	// The pages of the agent-UX change, for the browser regressions and the
 	// screenshots: Settings → 技能 (installed and marketplace tabs), 插件,
-	// and the sidebar with folded sections and the archive.
+	// and the sidebar with folded sections and the archive. Also the places
+	// that show the product's name: the welcome page (?welcome, ?welcome=guide)
+	// and Settings → 更新 (?updates; ?updates=found with the update prompt).
 	import SettingsPage from '../../src/lib/settings/SettingsPage.svelte';
 	import Sidebar from '../../src/lib/Sidebar.svelte';
+	import Welcome from '../../src/lib/welcome/Welcome.svelte';
+	import UpdatePrompt from '../../src/lib/UpdatePrompt.svelte';
+	import { updater } from '../../src/lib/updater.svelte';
 	import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
 	import Toaster from '../../src/lib/ui/Toaster.svelte';
 	import { SessionStore } from '../../src/lib/session.svelte';
@@ -13,7 +18,13 @@
 	const mode = new URL(location.href).searchParams;
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
 	provideRequirements(new Requirements(daemon));
-	let section = $state(mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : 'skills');
+	let section = $state(mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : mode.has('updates') ? 'updates' : 'skills');
+	// A newer version found on launch, asking whether to update now.
+	if (mode.get('updates') === 'found') {
+		updater.version = '9.9.9';
+		updater.phase = 'available';
+		updater.asking = true;
+	}
 
 	// The sidebar's projects: a few with conversations, some archived.
 	const store = new SessionStore();
@@ -66,10 +77,21 @@
 		/>
 		<div class="canvas-stub"></div>
 	</div>
+{:else if mode.has('welcome')}
+	<Welcome
+		sessionId="draft-test"
+		loggedIn={false}
+		configured={false}
+		startAt={mode.get('welcome') === 'guide' ? 'guide' : 'login'}
+		onRefreshAuth={() => {}}
+		onOpenSettings={() => {}}
+		onClose={() => {}}
+	/>
 {:else}
 	<div class="settings-frame">
 		<SettingsPage sessionId="draft-test" navWidth={260} bind:section onClose={() => {}} />
 	</div>
+	{#if mode.has('updates')}<UpdatePrompt />{/if}
 {/if}
 
 <style>

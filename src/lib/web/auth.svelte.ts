@@ -55,7 +55,7 @@ function deviceName(): string {
 	const ua = navigator.userAgent;
 	const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '浏览器';
 	const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
-	return `LynShen 网页版 · ${browser}${os ? ` · ${os}` : ''}`;
+	return `Aogiri 网页版 · ${browser}${os ? ` · ${os}` : ''}`;
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<Tokens> {

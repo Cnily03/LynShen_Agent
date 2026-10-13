@@ -45,7 +45,7 @@ sw.addEventListener('push', (event) => {
 		data = { body: event.data?.text() };
 	}
 	event.waitUntil(
-		sw.registration.showNotification(data.title || 'LynShen', {
+		sw.registration.showNotification(data.title || 'Aogiri', {
 			body: data.body ?? '',
 			tag: data.tag,
 			// A dispatch's later notice replaces its earlier one, and still alerts.

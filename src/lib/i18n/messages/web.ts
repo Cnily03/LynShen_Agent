@@ -1,7 +1,7 @@
 // The web app at app.lynshen.org: chat, sign-in, its sidebar.
 const web = {
 	zh: {
-		brand: 'LynShen',
+		brand: 'Aogiri',
 		signIn: {
 			title: '用 LynShen 账号登录',
 			hint: '对话记录保存在云端，和 LynShen 安卓 App 同步。',
@@ -14,7 +14,7 @@ const web = {
 			newChat: '新对话',
 			search: '搜索对话',
 			remote: '远程电脑',
-			remoteHint: '查看并操作装了 LynShen Desktop 的电脑',
+			remoteHint: '查看并操作装了 Aogiri 的电脑',
 			today: '今天',
 			yesterday: '昨天',
 			week: '7 天内',
@@ -42,7 +42,7 @@ const web = {
 		},
 		chat: {
 			greeting: '有什么可以帮忙的？',
-			placeholder: '给 LynShen 发消息',
+			placeholder: '给 Aogiri 发消息',
 			full: '这个对话已达到模型的上下文上限，请新建对话继续。',
 			closed: '对话暂未开放',
 			closedHint: '管理员还没有开放可用的模型。',
@@ -96,7 +96,7 @@ const web = {
 		}
 	},
 	en: {
-		brand: 'LynShen',
+		brand: 'Aogiri',
 		signIn: {
 			title: 'Sign in with your LynShen account',
 			hint: 'Conversations are kept in the cloud and synced with the LynShen Android app.',
@@ -109,7 +109,7 @@ const web = {
 			newChat: 'New chat',
 			search: 'Search chats',
 			remote: 'Remote computers',
-			remoteHint: 'See and work on computers running LynShen Desktop',
+			remoteHint: 'See and work on computers running Aogiri',
 			today: 'Today',
 			yesterday: 'Yesterday',
 			week: 'Previous 7 days',
@@ -137,7 +137,7 @@ const web = {
 		},
 		chat: {
 			greeting: 'What can I help with?',
-			placeholder: 'Message LynShen',
+			placeholder: 'Message Aogiri',
 			full: 'This conversation has reached the model\'s context limit. Start a new chat to continue.',
 			closed: 'Chat is not open yet',
 			closedHint: 'An administrator has not opened any model to chat.',
