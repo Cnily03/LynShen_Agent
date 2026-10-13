@@ -405,6 +405,113 @@ try {
   const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
   assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(238, 236, 232)', 'rgb(251, 250, 248)']);
   await light.close();
+  // A message sent with a file shows what was typed and the file as a chip,
+  // never the list the engine reads after the text; history from the
+  // engine shows the same. (The bubble showed "Attached files (read
+  // these):" and the paths.)
+  await page.goto(base + '?chat');
+  await settled('.welcome');
+  const doc = '/Users/me/Documents/私聊_墨竹.jsonl';
+  await page.evaluate((doc) => { window.__paneChat().pendingAttach = [doc]; }, doc);
+  await expect(page.locator('.composer-wrap .chip-name')).toHaveText('私聊_墨竹.jsonl');
+  await page.locator('.rich').click();
+  await page.keyboard.type('帮我看看谁发的消息更多');
+  await page.keyboard.press('Enter');
+  const sentRow = page.locator('.row.user').last();
+  await expect(sentRow.locator('.bubble')).toHaveText('帮我看看谁发的消息更多');
+  await expect(sentRow.locator('.ufile')).toHaveCount(1);
+  await expect(sentRow.locator('.ufile .uname')).toHaveText('私聊_墨竹.jsonl');
+  await expect(sentRow.locator('.ufile .udir')).toHaveText('Documents');
+  await expect(sentRow.locator('.ufile')).toHaveAttribute('title', doc);
+  await expect(page.locator('.list')).not.toContainText('Attached files');
+  await expect(page.locator('.composer-wrap .chip-name')).toHaveCount(0);
+  // The engine is sent what it always was.
+  assert.equal(await page.evaluate(() => window.__paneChat().messages.findLast((m) => m.kind === 'user').text), `帮我看看谁发的消息更多\n\nAttached files (read these):\n${doc}`);
+  // Its chip looks the file up before opening it (the stand-in says it is gone).
+  await sentRow.locator('.ufile').click();
+  await expect.poll(() => page.evaluate((doc) => window.__calls.some((c) => c.command === 'path_exists' && c.args.path === doc), doc)).toBe(true);
+  assert.equal(await page.evaluate(() => window.__calls.some((c) => c.command === 'plugin:opener|reveal_item_in_dir')), false);
+  // Copied, it is what was typed and the file's path, without the header.
+  await sentRow.hover();
+  await sentRow.getByRole('button',{name:'复制',exact:true}).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.findLast((c) => c.command === 'plugin:clipboard-manager|write_text')?.args.text)).toBe(`帮我看看谁发的消息更多\n\n${doc}`);
+  // Quoted into the composer: the typed text, and the file attached again
+  // (once, however often); sent again, the engine reads the same message.
+  const typedBox = page.locator('.composer-wrap .rich');
+  const boxFiles = page.locator('.composer-wrap .chip-name');
+  const sentText = `帮我看看谁发的消息更多\n\nAttached files (read these):\n${doc}`;
+  const userTexts = () => page.evaluate(() => window.__paneChat().messages.filter((m) => m.kind === 'user').map((m) => m.text));
+  const quote = sentRow.getByRole('button',{name:'引用到输入框'});
+  await quote.click();
+  await quote.click();
+  await expect(typedBox).toHaveText('帮我看看谁发的消息更多');
+  await expect(boxFiles).toHaveText(['私聊_墨竹.jsonl']);
+  await page.evaluate(() => window.__paneChat().handle({ type: 'status', message: 'ready' }));
+  await typedBox.click();
+  await page.keyboard.press('Enter');
+  await expect.poll(userTexts).toEqual([sentText, sentText]);
+  await expect(page.locator('.row.user').last().locator('.bubble')).toHaveText('帮我看看谁发的消息更多');
+  await expect(page.locator('.row.user').last().locator('.ufile .uname')).toHaveText('私聊_墨竹.jsonl');
+  await expect(boxFiles).toHaveCount(0);
+  // Queued, it shows what was typed; taken back, its file comes back too.
+  await page.evaluate((text) => window.__paneChat().handle({ type: 'pending_messages', messages: [text] }), sentText);
+  await expect(page.locator('.composer-wrap .qchip .qtext')).toHaveText('帮我看看谁发的消息更多');
+  await page.evaluate((text) => { const c = window.__paneChat(); c.handle({ type: 'pending_messages', messages: [] }); c.handle({ type: 'unqueued', text }); }, sentText);
+  await expect(typedBox).toHaveText('帮我看看谁发的消息更多');
+  await expect(boxFiles).toHaveText(['私聊_墨竹.jsonl']);
+  await page.locator('.composer-wrap .chip').getByRole('button',{name:'remove'}).click();
+  await expect(boxFiles).toHaveCount(0);
+  // Rewound: the question names what was typed, and the composer gets it
+  // back with its file.
+  const firstSent = page.locator('.row.user').first();
+  await firstSent.hover();
+  await firstSent.locator('.uedit.rewind').click();
+  await page.evaluate(() => window.__paneChat().handle({ type: 'checkpoint_view', items: [{ id: 't1', label: '帮我看看谁发的消息更多', detail: '' }, { id: 't2', label: '帮我看看谁发的消息更多', detail: '' }] }));
+  await expect(page.locator('.trust-path')).toHaveText('帮我看看谁发的消息更多');
+  await page.getByRole('button',{name:'回退并重写',exact:true}).click();
+  await expect(typedBox).toHaveText('帮我看看谁发的消息更多');
+  await expect(boxFiles).toHaveText(['私聊_墨竹.jsonl']);
+  await expect(page.locator('.composer-wrap')).not.toContainText('Attached files');
+  // Loaded from history (a conversation opened again): the text, three
+  // chips; attachments only: no bubble. (A fresh pane: one with a message
+  // the engine has not echoed keeps it through a snapshot.)
+  await page.goto(base + '?chat');
+  await settled('.welcome');
+  await page.evaluate(() => {
+    const c = window.__paneChat();
+    c.handle({ type: 'transcript', items: [
+      { role: 'user', content: '对比这三个文件\n\nAttached files (read these):\n/Users/me/My Docs/报告 2026.pdf\nC:\\Users\\me\\data.csv\n/tmp/notes.md' },
+      { role: 'assistant', content: '好的' },
+      { role: 'user', content: 'Attached files (read these):\n/tmp/only.txt' }
+    ] });
+  });
+  const rows = page.locator('.row.user');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first().locator('.bubble')).toHaveText('对比这三个文件');
+  await expect(rows.first().locator('.ufile .uname')).toHaveText(['报告 2026.pdf', 'data.csv', 'notes.md']);
+  await expect(rows.last().locator('.bubble')).toHaveCount(0);
+  await expect(rows.last().locator('.ufile .uname')).toHaveText('only.txt');
+  await expect(page.locator('.list')).not.toContainText('Attached files');
+  // The phone page reads the history the same way; its chips only show the
+  // files, and a quoted message brings its files back to its message box.
+  const phone = await browser.newPage({viewport:{width:390,height:844}});
+  phone.on('pageerror', e => errors.push(e.message));
+  await phone.goto(base + '?remote');
+  const phoneRows = phone.locator('.row.user');
+  await expect(phoneRows).toHaveCount(3, {timeout:30000});
+  await expect(phoneRows.nth(0).locator('.bubble')).toHaveText('帮我看看谁发的消息更多');
+  await expect(phoneRows.nth(0).locator('.ufile .uname')).toHaveText('私聊_墨竹.jsonl');
+  await expect(phoneRows.nth(1).locator('.ufile .uname')).toHaveText(['2026 Q3 经营分析.pdf', '销售明细.xlsx', 'metrics.md']);
+  await expect(phoneRows.nth(2).locator('.bubble')).toHaveCount(0);
+  await expect(phoneRows.nth(2).locator('.ufile .uname')).toHaveText(['error-log-1013.txt', '录屏 2026-10-13.mov']);
+  await expect(phone.locator('button.ufile')).toHaveCount(0);
+  await expect(phone.locator('.thread')).not.toContainText('Attached files');
+  await expect(phone.locator('.thread')).not.toContainText('[视频附件]');
+  await phoneRows.nth(1).hover();
+  await phoneRows.nth(1).getByRole('button',{name:'引用到输入框'}).click();
+  await expect(phone.locator('.composer textarea')).toHaveValue('对比这三份文件，列出口径不一致的地方');
+  await expect(phone.locator('.composer .att-name')).toHaveText(['2026 Q3 经营分析.pdf', '销售明细.xlsx', 'metrics.md']);
+  await phone.close();
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces.');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page).');
 } finally { await browser.close(); await server.close(); }
