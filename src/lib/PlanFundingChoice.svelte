@@ -3,14 +3,13 @@
 	// GET / PUT /api/desktop/oauth/plan): the plan first, or the balance. With
 	// the plan first, a used-up window fails requests (402) and never falls back
 	// to the balance, so a payer who wants to keep working picks 用余额. Shown
-	// with the plan in force, in the account card and on the account page.
+	// with the plan in force, as a row of Settings → 账户.
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import SettingsRow from '$lib/settings/SettingsRow.svelte';
 	import { t } from '$lib/i18n';
 	import { trial } from '$lib/trial.svelte';
 	import type { PlanFunding } from '$lib/trial';
-
-	let { compact = false }: { compact?: boolean } = $props();
 
 	const plan = $derived(trial.plan);
 	// The latest pick shows at once; trial.svelte.ts sends it (one change at
@@ -26,12 +25,19 @@
 </script>
 
 {#if plan && funding}
-	<div class="funding" class:compact>
-		<div class="row">
-			<span class="label">
-				{t('shell.trial.funding')}
-				{#if trial.saving}<CircleNotchIcon size={11} class="spin" aria-label={t('shell.trial.fundingSaving')} />{/if}
-			</span>
+	<!-- A row of Settings → 账户's 套餐与余额 group. -->
+	<div class="funding">
+		<SettingsRow
+			id="account-funding"
+			title={t('shell.trial.funding')}
+			description={funding === 'plan'
+				? t('shell.trial.fundingPlanHint', { group: plan.group.trim() || t('shell.trial.domestic') })
+				: t('shell.trial.fundingBalanceHint')}
+		>
+			{#snippet detail()}
+				{#if error}<p class="err" role="alert">{error}</p>{/if}
+			{/snippet}
+			{#if trial.saving}<span class="saving" role="status" aria-label={t('shell.trial.fundingSaving')}><CircleNotchIcon size={13} class="spin" /></span>{/if}
 			<Segmented
 				value={funding}
 				options={[
@@ -40,50 +46,18 @@
 				]}
 				onChange={pick}
 			/>
-		</div>
-		<p class="hint">
-			{funding === 'plan'
-				? t('shell.trial.fundingPlanHint', { group: plan.group.trim() || t('shell.trial.domestic') })
-				: t('shell.trial.fundingBalanceHint')}
-		</p>
-		{#if error}<p class="err" role="alert">{error}</p>{/if}
+		</SettingsRow>
 	</div>
 {/if}
 
 <style>
-	.funding {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-	.row {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: 6px 10px;
-	}
-	.label {
+	.saving {
 		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		color: var(--dim);
-		font-size: var(--fs-xs);
-	}
-	.compact .row :global(.opt) {
-		padding: 4px 10px;
-		font-size: var(--fs-xs);
-	}
-	.hint,
-	.err {
-		margin: 0;
-		font-size: var(--fs-2xs);
-		line-height: 1.45;
-	}
-	.hint {
 		color: var(--dim);
 	}
 	.err {
+		margin: 2px 0 0;
 		color: var(--err);
+		font-size: var(--fs-xs);
 	}
 </style>

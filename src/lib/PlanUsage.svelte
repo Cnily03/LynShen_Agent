@@ -1,7 +1,7 @@
 <script lang="ts">
 	// The desktop plan's windows as Settings → 账户 shows them (moved there
-	// from the account card): per window used / quota with a bar and when it
-	// recovers, then when the plan ends.
+	// from the account card): per window used / quota with a slim bar and
+	// when it recovers. The plan's end is on the row above.
 	import { t } from '$lib/i18n';
 	import { credits, planDate, sortedWindows, usedShare, windowLabel, type TrialPlan } from '$lib/trial';
 
@@ -20,7 +20,6 @@
 			{#if w.resets_at}<span class="small">{t('shell.trial.resets', { time: planDate(w.resets_at, true) })}</span>{/if}
 		</div>
 	{/each}
-	<span class="small">{t('shell.account.expires', { date: planDate(plan.expires_at, true) })}</span>
 </div>
 
 <style>

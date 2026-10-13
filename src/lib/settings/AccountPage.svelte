@@ -1,25 +1,30 @@
 <script lang="ts">
-	// Settings → 账户 for a signed-in LynShen Console account: who it is (with
-	// the avatar the website has, which 更换头像 changes there too), the
-	// money (balance and its currency, what was granted and topped up, the
-	// plan with its windows and who pays), the last minute's usage, and the
-	// places the account is managed. The account card in the sidebar shows a
-	// short summary and opens this page for the rest.
+	// Settings → 账户 for a signed-in LynShen Console account, in the manner
+	// of macOS System Settings: who it is (the avatar changes on a click, and
+	// the website shows it too), then full-width groups of rows:
+	//   套餐与余额  the plan (state, end, its windows), who pays, the balance
+	//              with 充值, the currency;
+	//   用量       用量明细, with the last minute's usage as its second line;
+	//   more       模型广场, API 密钥, 邀请好友, 授权设备, the console;
+	//   sign-in    重新登录 and 退出登录, quiet, at the bottom.
+	// The account card in the sidebar shows a short summary and opens this
+	// page for the rest.
 	import { onMount, untrack } from 'svelte';
-	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
 	import SquaresFourIcon from 'phosphor-svelte/lib/SquaresFourIcon';
 	import KeyIcon from 'phosphor-svelte/lib/KeyIcon';
 	import ChartLineIcon from 'phosphor-svelte/lib/ChartLineIcon';
 	import ArrowSquareOutIcon from 'phosphor-svelte/lib/ArrowSquareOutIcon';
-	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
-	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
 	import DesktopTowerIcon from 'phosphor-svelte/lib/DesktopTowerIcon';
+	import CameraIcon from 'phosphor-svelte/lib/CameraIcon';
+	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
+	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
+	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import Button from '$lib/ui/Button.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
-	import ImageIcon from 'phosphor-svelte/lib/ImageIcon';
-	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
+	import SettingsSection from './SettingsSection.svelte';
+	import SettingsRow from './SettingsRow.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { AVATAR_ACCEPT } from '$lib/accountAvatar';
 	import { accountAvatar } from '$lib/accountAvatar.svelte';
@@ -29,6 +34,7 @@
 	import { openExternal } from '$lib/openExternal';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
+	import { planDate } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
 	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 	import PlanUsage from '$lib/PlanUsage.svelte';
@@ -61,11 +67,13 @@
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
-	// The first-use trial plan in force names the plan as well (trial.svelte.ts).
-	const trialPlan = $derived(trial.plan);
-	const plan = $derived(trialPlan ? trialPlan.name.trim() || t('shell.trial.label') : user.billing_plan?.name?.trim() || '');
+	// The desktop plan in force (trial or paid, trial.svelte.ts); else the
+	// account's subscription plan where the gateway names one.
+	const deskPlan = $derived(trial.plan);
+	const billingPlan = $derived(user.billing_plan?.name?.trim() || '');
 	const money = (amount: string | undefined) =>
 		balance && amount != null ? shownBalanceText(amount, balance.currency, prefs.balanceCurrency) : '—';
+	const balanceText = $derived(user.balance_unlimited ? t('shell.account.unlimited') : balance ? money(balance.total_balance) : t('common.loading'));
 
 	// The console's web address (the update prompt reads it the same way).
 	let web = $state('https://www.lynshen.org');
@@ -88,10 +96,13 @@
 			clearInterval(timer);
 		};
 	});
+	const liveLine = $derived(
+		t('settings.accountPage.liveLine', { rpm: liveCount(live?.rpm), tpm: liveCount(live?.tpm), hit: cacheHitText(live?.cache_hit_rate) })
+	);
 
 	// The avatar: the picture the app kept, then the one the user this page
-	// was given (read as the page opened) names; 更换头像 picks a file and
-	// uploads it.
+	// was given (read as the page opened) names; a click on it picks a file
+	// and uploads it.
 	$effect(() => {
 		const current = user;
 		untrack(() => {
@@ -110,20 +121,29 @@
 	}
 
 	const LINKS = $derived([
-		{ icon: WalletIcon, title: t('settings.accountPage.topUp'), sub: t('settings.accountPage.topUpSub'), run: () => openExternal(`${web}/dashboard/wallet`), external: true },
 		{ icon: SquaresFourIcon, title: t('settings.monoize.square'), sub: t('settings.accountPage.squareSub'), run: onSquare, external: false },
 		{ icon: KeyIcon, title: t('settings.page.apiKey'), sub: t('settings.monoize.managedKey'), run: onApiKey, external: false },
-		{ icon: ChartLineIcon, title: t('settings.accountPage.usage'), sub: t('settings.accountPage.usageSub'), run: onUsage, external: false },
 		{ icon: GiftIcon, title: t('settings.accountPage.invite'), sub: t('settings.accountPage.inviteSub'), run: onInvite, external: false },
 		{ icon: DesktopTowerIcon, title: t('settings.accountPage.devices'), sub: t('settings.accountPage.devicesSub'), run: onDevices, external: false },
 		{ icon: ArrowSquareOutIcon, title: t('settings.accountPage.console'), sub: web.replace(/^https?:\/\//, ''), run: () => openExternal(`${web}/dashboard`), external: true }
 	]);
 </script>
 
-<section class="hero">
-	<span class="avatar" aria-hidden="true">
-		{#if accountAvatar.src}<img src={accountAvatar.src} alt="" />{:else}{avatarInitial(user.username) || '·'}{/if}
-	</span>
+<!-- Who it is. -->
+<section class="acct-profile">
+	<button
+		class="avatar"
+		onclick={() => picker?.click()}
+		disabled={accountAvatar.busy}
+		aria-label={t('settings.avatar.change')}
+		title={t('settings.avatar.change')}
+	>
+		{#if accountAvatar.src}<img src={accountAvatar.src} alt="" />{:else}<span class="initial">{avatarInitial(user.username) || '·'}</span>{/if}
+		<span class="over" aria-hidden="true">
+			{#if accountAvatar.busy}<CircleNotchIcon size={18} class="spin" />{:else}<CameraIcon size={18} />{/if}
+		</span>
+	</button>
+	<input bind:this={picker} type="file" accept={AVATAR_ACCEPT} hidden onchange={(e) => pickAvatar(e.currentTarget)} />
 	<div class="who">
 		<div class="name-row">
 			<h2 class="name">{user.username}</h2>
@@ -131,98 +151,140 @@
 		</div>
 		<p class="sub">{user.email || 'LynShen Console'}</p>
 	</div>
-	<div class="acts">
-		<Button size="sm" onclick={() => picker?.click()} disabled={accountAvatar.busy}>
-			{#if accountAvatar.busy}<CircleNotchIcon size={14} class="spin" />{:else}<ImageIcon size={14} />{/if}
-			{t('settings.avatar.change')}
-		</Button>
-		<input bind:this={picker} type="file" accept={AVATAR_ACCEPT} hidden onchange={(e) => pickAvatar(e.currentTarget)} />
-		<Button size="sm" onclick={onRelogin}><SignInIcon size={14} /> {t('settings.account.relogin')}</Button>
-		<Button variant="danger" size="sm" onclick={onLogout}><SignOutIcon size={14} /> {t('settings.account.logout')}</Button>
-	</div>
 </section>
-{#if logoutError}<p role="alert" class="err">{logoutError}</p>{/if}
 {#if avatarError}<p role="alert" class="err">{avatarError}</p>{/if}
 
-<section class="stats">
-	<div class="tile wide">
-		<div class="tile-head">
-			<span class="tile-label">{t('settings.usage.balance')}</span>
-			<Segmented
-				value={prefs.balanceCurrency}
-				options={[{ value: 'CNY', label: 'CNY' }, { value: 'USD', label: 'USD' }]}
-				onChange={(v) => prefs.setBalanceCurrency(v as 'CNY' | 'USD')}
-			/>
-		</div>
-		<span class="big">{user.balance_unlimited ? t('shell.account.unlimited') : money(balance?.total_balance)}</span>
-		{#if balance && !user.balance_unlimited}
-			<span class="split">
-				{t('settings.accountPage.granted')} {money(balance.granted_balance)} · {t('settings.accountPage.toppedUp')} {money(balance.topped_up_balance)}
-			</span>
-		{/if}
-	</div>
-	<!-- With a desktop plan in force, the tile also holds its windows (the
-	     account card shows one line and opens this page) and the funding choice. -->
-	<div class="tile" class:wide={!!trialPlan || !!trial.funding} id="account-plan">
-		<span class="tile-label">{t('shell.account.plan')}</span>
-		<span class="mid">{plan || t('settings.accountPage.payAsYouGo')}</span>
-		{#if trialPlan}<PlanUsage plan={trialPlan} />{/if}
+<SettingsSection title={t('settings.accountPage.planSection')} id="account-plan">
+	{#if deskPlan}
+		<SettingsRow stacked title={deskPlan.name.trim() || t('shell.trial.label')} tag={t('settings.accountPage.planActive')} description={t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) })}>
+			<PlanUsage plan={deskPlan} />
+		</SettingsRow>
 		<PlanFundingChoice />
-	</div>
-	<div class="tile live">
-		<span class="tile-label">{t('shell.account.liveUsage')}</span>
-		<div class="trio">
-			<span><b>{liveCount(live?.rpm)}</b><small>{t('shell.account.rpm')}</small></span>
-			<span><b>{liveCount(live?.tpm)}</b><small>{t('shell.account.tpm')}</small></span>
-			<span><b>{cacheHitText(live?.cache_hit_rate)}</b><small>{t('shell.account.cacheHit')}</small></span>
-		</div>
-	</div>
-</section>
+	{:else}
+		<SettingsRow id="account-noplan" title={t('shell.account.plan')} description={billingPlan || t('settings.accountPage.noPlan')}>
+			{#if !billingPlan}
+				<Button size="sm" variant="ghost" onclick={() => openExternal(`${web}/dashboard/store?tab=plan&surface=desktop`)}>
+					{t('settings.accountPage.viewPlans')} <ArrowSquareOutIcon size={13} />
+				</Button>
+			{/if}
+		</SettingsRow>
+	{/if}
+	<SettingsRow
+		id="account-balance"
+		title={t('settings.usage.balance')}
+		description={balance && !user.balance_unlimited
+			? `${t('settings.accountPage.granted')} ${money(balance.granted_balance)} · ${t('settings.accountPage.toppedUp')} ${money(balance.topped_up_balance)}`
+			: undefined}
+	>
+		<span class="amount">{balanceText}</span>
+		<Button size="sm" onclick={() => openExternal(`${web}/dashboard/wallet`)}>{t('settings.accountPage.topUp')} <ArrowSquareOutIcon size={13} /></Button>
+	</SettingsRow>
+	<SettingsRow id="account-currency" title={t('settings.accountPage.currency')} description={t('settings.accountPage.currencySub')}>
+		<Segmented
+			value={prefs.balanceCurrency}
+			options={[{ value: 'CNY', label: 'CNY' }, { value: 'USD', label: 'USD' }]}
+			onChange={(v) => prefs.setBalanceCurrency(v as 'CNY' | 'USD')}
+		/>
+	</SettingsRow>
+</SettingsSection>
 
-<section class="links">
+<SettingsSection title={t('settings.accountPage.usageSection')}>
+	<button class="lrow" onclick={onUsage}>
+		<span class="lico"><ChartLineIcon size={17} /></span>
+		<span class="ltxt">
+			<span class="ltitle">{t('settings.accountPage.usage')}</span>
+			<span class="lsub" title={t('shell.account.liveUsage')}>{liveLine}</span>
+		</span>
+		<CaretRightIcon size={14} />
+	</button>
+</SettingsSection>
+
+<SettingsSection title={t('settings.accountPage.moreSection')}>
 	{#each LINKS as link (link.title)}
-		<button class="link" onclick={link.run}>
-			<span class="link-ico"><link.icon size={17} /></span>
-			<span class="link-txt">
-				<span class="link-title">{link.title}</span>
-				<span class="link-sub">{link.sub}</span>
+		<button class="lrow" onclick={link.run}>
+			<span class="lico"><link.icon size={17} /></span>
+			<span class="ltxt">
+				<span class="ltitle">{link.title}</span>
+				<span class="lsub">{link.sub}</span>
 			</span>
 			{#if link.external}<ArrowSquareOutIcon size={14} />{:else}<CaretRightIcon size={14} />{/if}
 		</button>
 	{/each}
-</section>
+</SettingsSection>
+
+<!-- Quiet, at the bottom: the whole row is the button. -->
+<SettingsSection title={t('settings.accountPage.signInSection')}>
+	<button class="lrow" onclick={onRelogin} aria-labelledby="acct-relogin" aria-describedby="acct-relogin-sub">
+		<span class="lico"><SignInIcon size={17} /></span>
+		<span class="ltxt">
+			<span class="ltitle" id="acct-relogin">{t('settings.account.relogin')}</span>
+			<span class="lsub" id="acct-relogin-sub">{t('settings.accountPage.reloginSub')}</span>
+		</span>
+	</button>
+	<button class="lrow danger" onclick={onLogout} aria-labelledby="acct-logout" aria-describedby="acct-logout-sub">
+		<span class="lico"><SignOutIcon size={17} /></span>
+		<span class="ltxt">
+			<span class="ltitle" id="acct-logout">{t('settings.account.logout')}</span>
+			<span class="lsub" id="acct-logout-sub">{t('settings.accountPage.logoutSub')}</span>
+		</span>
+	</button>
+</SettingsSection>
+{#if logoutError}<p role="alert" class="err">{logoutError}</p>{/if}
 
 <style>
-	.hero {
+	.acct-profile {
 		display: flex;
 		align-items: center;
 		gap: 16px;
-		padding: 20px;
-		border-radius: var(--r-xl);
-		background:
-			radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 60%),
-			var(--panel);
-		box-shadow: var(--shadow-float);
+		padding: 4px 0 8px;
 	}
+	/* The avatar is the button that changes it: a camera on hover and focus. */
 	.avatar {
+		position: relative;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		width: 56px;
-		height: 56px;
-		border-radius: 50%;
-		background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-		color: var(--on-accent);
-		font-size: 24px;
-		font-weight: 600;
+		width: 64px;
+		height: 64px;
+		padding: 0;
+		border: none;
+		border-radius: var(--r-full);
+		background: var(--surface2);
+		box-shadow: inset 0 0 0 1px var(--hairline);
+		color: var(--text);
+		font: inherit;
 		overflow: hidden;
+		cursor: pointer;
 	}
 	.avatar img {
 		display: block;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+	.initial {
+		font-size: var(--fs-xl);
+		font-weight: 600;
+	}
+	.over {
+		position: absolute;
+		inset: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: color-mix(in oklab, var(--bg) 55%, transparent);
+		color: var(--text);
+		opacity: 0;
+		transition: opacity var(--t-fast) var(--ease-out);
+	}
+	.avatar:hover .over,
+	.avatar:focus-visible .over,
+	.avatar:disabled .over {
+		opacity: 1;
+	}
+	.avatar:disabled {
+		cursor: default;
 	}
 	.who {
 		flex: 1;
@@ -243,138 +305,76 @@
 	}
 	.badge {
 		flex-shrink: 0;
-		padding: 1px 8px;
-		border-radius: var(--r-full);
-		background: color-mix(in oklab, var(--accent) 14%, transparent);
-		color: var(--accent);
+		padding: 0 6px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-xs);
+		color: var(--dim);
 		font-size: var(--fs-2xs);
+		line-height: 18px;
 	}
 	.sub {
-		margin: 4px 0 0;
+		margin: 2px 0 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--dim);
 		font-size: var(--fs-sm);
 	}
-	.acts {
-		display: flex;
-		gap: 8px;
-		flex-shrink: 0;
-	}
 	.err {
-		margin: 8px 4px 0;
+		margin: 8px 0 0;
 		color: var(--err);
 		font-size: var(--fs-xs);
 	}
-	.stats {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 10px;
-		margin-top: 14px;
-	}
-	.tile {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		min-width: 0;
-		padding: 14px 16px;
-		border-radius: var(--r-lg);
-		background: var(--panel);
-		box-shadow: inset 0 0 0 1px var(--hairline);
-	}
-	.tile.wide {
-		grid-column: 1 / -1;
-	}
-	.tile-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-	}
-	.tile-label {
-		color: var(--dim);
-		font-size: var(--fs-xs);
-	}
-	.big {
-		font-size: 28px;
+	.amount {
+		color: var(--text);
+		font-family: var(--font-mono);
+		font-size: var(--fs-md);
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
-		letter-spacing: -0.01em;
 	}
-	.split {
-		color: var(--dim);
-		font-size: var(--fs-xs);
-		font-variant-numeric: tabular-nums;
-	}
-	.mid {
-		font-size: var(--fs-md, 15px);
-		font-weight: 600;
-	}
-	.trio {
-		display: flex;
-		gap: 16px;
-	}
-	.trio span {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.trio b {
-		font-size: var(--fs-md, 15px);
-		font-variant-numeric: tabular-nums;
-	}
-	.trio small {
-		color: var(--dim);
-		font-size: var(--fs-2xs);
-	}
-	.links {
-		display: flex;
-		flex-direction: column;
-		margin-top: 14px;
-		border-radius: var(--r-lg);
-		background: var(--panel);
-		box-shadow: inset 0 0 0 1px var(--hairline);
-		overflow: hidden;
-	}
-	.link {
+	/* A row that opens a page or the website: the whole row is the button. */
+	.lrow {
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		padding: 12px 16px;
+		width: 100%;
+		min-height: 56px;
+		padding: 10px 4px 10px 0;
 		border: none;
 		background: none;
 		color: var(--dim);
 		font: inherit;
 		text-align: left;
 		cursor: pointer;
-		transition: background var(--t-fast) var(--ease-out);
+		transition: color var(--t-fast) var(--ease-out);
 	}
-	.link + .link {
-		box-shadow: inset 0 1px 0 var(--hairline);
+	.lrow:hover {
+		color: var(--text);
 	}
-	.link:hover {
-		background: color-mix(in oklab, var(--text) 4%, transparent);
-	}
-	.link-ico {
+	.lico {
 		display: inline-flex;
 		color: var(--text);
 	}
-	.link-txt {
+	.ltxt {
 		flex: 1;
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
 	}
-	.link-title {
+	.ltitle {
 		color: var(--text);
 		font-size: var(--fs-sm);
 	}
-	.link-sub {
+	.lrow.danger .lico,
+	.lrow.danger .ltitle {
+		color: var(--err);
+	}
+	.lsub {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-size: var(--fs-xs);
+		font-variant-numeric: tabular-nums;
 	}
 </style>
