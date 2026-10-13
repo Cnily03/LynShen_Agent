@@ -195,10 +195,18 @@
 		}
 	}
 
+	const REASONS = {
+		network: 'settings.marketplace.reasonNetwork',
+		limited: 'settings.marketplace.reasonLimited',
+		missing: 'settings.marketplace.reasonMissing',
+		other: 'settings.marketplace.reasonOther'
+	} as const;
+
 	function problemText(p: (typeof problems)[number]) {
+		const reason = t(REASONS[p.reason]);
 		return p.kind === 'cached' && p.fetchedAt
-			? t('settings.marketplace.sourceCached', { source: p.name, time: when(p.fetchedAt) })
-			: t('settings.marketplace.sourceEmpty', { source: p.name });
+			? t('settings.marketplace.sourceCached', { source: p.name, reason, time: when(p.fetchedAt) })
+			: t('settings.marketplace.sourceEmpty', { source: p.name, reason });
 	}
 
 	/** `Ikaleio: <error>` from an engine without per-source state → a

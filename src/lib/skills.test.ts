@@ -16,6 +16,7 @@ import {
 	skillNameFrom,
 	sortProblems,
 	sourceProblems,
+	sourceReason,
 	TimeoutError,
 	tildePath,
 	validSkillName,
@@ -166,11 +167,32 @@ describe('marketplace sources', () => {
 
 	it('warns about each failed source, saying whether its cached skills still show', () => {
 		expect(sourceProblems(sources)).toEqual([
-			{ key: 'Ikaleio/skills', name: 'Ikaleio', kind: 'cached', fetchedAt: 1_700_000_000_000, error: 'api.github.com: connection failed' },
-			{ key: 'ComposioHQ/awesome-claude-skills', name: 'ComposioHQ', kind: 'empty', fetchedAt: null, error: 'timed out' }
+			{
+				key: 'Ikaleio/skills',
+				name: 'Ikaleio',
+				kind: 'cached',
+				reason: 'network',
+				fetchedAt: 1_700_000_000_000,
+				error: 'api.github.com: connection failed'
+			},
+			{ key: 'ComposioHQ/awesome-claude-skills', name: 'ComposioHQ', kind: 'empty', reason: 'network', fetchedAt: null, error: 'timed out' }
 		]);
 		// An engine without per-source state: nothing here (its warnings show instead).
 		expect(sourceProblems(undefined)).toEqual([]);
+	});
+
+	it('says why a source failed from the engine error, GitHub first', () => {
+		expect(sourceReason('api.github.com: DNS lookup failed (failed to lookup address)')).toBe('network');
+		expect(sourceReason('raw.githubusercontent.com: timed out or the connection broke (os error 60)')).toBe('network');
+		expect(sourceReason('api.github.com: the proxy refused the connection')).toBe('network');
+		expect(sourceReason('api.github.com answered HTTP 502')).toBe('network');
+		expect(sourceReason('api.github.com answered HTTP 403')).toBe('limited');
+		expect(sourceReason('api.github.com answered HTTP 429; LynShen mirror: software.lynshen.org: connection failed')).toBe('limited');
+		expect(sourceReason('api.github.com answered HTTP 404')).toBe('missing');
+		expect(sourceReason('no SKILL.md found in https://github.com/o/r')).toBe('missing');
+		// The mirror's own failure does not decide it.
+		expect(sourceReason('api.github.com answered HTTP 404; LynShen mirror: software.lynshen.org: timed out')).toBe('missing');
+		expect(sourceReason('reading the repository failed')).toBe('other');
 	});
 
 	it('names the sources read for the first time while the engine refreshes', () => {

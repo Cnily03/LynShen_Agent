@@ -179,12 +179,29 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	});
 }
 
+/** Why a source could not be read: GitHub unreachable (`network`), GitHub
+ *  refusing for a while (`limited`, its API allows few requests per IP), no
+ *  skills there (`missing`), or something else. */
+export type SourceReason = 'network' | 'limited' | 'missing' | 'other';
+
+/** The reason in an engine's error: GitHub's part comes first, the LynShen
+ *  mirror's (when it failed too) after `; LynShen mirror:`. */
+export function sourceReason(error: string): SourceReason {
+	const github = error.split('; LynShen mirror:')[0].toLowerCase();
+	if (/http (403|429)\b/.test(github) || github.includes('rate limit')) return 'limited';
+	if (/http 404\b/.test(github) || github.includes('no skill.md found')) return 'missing';
+	if (/dns lookup failed|connection failed|timed out|connection broke|proxy refused|request failed|http 5\d\d\b/.test(github))
+		return 'network';
+	return 'other';
+}
+
 /** A community source whose last read failed: `cached` still shows the
  *  skills read at `fetchedAt`, `empty` has none to show yet. */
 export interface SourceProblem {
 	key: string;
 	name: string;
 	kind: 'cached' | 'empty';
+	reason: SourceReason;
 	fetchedAt: number | null;
 	error: string;
 }
@@ -197,6 +214,7 @@ export function sourceProblems(sources: MarketSourceState[] | undefined): Source
 			key: s.key,
 			name: s.name,
 			kind: s.fetchedAt ? 'cached' : 'empty',
+			reason: sourceReason(s.error ?? ''),
 			fetchedAt: s.fetchedAt,
 			error: s.error ?? ''
 		}));
