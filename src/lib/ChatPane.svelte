@@ -794,14 +794,15 @@
 	}
 
 	// Video → keyframes: extraction happens on attach (not send) so the chip can
-	// show the result and errors surface immediately.
+	// show the result and errors surface immediately. 重试 looks for ffmpeg
+	// again (process_video): installed meanwhile, it is found without a restart.
 	async function attachVideo(path: string) {
 		if (videos.some((v) => v.path === path)) return;
 		try {
 			const info = await processVideo(path);
 			videos.push({ path: info.path, frames: info.frames, duration: info.duration });
 		} catch (e) {
-			toast.error(String(e));
+			toast.error(String(e), { action: { label: t('common.retry'), run: () => void attachVideo(path) } });
 		}
 	}
 

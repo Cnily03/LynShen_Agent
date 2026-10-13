@@ -2,23 +2,15 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use super::super::{
-    is_valid_ref_name, no_window, resolve_cwd, run_with_timeout, shell_env, which,
+    is_valid_ref_name, no_window, resolve_cwd, run_with_timeout, shell_env, tool_path,
     REMOTE_OP_TIMEOUT,
 };
 
 /// Resolves the plugin's optional `gh` binary. Packaged apps inherit a minimal
-/// PATH, so common install locations are checked after the captured shell PATH.
+/// PATH: tool_path looks on the captured shell PATH, then in the package
+/// managers' directories (Homebrew, winget, Scoop…), and keeps what it found.
 fn resolve_gh() -> PathBuf {
-    if let Some(found) = which("gh") {
-        return found;
-    }
-    for candidate in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] {
-        let path = PathBuf::from(candidate);
-        if path.is_file() {
-            return path;
-        }
-    }
-    PathBuf::from("gh")
+    tool_path::tool("gh", false).unwrap_or_else(|| PathBuf::from("gh"))
 }
 
 /// Rust-side command allowlist for the first-party GitHub PR plugin.

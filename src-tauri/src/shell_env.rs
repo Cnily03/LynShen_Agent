@@ -9,8 +9,11 @@
 
 use serde::Serialize;
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -135,12 +138,80 @@ pub(crate) fn capture_with(shell: &str) -> Option<ShellEnv> {
     let vars = parse_env_output(&bytes)?;
     Some(ShellEnv {
         vars,
-        captured_at_ms: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0),
+        captured_at_ms: now_ms(),
         shell: shell.to_string(),
     })
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// When `recapture_if_older` last ran the login shell.
+static LAST_RECAPTURE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Reads the login shell's environment again when the snapshot (or the last
+/// try) is older than `age`: a tool looked for in vain may be on a PATH the
+/// shell's profile gained since the app started. Keeps the snapshot it has
+/// when the shell fails. True when a new snapshot was taken. Runs a shell (up
+/// to CAPTURE_TIMEOUT): never on the main thread.
+pub(crate) fn recapture_if_older(age: Duration) -> bool {
+    if cfg!(windows) {
+        return false;
+    }
+    let now = now_ms();
+    let taken = state()
+        .read()
+        .unwrap()
+        .as_ref()
+        .map_or(0, |env| env.captured_at_ms);
+    let last = taken.max(LAST_RECAPTURE_MS.load(Ordering::Relaxed));
+    if now.saturating_sub(last) < age.as_millis() as u64 {
+        return false;
+    }
+    LAST_RECAPTURE_MS.store(now, Ordering::Relaxed);
+    match capture_with(&default_shell()) {
+        Some(env) => {
+            *state().write().unwrap() = Some(env);
+            true
+        }
+        None => false,
+    }
+}
+
+/// `base` (a PATH) with those of `dirs` that `exists` and that it lacks added
+/// at its end, in order; None when it lacks none of them.
+pub(crate) fn path_with(
+    base: &OsStr,
+    dirs: &[PathBuf],
+    exists: &dyn Fn(&Path) -> bool,
+) -> Option<OsString> {
+    let mut all: Vec<PathBuf> = std::env::split_paths(base).collect();
+    let had = all.len();
+    for dir in dirs {
+        if !all.contains(dir) && exists(dir) {
+            all.push(dir.clone());
+        }
+    }
+    if all.len() == had {
+        return None;
+    }
+    std::env::join_paths(all).ok()
+}
+
+/// The PATH for a program the app starts (the engine, the daemon, git, gh):
+/// `base` (the snapshot's PATH, else this process's) with the package
+/// managers' directories it lacks at its end (tool_path::install_dirs), so
+/// they find what the app finds even where the login shell could not be
+/// read (a broken or slow profile, Windows). None: keep `base`.
+pub(crate) fn child_path(base: Option<OsString>) -> Option<OsString> {
+    let base = base
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    path_with(&base, &crate::tool_path::dirs_for(""), &|dir| dir.is_dir())
 }
 
 fn capture_and_store() -> ShellEnvStatus {
@@ -210,10 +281,19 @@ pub fn snapshot_vars() -> Option<HashMap<String, String>> {
 }
 
 /// 在不清空现有环境的前提下合并快照（git/gh 这类命令用：既要终端 PATH/
-/// 凭据环境，又不值得为它们做全清重建）。
+/// 凭据环境，又不值得为它们做全清重建）。PATH 补上包管理器的目录（child_path）。
 pub fn merge_into(cmd: &mut Command) {
-    if let Some(env) = state().read().unwrap().as_ref() {
-        cmd.envs(env.vars.iter());
+    let path = {
+        let guard = state().read().unwrap();
+        let mut path = None;
+        if let Some(env) = guard.as_ref() {
+            cmd.envs(env.vars.iter());
+            path = env.vars.get("PATH").map(OsString::from);
+        }
+        path
+    };
+    if let Some(path) = child_path(path) {
+        cmd.env("PATH", path);
     }
 }
 
@@ -233,6 +313,12 @@ pub fn apply_to_command(
     } else {
         None
     };
+    let path = child_path(
+        snapshot
+            .as_ref()
+            .and_then(|env| env.vars.get("PATH"))
+            .map(OsString::from),
+    );
     if let Some(env) = snapshot {
         cmd.env_clear();
         // 兜底：快照理论上必含这些，缺失时从父进程补齐基础身份变量。
@@ -244,6 +330,10 @@ pub fn apply_to_command(
             }
         }
         cmd.envs(env.vars.iter());
+    }
+    // The package managers' directories the PATH lacks (child_path).
+    if let Some(path) = path {
+        cmd.env("PATH", path);
     }
     for (k, v) in explicit {
         cmd.env(k, v);
@@ -381,7 +471,11 @@ mod tests {
                 ))
             })
             .collect();
-        assert_eq!(envs["PATH"], "/snap/bin");
+        // The snapshot's PATH, then the install dirs this machine has.
+        assert_eq!(
+            std::env::split_paths(&envs["PATH"]).next(),
+            Some(PathBuf::from("/snap/bin"))
+        );
         assert_eq!(envs["SHARED"], "from-custom");
         // 协议关键变量不可被用户自定义覆盖。
         assert_eq!(envs["LYNSHEN_DESKTOP"], "1");
@@ -394,7 +488,63 @@ mod tests {
         *state().write().unwrap() = None;
         let mut cmd = Command::new("true");
         apply_to_command(&mut cmd, true, &[("A", "1")], &[]);
-        // 未 env_clear：get_envs 只包含显式设置的变量。
-        assert_eq!(cmd.get_envs().count(), 1);
+        // 未 env_clear：get_envs 只包含显式设置的变量（和补了安装目录的 PATH）。
+        assert_eq!(cmd.get_envs().filter(|(k, _)| *k != "PATH").count(), 1);
+    }
+
+    #[test]
+    fn path_gains_the_install_dirs_it_lacks_that_exist() {
+        let base = std::env::join_paths(["/usr/bin", "/bin"]).unwrap();
+        let brew = PathBuf::from("/opt/homebrew/bin");
+        let ports = PathBuf::from("/opt/local/bin");
+        let exists = |dir: &Path| dir != Path::new("/opt/local/bin");
+        let got = path_with(
+            &base,
+            &[brew.clone(), ports, PathBuf::from("/bin")],
+            &exists,
+        )
+        .unwrap();
+        let got: Vec<PathBuf> = std::env::split_paths(&got).collect();
+        // At the end, after what PATH had; a missing dir and a present one are left out.
+        assert_eq!(
+            got,
+            [PathBuf::from("/usr/bin"), PathBuf::from("/bin"), brew]
+        );
+        // Nothing to add: PATH stays as it is.
+        assert_eq!(path_with(&base, &[PathBuf::from("/bin")], &|_| true), None);
+    }
+
+    // Windows reads no login shell (apply_to_command keeps the app's PATH).
+    #[cfg(not(windows))]
+    #[test]
+    fn programs_started_by_the_app_get_the_install_dirs_on_path() {
+        let _guard = SNAPSHOT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // A directory that exists: one of the install dirs (~/.cargo/bin, as on CI).
+        let have = crate::tool_path::dirs_for("")
+            .into_iter()
+            .find(|dir| dir.is_dir());
+        let Some(have) = have else { return };
+        *state().write().unwrap() = Some(ShellEnv {
+            vars: HashMap::from([("PATH".into(), "/snap-only/bin".into())]),
+            captured_at_ms: 1,
+            shell: "test".into(),
+        });
+        for merge in [false, true] {
+            let mut cmd = Command::new("true");
+            if merge {
+                merge_into(&mut cmd);
+            } else {
+                apply_to_command(&mut cmd, true, &[], &[]);
+            }
+            let path = cmd
+                .get_envs()
+                .find(|(k, _)| *k == "PATH")
+                .and_then(|(_, v)| v)
+                .map(|v| std::env::split_paths(v).collect::<Vec<_>>())
+                .unwrap_or_default();
+            assert_eq!(path.first(), Some(&PathBuf::from("/snap-only/bin")));
+            assert!(path.contains(&have), "{have:?} not on {path:?}");
+        }
+        *state().write().unwrap() = None;
     }
 }
