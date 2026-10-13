@@ -32,7 +32,7 @@ for ch in 'Ju':
     x += g.width
 xmin, ymin, xmax, ymax = bounds.bounds
 
-# Cursor proportions as in make-icon.py (size = the em).
+# Cursor proportions as in the LynShen app icon (size = the em).
 caret_x = xmax + 0.11 * upm
 caret_w = 0.034 * upm
 caret_bottom = asc + 0.10 * upm
