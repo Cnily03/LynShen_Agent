@@ -21,3 +21,13 @@ export function retryCount(attempt: number, max: number): { n: number; max: numb
 	return { n: attempt, max: shown ? max : null };
 }
 
+/** The most retries the settings save; the engine reads a larger value as
+ *  this too. */
+export const RETRY_ATTEMPTS_MAX = 100;
+
+/** The retry count the settings save from what was typed: a whole number
+ *  from 0 to RETRY_ATTEMPTS_MAX. */
+export function retryAttemptsSetting(value: unknown): number {
+	const n = Math.floor(Number(value));
+	return Number.isFinite(n) ? Math.min(RETRY_ATTEMPTS_MAX, Math.max(0, n)) : 0;
+}

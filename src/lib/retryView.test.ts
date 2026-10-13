@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import RetryNotice from './RetryNotice.svelte';
-import { RETRY_SEGMENTS_MAX, RETRY_TOTAL_SHOWN_MAX, retryCount, retrySegments } from './retryView';
+import { RETRY_ATTEMPTS_MAX, RETRY_SEGMENTS_MAX, RETRY_TOTAL_SHOWN_MAX, retryAttemptsSetting, retryCount, retrySegments } from './retryView';
 
 describe('retry notice', () => {
 	it('draws one segment per attempt only for a few attempts', () => {
@@ -35,5 +35,14 @@ describe('retry notice', () => {
 		const { body } = render(RetryNotice, { props: { retry } });
 		const bar = body.match(/<div class="bar[^"]*"[^>]*>(.*?)<\/div>/)?.[1] ?? '';
 		expect(bar.match(/<span/g)?.length).toBe(6);
+	});
+
+	it('saves a retry count from 0 to the most the engine takes', () => {
+		expect(retryAttemptsSetting('5')).toBe(5);
+		expect(retryAttemptsSetting(1_000_000)).toBe(RETRY_ATTEMPTS_MAX);
+		expect(retryAttemptsSetting(-3)).toBe(0);
+		expect(retryAttemptsSetting('')).toBe(0);
+		expect(retryAttemptsSetting('abc')).toBe(0);
+		expect(retryAttemptsSetting(2.7)).toBe(2);
 	});
 });
