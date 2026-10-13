@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { prefs } from '$lib/prefs.svelte';
 	import { costText } from '$lib/sessionCost';
+	import { sentLabel } from '$lib/attachments';
 	import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUpIcon';
 	import ArrowUUpLeftIcon from 'phosphor-svelte/lib/ArrowUUpLeftIcon';
 	import { engineAtLeast, UNQUEUE_SINCE } from '$lib/engineVersion.svelte';
@@ -21,7 +22,8 @@
 	import ModeMenu, { type ModeItem } from '$lib/composer/ModeMenu.svelte';
 	import EffortMenu from '$lib/composer/EffortMenu.svelte';
 	import BackendIcon from '$lib/BackendIcon.svelte';
-	import { listFiles, saveTempImage, transcribeAudio } from '$lib/protocol';
+	import { clipboardFilePaths, listFiles, saveTempFile, saveTempImage, transcribeAudio } from '$lib/protocol';
+	import { fileUris, imageExt, MAX_PASTE_BYTES, pasteRoute, type PasteData } from '$lib/composer/paste';
 	import { VoiceRecorder } from '$lib/audio';
 	import VoiceWave from '$lib/composer/VoiceWave.svelte';
 	import { buildEntries, mentionMatches, type AtEntry } from '$lib/mention';
@@ -70,6 +72,7 @@
 		onPick,
 		images = [],
 		onImage,
+		onAttach,
 		onModel,
 		onModelSelect,
 		onModelClose,
@@ -118,6 +121,9 @@
 		images?: { n: number; path: string }[];
 		/** A pasted image, saved to a temp file: the pane adds it and its token. */
 		onImage: (path: string) => void;
+		/** A pasted file (its path on disk, or the copy written of it): the pane
+		 *  attaches it as a picked or dropped one. */
+		onAttach?: (path: string) => void;
 		onModel: () => void;
 		onModelSelect?: (command: string) => void;
 		onModelClose?: () => void;
@@ -732,36 +738,41 @@
 		}
 	}
 
-	// Paste an image straight from the clipboard: write it to a temp file and
-	// attach the path (screenshots, copied images — no need to save to disk first).
-	async function onPaste(e: ClipboardEvent) {
+	// Pasting (composer/paste.ts). Files copied in Explorer, Finder or a
+	// file manager attach by their paths, which only the system clipboard
+	// knows; files the page gets only as bytes (an image, a screenshot, a
+	// file copied in another app) are written to disk and attach from there.
+	// Plain text goes in as text, so no rich HTML lands in the editor.
+	function onPaste(e: ClipboardEvent) {
 		const dt = e.clipboardData;
 		if (!dt) return;
-		// Image paste → temp-file attachment (screenshots, copied images).
-		let imaged = false;
-		for (const it of dt.items) {
-			if (it.kind !== 'file' || !it.type.startsWith('image/')) continue;
-			const file = it.getAsFile();
-			if (!file) continue;
-			imaged = true;
-			const ext = (it.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png';
-			try {
-				const buf = new Uint8Array(await file.arrayBuffer());
-				const path = await saveTempImage(buf, ext);
-				onImage(path);
-			} catch {
-				/* ignore */
-			}
-		}
-		if (imaged) {
-			e.preventDefault();
+		// Everything is read now: the event's data is gone once it returns.
+		const files = [...dt.items].flatMap((it) => (it.kind === 'file' ? [it.getAsFile()].filter((f): f is File => !!f) : []));
+		const paste: PasteData = { text: dt.getData('text/plain'), uriList: dt.getData('text/uri-list'), files };
+		const route = pasteRoute(paste);
+		e.preventDefault();
+		if (route === 'text') insertTextAtCaret(paste.text);
+		else void pasteFiles(files, paste.uriList);
+	}
+	async function pasteFiles(files: File[], uriList: string) {
+		let paths = await clipboardFilePaths().catch((): string[] => []);
+		if (!paths.length) paths = fileUris(uriList);
+		if (paths.length) {
+			for (const path of paths) onAttach?.(path);
 			return;
 		}
-		// Plain-text paste: insert as text so no rich HTML lands in the editor.
-		const text = dt.getData('text/plain');
-		if (text) {
-			e.preventDefault();
-			insertTextAtCaret(text);
+		for (const file of files) {
+			try {
+				if (file.size > MAX_PASTE_BYTES) {
+					toast.error(t('chat.pasteTooBig', { name: file.name || file.type }));
+					continue;
+				}
+				const bytes = new Uint8Array(await file.arrayBuffer());
+				if (file.type.startsWith('image/')) onImage(await saveTempImage(bytes, imageExt(file.type)));
+				else onAttach?.(await saveTempFile(bytes, file.name));
+			} catch (err) {
+				toast.error(t('chat.pasteFailed', { error: String(err) }));
+			}
 		}
 	}
 
@@ -853,15 +864,15 @@
 		     conversation once the engine reads it, after a running tool. -->
 		<div class="queued">
 			<span class="queued-label">{t(chat.phase === 'tool' ? 'chat.steeringWait' : 'chat.steeringNow')}</span>
-			<span class="qchip" title={chat.steering}><span class="qtext">{chat.steering}</span></span>
+			<span class="qchip" title={sentLabel(chat.steering)}><span class="qtext">{sentLabel(chat.steering)}</span></span>
 		</div>
 	{/if}
 	{#if chat.pendingMessages.length}
 		<div class="queued">
 			<span class="queued-label">{t('chat.queuedLabel', { n: chat.pendingMessages.length })}</span>
 			{#each chat.pendingMessages as q, i (i)}
-				<span class="qchip" title={q}
-					><span class="qtext">{q}</span
+				<span class="qchip" title={sentLabel(q)}
+					><span class="qtext">{sentLabel(q)}</span
 					>{#if bcaps.unqueue && onUnqueue && engineAtLeast(UNQUEUE_SINCE)}<button
 							class="qtake"
 							onclick={() => onUnqueue(i, q)}

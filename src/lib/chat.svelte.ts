@@ -22,6 +22,7 @@ import { breakdownTotal, parseBreakdown, type RequestParts } from './composer/co
 import { parseMcpServersEvent, type McpServerView } from './mcp';
 import { parseSubagentResult } from './agents/subagentResult';
 import { parseDelivery } from './delivery';
+import { sentLabel } from './attachments';
 import {
 	matchMessage,
 	parseSessionMessage,
@@ -1340,7 +1341,7 @@ export class ChatState {
 		const userTexts: string[] = [];
 		for (const m of this.messages)
 			if (m.kind === 'user')
-				userTexts.push(parseSubagentResult(m.text) || parseSessionMessage(m.text) ? (parseDelivery(m.text)?.label ?? m.text) : m.text);
+				userTexts.push(parseSubagentResult(m.text) || parseSessionMessage(m.text) ? (parseDelivery(m.text)?.label ?? m.text) : sentLabel(m.text));
 		const out: TurnDiff[] = [];
 		for (const [key, bucket] of Object.entries(this.turnEdits)) {
 			const index = Number(key);

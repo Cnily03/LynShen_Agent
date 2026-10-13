@@ -68,6 +68,10 @@ if (panels || shell) {
   installFakeDaemon();
   daemonState.old = params.has('oldEngine');
 }
+// ?remote: the phone remote page's conversation (Remote.svelte), in a
+// browser, not the app.
+const remote = params.has('remote');
+if (remote) Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
 document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
-const { default: Fixture } = shell ? await import('./Shell.svelte') : panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
+const { default: Fixture } = remote ? await import('./Remote.svelte') : shell ? await import('./Shell.svelte') : panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
 mount(Fixture, {target:document.getElementById('app')!});

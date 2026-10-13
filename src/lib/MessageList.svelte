@@ -34,6 +34,8 @@
 	import { fmtDur, turnParts } from '$lib/turnStats';
 	import { SvelteSet } from 'svelte/reactivity';
 	import UserImage from '$lib/UserImage.svelte';
+	import SentFiles from '$lib/SentFiles.svelte';
+	import { copyableText, splitAttachments } from '$lib/attachments';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import QuotesIcon from 'phosphor-svelte/lib/QuotesIcon';
 	import ListPlusIcon from 'phosphor-svelte/lib/ListPlusIcon';
@@ -62,6 +64,7 @@
 		onNote,
 		onRewind,
 		onFile,
+		onAttachment,
 		onDismiss,
 		backend = '',
 		provider = '',
@@ -108,6 +111,8 @@
 		/** Open a workspace file referenced by a chat link (editor / browser). */
 		/** A file link in a message; `context` is that message's text. */
 		onFile?: (href: string, context?: string) => void;
+		/** Opens a file a user message sent (absent: its chip only shows it). */
+		onAttachment?: (path: string) => void;
 		/** Remove a message the user closed (error notices). */
 		onDismiss?: (m: Msg) => void;
 		/** The session's engine, for reading its errors. */
@@ -577,8 +582,10 @@
 			{#if delivery}
 				<DeliveryNotice {delivery} {onOpenSession} />
 			{:else}
-			<div class="row user">
-				<button class="uedit ucopy" class:done={copied === m} onclick={() => copy(m.text, m)} aria-label={t(copied === m ? 'common.copied' : 'common.copy')} title={t(copied === m ? 'common.copied' : 'common.copy')}>
+			{@const sent = splitAttachments(m.text)}
+			{@const hasBubble = !!sent.text || !!m.images?.length}
+			<div class="row user" class:filed={hasBubble && (sent.files.length > 0 || sent.videos.length > 0)}>
+				<button class="uedit ucopy" class:done={copied === m} onclick={() => copy(copyableText(m.text), m)} aria-label={t(copied === m ? 'common.copied' : 'common.copy')} title={t(copied === m ? 'common.copied' : 'common.copy')}>
 					{#if copied === m}<CheckIcon size={12} />{:else}<CopyIcon size={12} />{/if}
 				</button>
 				<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
@@ -586,8 +593,11 @@
 				</button>
 				<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
 				<div class="ucol">
+					<!-- Files and videos sent with it: chips above the bubble, which
+					     shows what was typed (attachments.ts). -->
+					{#if sent.files.length || sent.videos.length}<SentFiles files={sent.files} videos={sent.videos} onOpen={onAttachment} />{/if}
 					<!-- One line: the bubble is pre-wrap, so template whitespace would show. -->
-					<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs">{#each m.images as p (p)}<UserImage path={p} load={loadImage} group={m.images} />{/each}</div>{/if}{#each userBlocks(m.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>
+					{#if hasBubble}<div class="bubble" class:pending={m.state === 'sending'}>{#if m.images?.length}<div class="uimgs" class:alone={!sent.text}>{#each m.images as p (p)}<UserImage path={p} load={loadImage} group={m.images} />{/each}</div>{/if}{#each userBlocks(sent.text) as block, b (b)}{#if block.quote}<span class="uquote">{block.text}</span>{:else}<span class="utext">{#each userSegments(block.text) as seg, j (j)}{#if seg.image}<span class="utoken">{t('chat.imageToken', { n: seg.image })}</span>{:else}{seg.text}{/if}{/each}</span>{/if}{/each}</div>{/if}
 					{#if m.state}
 						{#key m.state}
 							<div class="sendstate {m.state}" in:fade={{ duration: 160 }}>
@@ -816,6 +826,14 @@
 		align-items: center;
 		gap: 6px;
 	}
+	/* Files above the bubble: the actions sit beside the bubble's last line,
+	   not halfway up the files. */
+	.row.user.filed {
+		align-items: flex-end;
+	}
+	.row.user.filed .uedit {
+		margin-bottom: 12px;
+	}
 	.uedit {
 		opacity: 0;
 		transform: translateX(4px);
@@ -955,6 +973,9 @@
 		flex-wrap: wrap;
 		gap: 6px;
 		margin-bottom: 8px;
+	}
+	.uimgs.alone {
+		margin-bottom: 0;
 	}
 	.uquote,
 	.utext {

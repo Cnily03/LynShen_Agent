@@ -26,6 +26,7 @@
 	import FileIcon from 'phosphor-svelte/lib/FileIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import { sendFile, type Uploaded } from '$lib/upload';
+	import { fileName, sentLabel, splitAttachments, withFiles } from '$lib/attachments';
 	import { loadSession, saveSession } from '$lib/remote/cache';
 	import ModelMenu from '$lib/remote/ModelMenu.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
@@ -349,6 +350,17 @@
 			shown.findIndex((a) => a.key === key)
 		);
 	}
+	/** A sent message back in the box: its files (already on the computer)
+	 *  attach again, and its typed text is returned without the list. */
+	function takeBack(message: string): string {
+		const sent = splitAttachments(message);
+		for (const path of sent.files)
+			if (!attachments.some((a) => a.done?.path === path)) {
+				const name = fileName(path);
+				attachments.push({ key: ++attachKey, name, sent: 0, total: 0, done: { path, name, size: 0, image: false } });
+			}
+		return sent.text;
+	}
 	function detach(key: number) {
 		const a = attachments.find((x) => x.key === key);
 		if (a?.url) URL.revokeObjectURL(a.url);
@@ -366,7 +378,7 @@
 		if ((!typed && !attached.length) || uploading) return;
 		const images = attached.filter((a) => a.image).map((a) => a.path);
 		const files = attached.filter((a) => !a.image).map((a) => a.path);
-		const content = files.length ? `${typed}${typed ? '\n\n' : ''}Attached files (read these):\n${files.join('\n')}` : typed;
+		const content = withFiles(typed, files);
 		if (draft) {
 			draft = false;
 			await connect();
@@ -420,7 +432,8 @@
 		if (!taken || taken.seq === unqueuedSeen) return;
 		unqueuedSeen = taken.seq;
 		untrack(() => {
-			text = text.trim() ? `${text.replace(/\s+$/, '')}\n${taken.text}` : taken.text;
+			const typed = takeBack(taken.text);
+			text = text.trim() ? `${text.replace(/\s+$/, '')}\n${typed}` : typed;
 			tick().then(autosize);
 		});
 	});
@@ -658,7 +671,7 @@
 				onFile={onFile ? openReplyFile : undefined}
 				{scroller}
 				onEdit={(value) => {
-					text = value;
+					text = takeBack(value);
 					tick().then(() => (autosize(), input?.focus()));
 				}}
 				onRewind={() => {}}
@@ -716,7 +729,7 @@
 			{#if chat.steering && chat.busy}
 				<div class="queued">
 					<span class="queued-label">{t(chat.phase === 'tool' ? 'chat.steeringWait' : 'chat.steeringNow')}</span>
-					<span class="qchip"><span class="qtext">{chat.steering}</span></span>
+					<span class="qchip"><span class="qtext">{sentLabel(chat.steering)}</span></span>
 				</div>
 			{/if}
 			{#if waiting.length}
@@ -724,7 +737,7 @@
 					<span class="queued-label">{t('chat.queuedLabel', { n: waiting.length })}</span>
 					{#each waiting as q, i (i)}
 						<span class="qchip"
-							><span class="qtext">{q}</span
+							><span class="qtext">{sentLabel(q)}</span
 							>{#if bcaps.unqueue && chat.pendingMessages.length && engineAtLeast(UNQUEUE_SINCE)}<button
 									type="button"
 									class="qtake"

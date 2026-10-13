@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { t } from '$lib/i18n';
+	import { sentLabel } from '$lib/attachments';
 
 	// One tick per user message along the chat's left edge: the one in view is
 	// lit, hovering previews it, clicking jumps to it.
@@ -43,8 +44,8 @@
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		hover = { n, y: r.top + r.height / 2 };
 	}
-	// One line of a message, markdown marks dropped.
-	const line = (text: string) => text.replace(/[#*`>_~|]/g, '').replace(/\s+/g, ' ').trim();
+	// One line of a message, markdown marks and its attached-files list dropped.
+	const line = (text: string) => sentLabel(text).replace(/[#*`>_~|]/g, '').replace(/\s+/g, ' ').trim();
 </script>
 
 <svelte:window onblur={() => (hover = null)} />

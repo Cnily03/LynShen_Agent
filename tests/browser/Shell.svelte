@@ -9,6 +9,7 @@
 	//                           what is behind a frosted window (with the
 	//                           window frost on in storage it shows through)
 	//   &empty                  a conversation with no message yet
+	//   &attach                 messages sent with files (chips above the bubble)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
 	import { onMount } from 'svelte';
@@ -22,6 +23,7 @@
 	import { daemon } from '../../src/lib/protocol';
 	import { prefs } from '../../src/lib/prefs.svelte';
 	import { setLocale } from '../../src/lib/i18n';
+	import { withFiles, withVideo } from '../../src/lib/attachments';
 
 	const mode = new URL(location.href).searchParams;
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
@@ -78,7 +80,19 @@
 	].join('\n');
 
 	const feed = (ev: Record<string, unknown>) => session.chat.handle(ev as never);
-	if (!mode.has('empty')) {
+	if (mode.has('attach')) {
+		// As the engine echoes them: the files listed after the text (attachments.ts).
+		const reply = (text: string) => {
+			feed({ type: 'status', message: 'streaming' });
+			feed({ type: 'assistant_delta', delta: text });
+			feed({ type: 'status', message: 'ready' });
+		};
+		feed({ type: 'user_message', content: withFiles('帮我看看谁发的消息更多', ['/Users/me/Documents/私聊_墨竹.jsonl']) });
+		reply('墨竹发了 1,284 条，你发了 1,102 条：墨竹多 182 条。');
+		feed({ type: 'user_message', content: withFiles('对比这三份文件，列出口径不一致的地方', ['/Users/me/Documents/季度报告/2026 Q3 经营分析.pdf', 'C:\\Users\\me\\Desktop\\销售明细.xlsx', '/Users/me/code/lynshen-desktop/docs/metrics.md']) });
+		reply('三份文件的「活跃用户」口径不同：报告按月活，表格按周活，metrics.md 按日活。');
+		feed({ type: 'user_message', content: withVideo(withFiles('', ['/Users/me/Downloads/error-log-1013.txt']), '录屏 2026-10-13.mov', 12.4, 8) });
+	} else if (!mode.has('empty')) {
 		feed({ type: 'user_message', content: '窗口拉宽、高度不变时，对话两边会出现大片空白，能让对话列跟着窗口变宽吗？' });
 		feed({ type: 'status', message: 'streaming' });
 		feed({ type: 'reasoning_delta', delta: '先看对话列的宽度在哪里算：ChatPane 的 chatW 是固定值。' });

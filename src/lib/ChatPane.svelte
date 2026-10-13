@@ -38,6 +38,7 @@
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import { open } from '@tauri-apps/plugin-dialog';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { treeRows } from '$lib/tree';
 	import { buildSetApprovalModeOp, needsClaudeYoloRespawn, toEngineMode, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import type { PlanAction } from '$lib/PlanCard.svelte';
@@ -54,6 +55,7 @@
 		resolveFileRef,
 		readConfig,
 		writeConfig,
+		pathExists,
 		type Op
 	} from '$lib/protocol';
 	import { buildModelRows, splitRoute, stripGroupSuffix, toolModels, type ToolModel } from '$lib/composer/modelRows';
@@ -100,6 +102,7 @@
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
 	import { parseDelivery } from '$lib/delivery';
+	import { fileName, isInside, sentLabel, splitAttachments, withFiles, withVideo } from '$lib/attachments';
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import RequirementTag from '$lib/requirements/RequirementTag.svelte';
 	import { statusLabel } from '$lib/requirements/labels';
@@ -884,11 +887,12 @@
 				quotes = [];
 				return;
 			}
-			if (files.length)
-				content += `${content ? '\n\n' : ''}Attached files (read these):\n${files.join('\n')}`;
+			// The engine reads the files and videos from a list after the text;
+			// the conversation shows them as chips (attachments.ts).
+			content = withFiles(content, files);
 			for (const v of videos) {
 				imagePaths.push(...v.frames);
-				content += `${content ? '\n\n' : ''}[视频附件] ${base(v.path)}（时长 ${v.duration.toFixed(1)} 秒）：已按时间等间隔抽取 ${v.frames.length} 个关键帧，随消息以图片附上（按时间先后排序），请结合这些关键帧理解视频内容。`;
+				content = withVideo(content, base(v.path), v.duration, v.frames.length);
 			}
 			// Echo the message instantly when it starts a turn now (a busy session
 			// queues it instead, shown in the composer's queue strip).
@@ -921,7 +925,8 @@
 		if (!taken || taken.seq === unqueuedSeen) return;
 		unqueuedSeen = taken.seq;
 		untrack(() => {
-			input = input.trim() ? `${input.replace(/\s+$/, '')}\n${taken.text}` : taken.text;
+			const typed = takeBack(taken.text);
+			input = input.trim() ? `${input.replace(/\s+$/, '')}\n${typed}` : typed;
 			composerEl?.focus();
 		});
 	});
@@ -1171,9 +1176,36 @@
 		atBottom = true;
 		scrollToEnd(true);
 	}
+	/** A sent message back in the composer (quote, rewind, a queued one taken
+	 *  back): its files attach again and the typed text is returned for the
+	 *  box, without the list the engine reads (attachments.ts). A video comes
+	 *  back as its name only, which cannot attach it again. */
+	function takeBack(text: string): string {
+		const sent = splitAttachments(text);
+		for (const path of sent.files) if (!attachments.some((a) => a.path === path)) attachments.push({ path, image: false });
+		return sent.text;
+	}
 	function editMessage(text: string) {
-		input = text;
+		input = takeBack(text);
 		composerEl?.focus();
+	}
+	// A file a message sent: in the editor when it is in the project and reads
+	// as text, shown in Finder / Explorer otherwise. One that is gone says so.
+	async function openAttachment(path: string) {
+		if (!(await pathExists(path).catch(() => false))) {
+			toast.error(t('chat.attachmentMissing', { name: fileName(path) }));
+			return;
+		}
+		const cwd = project?.path;
+		if (cwd && isInside(path, cwd)) {
+			try {
+				await editorStore.open(path, cwd);
+				return;
+			} catch {
+				/* binary or too large: the file manager shows it */
+			}
+		}
+		revealItemInDir(path).catch((e) => toast.error(t('chat.fileOpenFailed', { path, error: String(e) })));
 	}
 	// A quoted passage drops in at the caret as a chip naming its opening words.
 	function citeText(text: string) {
@@ -1288,7 +1320,7 @@
 		} else {
 			send({ op: 'command', input: `/rewind ${pr.id}` });
 		}
-		input = pr.text;
+		input = takeBack(pr.text);
 		chat.pendingRewind = null;
 		composerEl?.focus();
 	}
@@ -1375,7 +1407,7 @@
 	<div class="mainwrap" bind:clientWidth={wrapW}>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
-			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
+			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
 		</div>
 		{#if chat.booting && chat.engineState !== 'exited'}
 			<div class="welcome spawning">
@@ -1474,6 +1506,7 @@
 			bind:attachments
 			{images}
 			onImage={addImage}
+			onAttach={addAttachment}
 			bind:videos
 			bind:el={composerEl}
 			onSubmit={submit}
@@ -1556,7 +1589,7 @@
 	<Modal title={t('shell.rewindQuestion')} onClose={() => (chat.pendingRewind = null)}>
 		<div class="trust-body">
 			<p>{@html t('shell.rewindBody')}</p>
-			<code class="trust-path">{chat.pendingRewind.text.slice(0, 120)}</code>
+			<code class="trust-path">{sentLabel(chat.pendingRewind.text).slice(0, 120)}</code>
 		</div>
 		{#snippet footer()}
 			<Button variant="ghost" onclick={() => (chat.pendingRewind = null)}>{t('common.cancel')}</Button>
