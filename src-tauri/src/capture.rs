@@ -437,13 +437,32 @@ pub fn stop_screen_recording(rec: tauri::State<'_, Recorder>) -> Result<String, 
     if size == 0 {
         let _ = std::fs::remove_file(&path);
         let hint = if std::env::consts::OS == "macos" {
-            "录屏文件未生成——请在 系统设置 → 隐私与安全性 → 屏幕录制 中授权 LynShen 后重试 / No recording was produced — grant LynShen screen-recording permission in System Settings → Privacy & Security → Screen Recording and retry"
+            let name = listed_app_name();
+            format!("录屏文件未生成——请在 系统设置 → 隐私与安全性 → 屏幕录制 中授权 {name} 后重试 / No recording was produced — grant {name} screen-recording permission in System Settings → Privacy & Security → Screen Recording and retry")
         } else {
-            "录屏文件未生成——录制工具未输出任何数据，请检查录屏工具与显示服务器权限后重试 / No recording was produced — the capture tool wrote no data; check the tool and display-server permissions and retry"
+            "录屏文件未生成——录制工具未输出任何数据，请检查录屏工具与显示服务器权限后重试 / No recording was produced — the capture tool wrote no data; check the tool and display-server permissions and retry".to_string()
         };
-        return Err(hint.to_string());
+        return Err(hint);
     }
     Ok(path.display().to_string())
+}
+
+/// The name System Settings lists this app under on macOS: its bundle's file
+/// name. An app updated from LynShen 0.5.x keeps its bundle,
+/// `/Applications/LynShen.app`, and is listed as LynShen.
+fn listed_app_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| bundle_name(&exe))
+        .unwrap_or_else(|| "Aogiri".to_string())
+}
+
+/// `X` for an executable inside `X.app`.
+fn bundle_name(exe: &Path) -> Option<String> {
+    exe.ancestors()
+        .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+        .and_then(|dir| dir.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -620,6 +639,20 @@ mod tests {
 
     fn avail(set: &'static [&'static str]) -> impl Fn(&str) -> bool {
         move |name| set.contains(&name)
+    }
+
+    #[test]
+    fn the_listed_name_is_the_bundle_file_name() {
+        let name = |p: &str| bundle_name(Path::new(p));
+        assert_eq!(
+            name("/Applications/LynShen.app/Contents/MacOS/Aogiri").as_deref(),
+            Some("LynShen")
+        );
+        assert_eq!(
+            name("/Applications/Aogiri.app/Contents/MacOS/Aogiri").as_deref(),
+            Some("Aogiri")
+        );
+        assert_eq!(name("/usr/bin/Aogiri"), None);
     }
 
     // --- screenshot backend ---

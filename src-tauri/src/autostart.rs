@@ -2,6 +2,8 @@
 //! macOS 写 ~/Library/LaunchAgents 下的 LaunchAgent，Windows 写注册表 Run 键，
 //! Linux 写 ~/.config/autostart 下的 .desktop 文件。登录项带固定参数 `--autostart`
 //! 启动应用；启动方式（显示窗口 / 静默留在托盘）存在 ~/.lynshen/desktop-autostart.json。
+//! 登录项以产品名命名，里面存的是可执行文件的路径；产品改名前注册的那一项由
+//! renamed.rs 在启动时挪到新名字下。
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -99,18 +101,18 @@ mod tests {
     #[test]
     fn login_item_argument_is_detected() {
         assert!(launched_at_login([
-            "/Applications/LynShen.app/Contents/MacOS/LynShen",
+            "/Applications/Aogiri.app/Contents/MacOS/Aogiri",
             "--autostart"
         ]));
-        assert!(!launched_at_login(["LynShen"]));
+        assert!(!launched_at_login(["Aogiri"]));
         assert!(!launched_at_login([
-            "LynShen",
+            "Aogiri",
             "lynshen://open",
             "--autostart=1"
         ]));
-        assert!(from_login_item(&["LynShen".into(), ARG.into()]));
+        assert!(from_login_item(&["Aogiri".into(), ARG.into()]));
         assert!(!from_login_item(&[
-            "LynShen".into(),
+            "Aogiri".into(),
             "lynshen://auth".into()
         ]));
     }

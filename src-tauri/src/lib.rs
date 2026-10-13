@@ -26,6 +26,8 @@ mod native_import;
 mod plugins;
 mod preview;
 mod provider_auth;
+#[cfg(desktop)]
+mod renamed;
 mod secrets;
 mod shell_env;
 mod tool_login;
@@ -3616,7 +3618,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("LynShen")
+        .tooltip("Aogiri")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
             "new-session" => {
@@ -3702,6 +3704,9 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // A login item registered under the product's old name moves to this one.
+            #[cfg(desktop)]
+            renamed::adopt(app.handle());
             // 主窗口在这里创建（配置里是 `create: false`）：磨砂与否、底色用哪个主题，
             // 都要在创建之前定下来，见 main_window.rs。登录项以静默方式启动时窗口
             // 不显示，只留在托盘；托盘、Dock 图标、深链和二次启动仍走

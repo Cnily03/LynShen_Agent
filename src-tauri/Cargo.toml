@@ -4,7 +4,7 @@
 [package]
 name = "desktop"
 version = "0.5.0"
-description = "LynShen desktop GUI"
+description = "Aogiri desktop app"
 authors = ["LynShen Innovations INC."]
 license = "Apache-2.0"
 edition = "2021"
@@ -20,10 +20,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The executable is named after the product: macOS shows an unbundled binary's
 # file name in the Dock (`tauri dev`), and the bundles use it as the main
-# binary. Windows upgrades from the old `desktop.exe` are handled by Tauri's
-# NSIS installer (it deletes the previous MainBinaryName and retargets shortcuts).
+# binary. It was `LynShen` up to 0.5.x; what an upgrade from that name needs is
+# in docs/rename-aogiri-notes.md (Windows: src-tauri/windows/hooks.nsh).
 [[bin]]
-name = "LynShen"
+name = "Aogiri"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -76,6 +76,9 @@ window-vibrancy = "0.5"
 [target."cfg(target_os = \"windows\")".dependencies]
 # Mica 只有 Windows 11（build 22000 起）才有：创建窗口之前要先知道系统版本。
 windows-version = "0.1"
+# 改名前注册在 Run 键里的开机自启项，启动时挪到新名字下（src/renamed.rs）。
+# 与 auto-launch 用的是同一个版本，不多带一份。
+winreg = "0.10"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"

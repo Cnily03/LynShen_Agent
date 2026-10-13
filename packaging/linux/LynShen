@@ -1,0 +1,5 @@
+#!/bin/sh
+# The app was called LynShen up to 0.5.x and its executable was /usr/bin/LynShen.
+# After an in-app update the old app restarts itself by that path, and login
+# items written by it name it too. This keeps both working.
+exec /usr/bin/Aogiri "$@"
