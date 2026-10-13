@@ -1,12 +1,14 @@
 <script lang="ts">
 	// The app's modal: scrim, a centred sheet with an optional title row and
-	// footer, focus kept inside, Escape and a scrim click close it. Callers
-	// render it inside {#if}; entrance and exit use ui/motion.
+	// footer, focus kept inside, Escape and a scrim click close it (a press
+	// that starts in the sheet does not; ui/scrimClick). Callers render it
+	// inside {#if}; entrance and exit use ui/motion.
 	import type { Snippet } from 'svelte';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import { focusTrap } from '$lib/focusTrap';
 	import { t } from '$lib/i18n';
 	import { scrim, sheet } from './motion';
+	import { scrimClick } from './scrimClick';
 
 	let {
 		title,
@@ -40,10 +42,16 @@
 	// relative to the pane (the dialog showed in the chat area, then jumped to
 	// the window). The scrim lives under <body>; the wrapper stays in the tree
 	// so Svelte removes its own node, and the action takes the moved one.
+	// The sheet's focusTrap runs first and focuses its first control; moving
+	// the scrim blurs it, and Escape then reached nothing until a click.
 	function portal(node: HTMLElement) {
+		const focused = document.activeElement;
 		document.body.appendChild(node);
+		if (focused instanceof HTMLElement && focused !== document.activeElement && node.contains(focused)) focused.focus();
 		return { destroy: () => node.remove() };
 	}
+
+	const away = scrimClick(() => dismissible && onClose());
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape' && dismissible) {
@@ -60,7 +68,8 @@
 	role="presentation"
 	in:scrim|global
 	out:scrim|global
-	onclick={(e) => e.target === e.currentTarget && dismissible && onClose()}
+	onpointerdown={away.onpointerdown}
+	onclick={away.onclick}
 	onkeydown={onKey}
 >
 	<div

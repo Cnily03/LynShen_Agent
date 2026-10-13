@@ -12,6 +12,7 @@
 	import { focusTrap } from '$lib/focusTrap';
 	import { imageViewer } from './imageViewer.svelte';
 	import { scrim } from './motion';
+	import { scrimClick } from './scrimClick';
 
 	const current = $derived(imageViewer.images[imageViewer.index]);
 	const count = $derived(imageViewer.images.length);
@@ -55,6 +56,9 @@
 		e.stopPropagation();
 	}
 
+	// A drag that starts on the image and ends beside it is not a click beside it.
+	const away = scrimClick(() => imageViewer.close());
+
 	function portal(node: HTMLElement) {
 		document.body.appendChild(node);
 		return { destroy: () => node.remove() };
@@ -93,7 +97,7 @@
 			</header>
 			<!-- A click beside the image closes; on it, switches the size. -->
 			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-			<div class="stage" class:actual onclick={(e) => e.target === e.currentTarget && imageViewer.close()}>
+			<div class="stage" class:actual onpointerdown={away.onpointerdown} onclick={away.onclick}>
 				{#if failed}
 					<p class="failed">{t('common.image.failed')}</p>
 				{:else if src}

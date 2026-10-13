@@ -12,6 +12,7 @@
   import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
   import type { DaemonClient } from '../../src/lib/daemon';
   import { prefs } from '../../src/lib/prefs.svelte';
+  import FeedbackDialog from '../../src/lib/FeedbackDialog.svelte';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
@@ -47,6 +48,9 @@
     sessions.createProject('/tmp/regression-project');
     if (mode.has('glass')) prefs.init();
   }
+  // ?feedback: the 反馈问题 dialog over an empty page, and how often it closed.
+  let feedbackOpen = $state(false);
+  let feedbackClosed = $state(0);
   const paneSession = $derived(sessionMap.get(sessions.activeId));
   (window as unknown as { __paneChat: () => ChatState | undefined }).__paneChat = () => paneSession?.chat;
 </script>
@@ -59,6 +63,10 @@
       {#snippet panel(tab)}<Probe id={tab.id} />{/snippet}
     </Mosaic>
   </div>
+{:else if mode.has('feedback')}
+  <button onclick={() => (feedbackOpen = true)}>打开反馈</button>
+  <p data-testid="feedback-closed">{feedbackClosed}</p>
+  {#if feedbackOpen}<FeedbackDialog onClose={() => { feedbackOpen = false; feedbackClosed++; }} />{/if}
 {:else if mode.has('reasoning')}
   <main bind:this={scroller} style="height:600px;width:720px;overflow:auto">
     <MessageList messages={chat.messages} streamingMsg={answering} streamingReasoning={thinking} phase={chat.phase} {scroller} onEdit={() => {}} onRewind={() => {}} onPlan={() => {}} />

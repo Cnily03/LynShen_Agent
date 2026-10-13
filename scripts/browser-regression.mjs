@@ -299,6 +299,47 @@ try {
   await expect(page.getByRole('menu')).toBeVisible();
   await page.mouse.click(700, 20);
   await expect(page.getByRole('menu')).toHaveCount(0);
+  // 反馈问题: selecting a field's text by dragging past the dialog's edge
+  // keeps the dialog open. (The release over the scrim sends the click to the
+  // scrim, the common ancestor, and that closed the dialog.) A click on the
+  // scrim, Escape and the close button still close it.
+  await page.goto(base + '?feedback');
+  const feedbackClosed = page.getByTestId('feedback-closed');
+  const feedback = page.getByRole('dialog',{name:'反馈问题'});
+  const openFeedback = async () => {
+    await page.getByRole('button',{name:'打开反馈',exact:true}).click();
+    await expect(feedback).toBeVisible();
+    await page.waitForFunction(() => document.querySelector('.sheet')?.getAnimations().every((a) => a.playState === 'finished'));
+  };
+  await openFeedback();
+  const sheetBox = await page.locator('.sheet').boundingBox();
+  const dragSelect = async (field, text, to) => {
+    await field.fill(text);
+    const b = await field.boundingBox();
+    await page.mouse.move(b.x + 3, b.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(to[0], to[1], {steps:8});
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.equal(await feedbackClosed.textContent(), '0', 'selecting the text closed the dialog');
+    await expect(feedback).toBeVisible();
+    assert.deepEqual(await field.evaluate((el) => [el.selectionStart, el.selectionEnd]), [0, text.length], 'the drag did not select the whole text');
+  };
+  const titleField = feedback.getByPlaceholder('一句话说明出了什么问题');
+  const bodyField = feedback.getByPlaceholder(/做了什么、期望看到什么/);
+  await dragSelect(titleField, '设置页打不开', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height / 2]);
+  await dragSelect(bodyField, '点击设置以后\n窗口没有反应', [sheetBox.x + sheetBox.width + 60, sheetBox.y + sheetBox.height + 20]);
+  await page.mouse.click(sheetBox.x - 60, sheetBox.y + 20);
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('1');
+  await openFeedback();
+  await page.keyboard.press('Escape');
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('2');
+  await openFeedback();
+  await feedback.getByRole('button',{name:'关闭',exact:true}).click();
+  await expect(feedback).toHaveCount(0);
+  await expect(feedbackClosed).toHaveText('3');
   // Settings → 通用 offers the conversation width, 自适应 by default; a
   // choice is stored; the search finds the row.
   await page.goto(base);

@@ -43,6 +43,7 @@ Object.assign(window, {
           if (!kind) return {supported: false, effect: null};
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
+        case 'diagnostic_logs': return [];
         case 'about_app': return {version:'0.5.0', cli:'0.5.0', os:'macos', arch:'aarch64', logs:'', daemon_log:''};
         // Only the agent-UX pages have a (stand-in) daemon.
         case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
