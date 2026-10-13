@@ -505,11 +505,15 @@ fn ffprobe_beside(ffmpeg: &Path) -> Option<PathBuf> {
         "ffprobe"
     };
     let real = ffmpeg.canonicalize().ok();
-    [Some(ffmpeg), real.as_deref()]
-        .into_iter()
-        .flatten()
-        .filter_map(|path| Some(path.parent()?.join(file)))
-        .find(|candidate| candidate.is_file())
+    for path in [Some(ffmpeg), real.as_deref()].into_iter().flatten() {
+        if let Some(dir) = path.parent() {
+            let candidate = dir.join(file);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// A video's length in seconds, width and height, from `ffmpeg -i`'s
