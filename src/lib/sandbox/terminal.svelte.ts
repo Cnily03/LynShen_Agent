@@ -2,10 +2,13 @@
 // tab beside the conversation, in the request's directory, with the command
 // typed but not run. The card asks; the page shell opens the tab and hands
 // the tab its command once (TerminalPanel types it when the shell is up).
+// Settings' 安装 (a missing shell) runs its command there too (`run`).
 
 export interface TerminalPrefill {
 	cwd: string;
 	command: string;
+	/** Press Enter after it: a command the user asked to run (安装). */
+	run?: boolean;
 }
 
 class TerminalRequests {
@@ -16,8 +19,8 @@ class TerminalRequests {
 	 *  so a remount does not lose its directory). */
 	#prefills = new Map<string, TerminalPrefill & { typed: boolean }>();
 
-	open(command: string, cwd: string, sessionId = '') {
-		this.request = { command, cwd, sessionId, n: (this.request?.n ?? 0) + 1 };
+	open(command: string, cwd: string, sessionId = '', run = false) {
+		this.request = { command, cwd, sessionId, run, n: (this.request?.n ?? 0) + 1 };
 	}
 
 	/** Records the tab opened for a request. */
@@ -31,11 +34,11 @@ class TerminalRequests {
 	}
 
 	/** The command to type in this tab, once: a remounted tab types nothing again. */
-	take(tabId: string): string {
+	take(tabId: string): { command: string; run: boolean } | null {
 		const p = this.#prefills.get(tabId);
-		if (!p || p.typed) return '';
+		if (!p || p.typed) return null;
 		p.typed = true;
-		return p.command;
+		return { command: p.command, run: p.run === true };
 	}
 }
 
@@ -67,4 +70,12 @@ export function typedCommand(command: string, bracketedPaste: boolean): string |
 	if (!text) return null;
 	if (bracketedPaste) return `\u001b[200~${text}\u001b[201~`;
 	return text.includes('\n') ? null : text;
+}
+
+/** A one-line command typed and run (Enter after it), as 安装 runs winget;
+ *  null for anything else (several lines, nothing left once cleaned). */
+export function runCommand(command: string, bracketedPaste: boolean): string | null {
+	const text = cleanCommand(command);
+	if (!text || text.includes('\n')) return null;
+	return `${typedCommand(text, bracketedPaste)}\r`;
 }

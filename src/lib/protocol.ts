@@ -998,12 +998,15 @@ export interface PtyCommand {
 	args?: string[];
 	binOverride?: string;
 }
+/** `shell`: the terminal shell to open instead of the app's default (the
+ *  daemon's `shells` reply, `terminal`); only without `cmd`. */
 export function ptyOpen(
 	id: string,
 	cols: number,
 	rows: number,
 	cwd?: string,
-	cmd?: PtyCommand
+	cmd?: PtyCommand,
+	shell?: { program: string; args: string[]; env: Record<string, string> }
 ): Promise<void> {
 	return invoke('pty_open', {
 		id,
@@ -1012,7 +1015,8 @@ export function ptyOpen(
 		cwd,
 		command: cmd?.command,
 		args: cmd?.args,
-		binOverride: cmd?.binOverride
+		binOverride: cmd?.binOverride,
+		shell
 	});
 }
 export function ptyWrite(id: string, data: string): Promise<void> {

@@ -3390,8 +3390,54 @@ fn default_shell() -> String {
     "/bin/sh".to_string()
 }
 
+/// A terminal shell the webview names for the terminal panel: the daemon's
+/// `shells` reply (`terminal`), which follows `terminal_shell` / `shell` in
+/// config.json.
+#[derive(Debug, serde::Deserialize)]
+struct PtyShell {
+    program: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    env: HashMap<String, String>,
+}
+
+/// Shell programs the terminal panel opens by name (`file_stem`, so
+/// `bash.exe` is `bash`).
+const PTY_SHELLS: &[&str] = &[
+    "pwsh", "powershell", "bash", "zsh", "sh", "dash", "ksh", "fish", "cmd",
+];
+/// The flags a terminal shell may start with: login, interactive, no logo.
+const PTY_SHELL_ARGS: &[&str] = &["-l", "--login", "-i", "-NoLogo"];
+
+/// `shell` when it is safe to open, as a TUI's argv is checked: an existing
+/// program given by absolute path that is a shell by name or the one the
+/// user's own setting names (`configured`), with only login and interactive
+/// flags, and no variable but `CHERE_INVOKING=1` (Git Bash stays in the
+/// directory). None otherwise: the panel opens `default_shell()`.
+fn checked_pty_shell(shell: PtyShell, configured: &[String]) -> Option<PtyShell> {
+    let path = Path::new(&shell.program);
+    let name = path.file_stem()?.to_string_lossy().to_lowercase();
+    let named = PTY_SHELLS.contains(&name.as_str()) || configured.contains(&shell.program);
+    // An app execution alias (`WindowsApps\pwsh.exe`) is not followed.
+    let exists = path.is_absolute() && (path.is_file() || std::fs::symlink_metadata(path).is_ok_and(|m| !m.is_dir()));
+    let args = shell.args.iter().all(|arg| PTY_SHELL_ARGS.contains(&arg.as_str()));
+    let env = shell.env.iter().all(|(name, value)| name == "CHERE_INVOKING" && value == "1");
+    (named && exists && args && env).then_some(shell)
+}
+
+/// `terminal_shell` and `shell` in config.json: the programs the user named.
+fn configured_shells() -> Vec<String> {
+    let config = read_json(&lynshen_dir().join("config.json"));
+    ["terminal_shell", "shell"]
+        .iter()
+        .filter_map(|key| config[key].as_str().map(str::to_string))
+        .collect()
+}
+
 /// Opens a pseudo-terminal in the project root. Without `command` it runs the
-/// user's shell (the embedded terminal panel), exactly as before. With
+/// user's shell (the embedded terminal panel): `shell` when the webview names
+/// one that passes `checked_pty_shell`, else `default_shell()`. With
 /// `command` it runs one of the allowlisted agent CLIs (`lynshen` / `codex` /
 /// `claude`) as a real interactive TUI: the name is parsed against the fixed
 /// backend set, extra `args` are validated against a per-backend token
@@ -3411,18 +3457,27 @@ fn pty_open(
     command: Option<String>,
     args: Option<Vec<String>>,
     bin_override: Option<String>,
+    shell: Option<PtyShell>,
     app: AppHandle,
     ptys: tauri::State<Ptys>,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-    let extra_args = args.unwrap_or_default();
+    let mut extra_args = args.unwrap_or_default();
+    let mut shell_env: Vec<(String, String)> = Vec::new();
     let program = match command.as_deref() {
         None => {
             if !extra_args.is_empty() || bin_override.is_some() {
                 return Err("args and bin_override require a command".to_string());
             }
-            PathBuf::from(default_shell())
+            match shell.and_then(|shell| checked_pty_shell(shell, &configured_shells())) {
+                Some(shell) => {
+                    extra_args = shell.args;
+                    shell_env = shell.env.into_iter().collect();
+                    PathBuf::from(shell.program)
+                }
+                None => PathBuf::from(default_shell()),
+            }
         }
         Some(name) => {
             let kind = BackendKind::parse(name)?;
@@ -3459,6 +3514,9 @@ fn pty_open(
     let mut cmd = CommandBuilder::new(&program);
     for arg in &extra_args {
         cmd.arg(arg);
+    }
+    for (name, value) in &shell_env {
+        cmd.env(name, value);
     }
     cmd.cwd(dir);
     if command.is_some() {
@@ -3927,6 +3985,36 @@ pub fn run() {
 mod tests {
     use super::{background_ext, read_json_strict, resolve_file_ref, ui_path, valid_app_data_name};
     use std::path::Path;
+
+    #[test]
+    fn the_terminal_panel_opens_only_shells_with_their_own_flags() {
+        let dir = std::env::temp_dir().join(format!("aogiri-pty-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, "").unwrap();
+            path.display().to_string()
+        };
+        let (zsh, bash, tool) = (file("zsh"), file("bash.exe"), file("nu"));
+        let shell = |program: &str, args: &[&str], env: &[(&str, &str)]| super::PtyShell {
+            program: program.to_string(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        };
+        let ok = |s: super::PtyShell, configured: &[String]| super::checked_pty_shell(s, configured).is_some();
+        assert!(ok(shell(&zsh, &["-l"], &[]), &[]));
+        assert!(ok(shell(&bash, &["--login", "-i"], &[("CHERE_INVOKING", "1")]), &[]));
+        // Not a shell by name, unless the user's setting names it.
+        assert!(!ok(shell(&tool, &[], &[]), &[]));
+        assert!(ok(shell(&tool, &[], &[]), &[tool.clone()]));
+        // Other flags or variables, a relative or missing program: refused.
+        assert!(!ok(shell(&zsh, &["-c", "rm -rf ~"], &[]), &[]));
+        assert!(!ok(shell(&zsh, &["-l"], &[("LD_PRELOAD", "/x.so")]), &[]));
+        assert!(!ok(shell("zsh", &["-l"], &[]), &[]));
+        assert!(!ok(shell(&dir.join("fish").display().to_string(), &["-l"], &[]), &[]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn config_writers_keep_each_other_s_keys() {

@@ -27,7 +27,7 @@ the process; restarting after exit spawns a new one.
 
 ## Security model
 
-The webview never passes argv or a program path directly:
+The webview never passes argv or a program path directly for a TUI:
 
 - `pty_open` accepts a `command` **name** that must parse as one of the fixed
   backends (`lynshen` / `codex` / `claude`); anything else is rejected.
@@ -40,6 +40,15 @@ The webview never passes argv or a program path directly:
 - The TUI child gets the login-shell env snapshot overlaid (see
   `shell_env.rs`) so PATH / proxy / CA vars match the user's terminal, plus
   `TERM=xterm-256color`.
+
+The plain terminal panel (no `command`) may name its shell in `shell`
+(`{program, args, env}`): what the daemon's `shells` op resolved from
+`terminal_shell` / `shell` in config.json. `checked_pty_shell` accepts it
+only as an existing absolute path whose file name is a shell (`pwsh`,
+`powershell`, `bash`, `zsh`, `sh`, `dash`, `ksh`, `fish`, `cmd`) or exactly
+the program config.json names, with no argument but `-l`, `--login`, `-i`,
+`-NoLogo` and no variable but `CHERE_INVOKING=1`. Anything else, or no
+`shell` (an older daemon), opens `default_shell()` as before.
 
 ## Missing binary
 
