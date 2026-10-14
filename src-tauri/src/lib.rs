@@ -3418,7 +3418,7 @@ const PTY_SHELL_ARGS: &[&str] = &["-l", "--login", "-i", "-NoLogo"];
 fn checked_pty_shell(shell: PtyShell, configured: &[String]) -> Option<PtyShell> {
     let path = Path::new(&shell.program);
     let name = path.file_stem()?.to_string_lossy().to_lowercase();
-    let named = PTY_SHELLS.contains(&name.as_str()) || configured.iter().any(|c| *c == shell.program);
+    let named = PTY_SHELLS.contains(&name.as_str()) || configured.contains(&shell.program);
     // An app execution alias (`WindowsApps\pwsh.exe`) is not followed.
     let exists = path.is_absolute() && (path.is_file() || std::fs::symlink_metadata(path).is_ok_and(|m| !m.is_dir()));
     let args = shell.args.iter().all(|arg| PTY_SHELL_ARGS.contains(&arg.as_str()));
