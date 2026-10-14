@@ -22,6 +22,8 @@ const skill = (name: string, description: string, scope: 'user' | 'shared' | 'pr
 export const daemonState = {
 	/** Answer the skill ops as a daemon older than them does. */
 	old: false,
+	/** The computer `shells` describes: a Mac, or a Windows PC without PowerShell 7. */
+	shellsPlatform: 'macos' as 'macos' | 'windows',
 	/** Leave the catalog's first request unanswered (a stuck daemon). */
 	stall: false,
 	/** The engine reads the community sources again in the background. */
@@ -136,12 +138,68 @@ export const daemonState = {
 		]) as Frame[]
 };
 
+/** The shell settings as the page last wrote them (`write_config`). */
+function shellSettings(): { shell: string; terminal_shell: string | null } {
+	const settings = { shell: 'auto', terminal_shell: null as string | null };
+	const calls = ((window as unknown as { __calls?: Frame[] }).__calls ?? []).filter((c) => c.command === 'write_config');
+	for (const call of calls) {
+		if ('shell' in call.args.patch) settings.shell = call.args.patch.shell;
+		if ('terminal_shell' in call.args.patch) settings.terminal_shell = call.args.patch.terminal_shell;
+	}
+	return settings;
+}
+
+/** The `shells` reply: a Mac with zsh and bash, or a Windows PC with
+ *  Windows PowerShell and Git Bash but no PowerShell 7. */
+function shellsReply(): Frame {
+	const { shell, terminal_shell } = shellSettings();
+	const windows = daemonState.shellsPlatform === 'windows';
+	const shells = windows
+		? [
+				{ id: 'pwsh', name: 'PowerShell 7', installed: false, path: null, version: null },
+				{ id: 'powershell', name: 'Windows PowerShell 5.1', installed: true, path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', version: '5.1.22621.4391' },
+				{ id: 'gitbash', name: 'Git Bash', installed: true, path: 'C:\\Program Files\\Git\\bin\\bash.exe', version: '5.2.37' }
+			]
+		: [
+				{ id: 'zsh', name: 'zsh', installed: true, path: '/bin/zsh', version: '5.9' },
+				{ id: 'bash', name: 'bash', installed: true, path: '/bin/bash', version: '3.2.57' },
+				{ id: 'sh', name: 'sh', installed: true, path: '/bin/sh', version: 'bash 3.2.57' }
+			];
+	const auto = windows ? shells[2] : shells[0];
+	const chosen = shells.find((x) => x.id === shell && x.installed) ?? auto;
+	const notes = shell !== 'auto' && chosen.id !== shell ? [`${shell} is not installed; commands run in ${chosen.name}`] : [];
+	const terminal = shells.find((x) => x.id === (terminal_shell ?? shell) && x.installed) ?? auto;
+	return {
+		type: 'shells',
+		platform: daemonState.shellsPlatform,
+		shell,
+		terminal_shell,
+		auto: { id: auto.id, path: auto.path },
+		auto_order: windows ? ['gitbash', 'pwsh', 'powershell'] : ['login', 'zsh', 'bash', 'sh'],
+		shells,
+		commands: {
+			id: chosen.id,
+			name: chosen.name,
+			label: chosen.name,
+			path: chosen.path,
+			version: chosen.version,
+			login: false,
+			snapshot: !windows,
+			notes,
+			helper: chosen.id === 'gitbash' ? { id: 'powershell', name: 'Windows PowerShell 5.1', version: '5.1.22621.4391' } : null
+		},
+		terminal: { program: terminal.path, args: terminal.id === 'gitbash' ? ['--login', '-i'] : windows ? ['-NoLogo'] : ['-l'], env: {} }
+	};
+}
+
 function reply(op: Frame): Frame | null {
 	const s = daemonState;
 	const list = () => (op.backend === 'claude' ? s.claude : s.list);
 	if (s.old && String(op.op).startsWith('skill') && op.op !== 'skills_catalog' && op.op !== 'skill_install')
 		return { type: 'error', message: `${op.op} requires session` };
 	switch (op.op) {
+		case 'shells':
+			return s.old ? { type: 'error', message: 'shells requires session' } : shellsReply();
 		case 'skills_list':
 			return { type: 'skills_list', ...list() };
 		case 'skill_set_enabled': {

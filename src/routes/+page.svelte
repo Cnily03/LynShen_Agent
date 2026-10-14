@@ -55,6 +55,7 @@
 	import { updater } from '$lib/updater.svelte';
 	import { teamSwitch } from '$lib/agents/teamSwitch.svelte';
 	import { checkDaemonVersion } from '$lib/daemonVersion';
+	import { shells } from '$lib/shellStore.svelte';
 	import UpdatePrompt from '$lib/UpdatePrompt.svelte';
 	import TrialGrantCard from '$lib/TrialGrantCard.svelte';
 	import { trial } from '$lib/trial.svelte';
@@ -778,7 +779,7 @@
 		terminalSeen = request.n;
 		untrack(() => {
 			const tab = { id: newTabId(), panel: 'term' };
-			terminalRequests.assign(tab.id, { cwd: request.cwd, command: request.command });
+			terminalRequests.assign(tab.id, { cwd: request.cwd, command: request.command, run: request.run });
 			applyTiles(openElsewhere(tab, { place: 'side', sessionId: request.sessionId || store.activeId }));
 		});
 	});
@@ -1428,6 +1429,8 @@
 			};
 			daemon.onHello = (version) => {
 				engine.version = version;
+				// The terminal shell the settings name, ready for the first terminal.
+				void shells.load();
 				checkDaemonVersion(version).then((outcome) => {
 					if (outcome.kind === 'restart-when-idle')
 						toast.info(t('shell.daemonUpdate.idle', { version: outcome.version }));

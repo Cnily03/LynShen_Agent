@@ -112,6 +112,8 @@ export const ROWS: SearchRow[] = [
 	{ section: 'plugins', id: 'plugins-foreign', titleKey: 'settings.plugins.foreign', descKey: 'settings.plugins.foreignHint' },
 	{ section: 'agents', id: 'default-backend', titleKey: 'settings.backend.defaultLabel' },
 	{ section: 'agents', id: 'shell-env', titleKey: 'settings.backend.shellEnvLabel', descKey: 'settings.backend.shellEnvHint' },
+	{ section: 'agents', id: 'shell-command', titleKey: 'settings.shells.command', descKey: 'settings.shells.commandHint' },
+	{ section: 'agents', id: 'terminal-shell', titleKey: 'settings.shells.terminal', descKey: 'settings.shells.terminalHint' },
 	{ section: 'agents', id: 'backend-list', titleKey: 'settings.section.agents' },
 	{ section: 'agents', id: 'dependencies', titleKey: 'setup.deps.title' },
 	{ section: 'sandbox', id: 'sandbox-mode', titleKey: 'settings.sandbox.modeTitle', descKey: 'settings.sandbox.modeHint.workspace-write' },

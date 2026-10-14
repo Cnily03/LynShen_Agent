@@ -4,6 +4,8 @@
 	// and the sidebar with folded sections and the archive. Also the places
 	// that show the product's name: the welcome page (?welcome, ?welcome=guide)
 	// and Settings → 更新 (?updates; ?updates=found with the update prompt).
+	// Settings → 编码智能体 with its Shell section (?agents on a Mac,
+	// ?agents=windows on a PC without PowerShell 7).
 	// The welcome page as a first run shows it: ?welcome (the sign-in; with
 	// &authorize the browser approves it), ?welcome=relogin (after logging
 	// out: 跳过 closes it), ?welcome=guide (the walkthrough). What closed it
@@ -23,7 +25,7 @@
 	const mode = new URL(location.href).searchParams;
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
 	provideRequirements(new Requirements(daemon));
-	let section = $state(mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : mode.has('updates') ? 'updates' : 'skills');
+	let section = $state(mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : mode.has('updates') ? 'updates' : mode.has('agents') ? 'agents' : 'skills');
 	// A newer version found on launch, asking whether to update now.
 	if (mode.get('updates') === 'found') {
 		updater.version = '9.9.9';

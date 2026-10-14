@@ -99,6 +99,7 @@
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsRow from './SettingsRow.svelte';
 	import BackendSection from './BackendSection.svelte';
+	import ShellSection from './ShellSection.svelte';
 	import AcpSection from './AcpSection.svelte';
 	import DaemonSection from './DaemonSection.svelte';
 	import McpSection from './McpSection.svelte';
@@ -1277,6 +1278,7 @@
 					<PluginsSection onOpen={(key) => (section = key)} />
 				{:else if current === 'agents'}
 					<BackendSection />
+					<ShellSection {onClose} />
 					{#if chat && caps(chat).ruleScopes}<PermissionRulesSection {sessionId} {chat} />{/if}
 					<SettingsSection id="dependencies" title={t('setup.deps.title')}>
 						{#snippet action()}

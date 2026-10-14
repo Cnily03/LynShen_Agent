@@ -6,12 +6,14 @@
 	import '@xterm/xterm/css/xterm.css';
 	import { terminalLook, useTerminalInput, useWebgl } from './terminal';
 	import { ptyOpen, ptyWrite, ptyResize, ptyClose } from '$lib/protocol';
-	import { cleanCommand, terminalRequests, typedCommand } from '$lib/sandbox/terminal.svelte';
+	import { cleanCommand, runCommand, terminalRequests, typedCommand } from '$lib/sandbox/terminal.svelte';
+	import { shells } from '$lib/shellStore.svelte';
 	import { copyText } from '$lib/clipboard';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { t } from '$lib/i18n';
 
-	/** `tabId`: a tab opened by 在终端里运行 gets its command typed (not run). */
+	/** `tabId`: a tab opened by 在终端里运行 gets its command typed (not
+	 *  run); one opened by settings' 安装 runs it. */
 	let { cwd = '', tabId = '' }: { cwd?: string; tabId?: string } = $props();
 	let lastOutput = 0;
 	let host = $state<HTMLDivElement | null>(null);
@@ -52,7 +54,10 @@
 
 			term.onData((d) => ptyWrite(id, d));
 			term.onResize(({ cols, rows }) => ptyResize(id, cols, rows).catch(() => {}));
-			await ptyOpen(id, term.cols, term.rows, cwd || undefined);
+			// The shell the settings name (the daemon's `shells` reply), else
+			// the app's own default.
+			const shell = await shells.terminal();
+			await ptyOpen(id, term.cols, term.rows, cwd || undefined, undefined, shell ?? undefined);
 
 			const ro = new ResizeObserver(refit);
 			if (host) ro.observe(host);
@@ -73,7 +78,7 @@
 
 	/** Types the tab's command once the shell has drawn its prompt (its
 	 *  output has started and gone quiet; at the latest after 4 s), so the
-	 *  shell's line editor takes it. Never with Enter. */
+	 *  shell's line editor takes it. With Enter only for a command to run. */
 	function typeWhenReady(start: number) {
 		const now = Date.now();
 		const quiet = lastOutput > 0 && now - lastOutput > 350;
@@ -82,9 +87,10 @@
 			cleanups.push(() => clearTimeout(timer));
 			return;
 		}
-		const command = terminalRequests.take(tabId);
-		if (!command || !term) return;
-		const text = typedCommand(command, term.modes.bracketedPasteMode);
+		const prefill = terminalRequests.take(tabId);
+		if (!prefill || !term) return;
+		const { command, run } = prefill;
+		const text = run ? runCommand(command, term.modes.bracketedPasteMode) : typedCommand(command, term.modes.bracketedPasteMode);
 		if (text) {
 			ptyWrite(id, text);
 			term.focus();

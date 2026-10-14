@@ -125,6 +125,32 @@ try {
   await expect(page.getByText(/当前的 LynShen 引擎还不能在这里管理技能/)).toBeVisible();
   await page.goto(base + '?plugins');
   await expect(page.getByText('document-skills')).toBeVisible();
+  // Settings → 编码智能体 → Shell: the shells the daemon found, with their
+  // versions; a choice is written to config.json; a missing PowerShell 7
+  // offers its winget install and the download page.
+  await page.goto(base + '?agents');
+  await expect(page.locator('#set-shell-command')).toContainText('现在：zsh 5.9');
+  await page.locator('#set-shell-command .trigger').click();
+  await expect(page.locator('#set-shell-command .opt')).toHaveText(['自动（推荐：登录 shell，现在是 zsh）', 'zsh 5.9', 'bash 3.2.57', 'sh (bash 3.2.57)']);
+  await page.getByRole('button',{name:'bash 3.2.57',exact:true}).click();
+  const shellPatches = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
+  await expect.poll(shellPatches).toContain('{"shell":"bash"}');
+  await expect(page.locator('#set-shell-command')).toContainText('现在：bash 3.2.57');
+  await page.locator('#set-terminal-shell .trigger').click();
+  await page.locator('#set-terminal-shell .opt', {hasText:'zsh 5.9'}).click();
+  await expect.poll(shellPatches).toContain('{"terminal_shell":"zsh"}');
+  await page.goto(base + '?agents=windows');
+  await expect(page.locator('#set-shell-command .trigger')).toHaveText('自动（推荐：Git Bash，没有时用 PowerShell 7，再没有时用 Windows PowerShell 5.1）');
+  await expect(page.locator('#set-shell-command')).toContainText('现在：Git Bash 5.2.37 · Windows 原生操作用 Windows PowerShell 5.1.22621.4391');
+  await page.locator('#set-shell-command .trigger').click();
+  await page.getByRole('button',{name:'PowerShell 7（未安装）'}).click();
+  await expect(page.locator('#set-shell-command')).toContainText('PowerShell 7 未安装，命令在 Git Bash 5.2.37 中运行');
+  await expect(page.locator('#set-shell-install-pwsh').getByRole('button',{name:'安装 PowerShell 7'})).toHaveAttribute('title', 'winget install --id Microsoft.PowerShell -e --source winget');
+  await page.locator('#set-shell-install-pwsh').getByRole('button',{name:'官方下载'}).click();
+  assert.ok(await page.evaluate(() => window.__calls.some((c) => c.command === 'plugin:opener|open_url' && String(c.args.url).includes('installing-powershell-on-windows'))));
+  // A daemon before the `shells` op: a note, no choice.
+  await page.goto(base + '?agents&oldEngine');
+  await expect(page.getByText('当前的后台服务不能选择 Shell，更新后可用')).toBeVisible();
   // The sidebar: folded sections stay folded after a restart; the archive
   // restores several conversations at once.
   await page.goto(base + '?sidebar');
@@ -1073,5 +1099,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
 } finally { await browser.close(); await server.close(); }
