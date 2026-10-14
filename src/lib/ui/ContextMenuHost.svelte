@@ -103,7 +103,7 @@
 
 {#if menu}
 	<div class="ctx" bind:this={wrap} style:left="{pos.x}px" style:top="{pos.y}px">
-		<PopMenu items={menu.items} placement="down-left" onSelect={run} onClose={() => (menu = null)} />
+		<PopMenu items={menu.items} placement="down-left" fit={false} onSelect={run} onClose={() => (menu = null)} />
 	</div>
 {/if}
 

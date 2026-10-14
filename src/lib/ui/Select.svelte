@@ -123,6 +123,7 @@
 		z-index: 31;
 		max-height: 240px;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		padding: 5px;
 		background: var(--panel);
 		border-radius: var(--r-lg);

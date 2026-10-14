@@ -190,6 +190,60 @@ try {
   });
   await page.waitForFunction(() => document.querySelector('.plan')?.closest('.mwrap')?.getAnimations().every((a) => a.playState === 'finished'));
   await closesOn(page.getByRole('button',{name:'执行时的审批模式'}));
+  // A new conversation's project menu longer than the room it has scrolls
+  // its own rows. It stays inside the conversation (it ran up under the title
+  // bar), the wheel over it moves its rows and never the conversation behind
+  // it (no jump-to-end button either), and the keys keep the row they reach
+  // in view. Under glass it stays clear of the faded edges.
+  for (const query of ['?chat&many', '?chat&many&glass']) {
+    await page.goto(base + query);
+    await settled('.welcome');
+    const behind = page.locator('.mainwrap > main');
+    const chatScroll = () => behind.evaluate((el) => ({top: el.scrollTop, room: el.scrollHeight - el.clientHeight, page: document.scrollingElement.scrollTop}));
+    await page.getByRole('button',{name:'项目',exact:true}).click();
+    const list = page.getByRole('menu');
+    await expect(list).toBeVisible();
+    await list.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    const box = await list.boundingBox();
+    const pane = await behind.boundingBox();
+    const inset = query.includes('glass') ? 28 : 0;
+    assert.ok(box.y >= pane.y + inset && box.y + box.height <= pane.y + pane.height - inset, `the project menu runs out of the conversation (${query}): ${JSON.stringify({box, pane})}`);
+    assert.deepEqual(await chatScroll(), {top: 0, room: 0, page: 0}, `the project menu made the conversation longer (${query})`);
+    assert.ok((await page.getByRole('menuitemradio').first().boundingBox()).height > 44, 'the two-line rows were squeezed');
+    const listTop = () => list.evaluate((el) => el.scrollTop);
+    const seen = (row) => row.evaluate((el) => {
+      const m = el.closest('[role="menu"]').getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return r.top >= m.top && r.bottom <= m.bottom;
+    });
+    // It opens at the current project, the last one.
+    const opened = await listTop();
+    assert.ok(opened > 0 && await seen(page.getByRole('menuitemradio',{checked:true})), `the project menu did not open at the current project (${query})`);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, -200);
+    await expect.poll(listTop).toBeLessThan(opened);
+    await page.mouse.wheel(0, -5000);
+    await expect.poll(listTop).toBe(0);
+    await page.mouse.wheel(0, -400);
+    await page.mouse.wheel(0, 300);
+    await expect.poll(listTop).toBeGreaterThan(0);
+    await page.waitForTimeout(200);
+    assert.deepEqual(await chatScroll(), {top: 0, room: 0, page: 0}, `the wheel over the project menu scrolled the conversation (${query})`);
+    await expect(page.getByRole('button',{name:'滚动到底部'})).toHaveCount(0);
+    await page.keyboard.press('End');
+    const openFolder = page.getByRole('menuitem',{name:'打开文件夹…'});
+    await expect(openFolder).toBeFocused();
+    assert.ok(await seen(openFolder), 'End left the last row out of view');
+    await page.keyboard.press('ArrowDown');
+    const first = page.getByRole('menuitemradio').first();
+    await expect(first).toBeFocused();
+    assert.ok(await seen(first), 'ArrowDown round to the first row left it out of view');
+    await page.keyboard.press('ArrowUp');
+    await expect(openFolder).toBeFocused();
+    assert.ok(await seen(openFolder), 'ArrowUp round to the last row left it out of view');
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+  }
   // A long reasoning streams into blocks written once: the block still
   // growing stays short, finished ones are never written again, and they read
   // as the one text they replace. (It was one text node, rewritten and laid

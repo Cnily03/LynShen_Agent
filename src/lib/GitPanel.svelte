@@ -657,6 +657,7 @@
 	.poplist {
 		max-height: 220px;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 	.popitem {
 		min-height: 0;

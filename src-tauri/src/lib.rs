@@ -34,6 +34,7 @@ mod renamed;
 mod secrets;
 mod shell_env;
 mod tool_login;
+mod tool_path;
 mod tool_switch;
 
 use backend::BackendKind;
@@ -1138,6 +1139,12 @@ fn about_app(app: AppHandle) -> serde_json::Value {
 /// blank pane on a machine nobody here can see still says what broke.
 #[tauri::command]
 fn log_ui_error(message: String) {
+    desktop_log(&message);
+}
+
+/// A line in the app's log, ~/.lynshen/logs/desktop-ui.log (bounded), which
+/// a bug report carries (diagnostic_logs): UI errors, the tools found.
+pub(crate) fn desktop_log(message: &str) {
     use std::io::Write;
     let dir = lynshen_dir().join("logs");
     let _ = std::fs::create_dir_all(&dir);
@@ -1710,32 +1717,16 @@ fn chats_dir() -> Result<String, String> {
     Ok(dir.display().to_string())
 }
 
-/// Scans PATH for an executable named `cmd`, returning its full path.
-/// 终端环境快照可用时优先用快照 PATH（GUI 进程的 PATH 往往缺用户目录），
-/// 再回退进程自身 PATH。
+/// The full path of the executable `cmd`: on the login shell's PATH (the
+/// snapshot; a GUI app's own PATH lacks the user's directories), on this
+/// process's PATH, then in the package managers' directories (Homebrew,
+/// MacPorts, ~/.local/bin, Nix, winget, Scoop, Chocolatey; see tool_path).
 pub(crate) fn which(cmd: &str) -> Option<PathBuf> {
-    if let Some(snap) = shell_env::snapshot_path() {
-        if let Some(found) = which_in(cmd, std::ffi::OsString::from(snap)) {
-            return Some(found);
-        }
-    }
-    if let Some(path) = std::env::var_os("PATH") {
-        if let Some(found) = which_in(cmd, path) {
-            return Some(found);
-        }
-    }
-    // Installers update the registry's PATH, not this running GUI's environment
-    // (nor its terminal snapshot). Probe their standard locations immediately.
-    #[cfg(windows)]
-    let dirs = windows_install_dirs(cmd, &|key| std::env::var_os(key));
-    // Tools the app installs per user (installer::user_install) land in
-    // ~/.local/bin, which a GUI app's PATH often lacks.
-    #[cfg(not(windows))]
-    let dirs = [backend::home_dir().join(".local").join("bin")];
-    which_in(cmd, std::env::join_paths(dirs).ok()?)
+    tool_path::find(cmd).map(|(path, _)| path)
 }
 
-#[cfg(any(windows, test))]
+/// Where the installers the app runs on Windows put Node.js, npm and Git
+/// (they update the registry's PATH, not this running app's).
 fn windows_install_dirs(
     cmd: &str,
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
@@ -3479,6 +3470,10 @@ fn pty_open(
             for (k, v) in vars {
                 cmd.env(k, v);
             }
+        }
+        // And the package managers' directories that PATH lacks.
+        if let Some(path) = shell_env::child_path(shell_env::snapshot_path().map(Into::into)) {
+            cmd.env("PATH", path);
         }
         cmd.env("TERM", "xterm-256color");
     }

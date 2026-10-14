@@ -337,6 +337,7 @@
 		max-width: min(420px, calc(100vw - 32px));
 		max-height: min(360px, 60vh);
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		transform-origin: top left;
 		animation: pop-in var(--t-pop) var(--ease-enter);
 	}

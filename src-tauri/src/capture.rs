@@ -62,6 +62,13 @@ fn has_tool(name: &str) -> bool {
     crate::which(name).is_some()
 }
 
+/// The program `has_tool` found, by its path: a bare name would be looked
+/// up on the app's own PATH, which a GUI launch leaves without the user's
+/// directories (or an install made while the app runs).
+fn program(name: &str) -> PathBuf {
+    crate::which(name).unwrap_or_else(|| PathBuf::from(name))
+}
+
 // ---------------------------------------------------------------------------
 // Backend selection (pure — unit tested with a mocked availability probe)
 // ---------------------------------------------------------------------------
@@ -355,7 +362,7 @@ pub fn start_screen_recording(rec: tauri::State<Recorder>) -> Result<(), String>
         RecBackend::FfmpegGdigrab => {
             let path = dir.join(format!("rec-{}.mp4", stamp()));
             let child = hide_console(
-                Command::new("ffmpeg")
+                Command::new(program("ffmpeg"))
                     .args(["-y", "-f", "gdigrab", "-framerate", "15", "-i", "desktop"])
                     .args(["-pix_fmt", "yuv420p"])
                     .arg(&path)
@@ -369,7 +376,7 @@ pub fn start_screen_recording(rec: tauri::State<Recorder>) -> Result<(), String>
         }
         RecBackend::WfRecorder => {
             let path = dir.join(format!("rec-{}.mp4", stamp()));
-            let child = Command::new("wf-recorder")
+            let child = Command::new(program("wf-recorder"))
                 .arg("-f")
                 .arg(&path)
                 .stdin(Stdio::null())
@@ -382,7 +389,7 @@ pub fn start_screen_recording(rec: tauri::State<Recorder>) -> Result<(), String>
         RecBackend::FfmpegX11grab => {
             let path = dir.join(format!("rec-{}.mp4", stamp()));
             let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".to_string());
-            let child = Command::new("ffmpeg")
+            let child = Command::new(program("ffmpeg"))
                 .args(["-y", "-f", "x11grab", "-framerate", "15", "-i", &display])
                 .args(["-pix_fmt", "yuv420p"])
                 .arg(&path)
@@ -466,92 +473,123 @@ fn bundle_name(exe: &Path) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Video keyframe extraction (cross-platform, requires ffmpeg/ffprobe)
+// Video keyframe extraction (cross-platform: ffmpeg; ffprobe when present)
 // ---------------------------------------------------------------------------
 
-/// Locates ffmpeg/ffprobe: PATH first, then the usual install dirs — the
-/// packaged app doesn't inherit a shell PATH.
+/// Locates ffmpeg / ffprobe as tool_path does (the login shell's PATH, the
+/// app's, the package managers' directories: a packaged app started from
+/// Finder or the Dock has none of the user's), kept once found. A miss looks
+/// again, after reading the login shell's PATH again, so ffmpeg installed
+/// while the app runs is found on the next attach.
 fn find_tool(name: &str) -> Result<PathBuf, String> {
-    if let Some(p) = crate::which(name) {
-        return Ok(p);
-    }
-    if cfg!(windows) {
-        let file = format!("{name}.exe");
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(la) = std::env::var_os("LOCALAPPDATA") {
-            // winget (Gyan.FFmpeg) shim directory.
-            dirs.push(
-                PathBuf::from(la)
-                    .join("Microsoft")
-                    .join("WinGet")
-                    .join("Links"),
-            );
-        }
-        dirs.push(PathBuf::from("C:\\ffmpeg\\bin"));
-        for dir in dirs {
-            let candidate = dir.join(&file);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    } else {
-        for dir in [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/opt/local/bin",
-            "/usr/bin",
-        ] {
-            let candidate = Path::new(dir).join(name);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    }
+    crate::tool_path::tool(name, true).ok_or_else(|| missing_tool(name))
+}
+
+fn missing_tool(name: &str) -> String {
     let hint = match std::env::consts::OS {
         "macos" => "brew install ffmpeg",
         "windows" => "winget install Gyan.FFmpeg",
         _ => "sudo apt-get install ffmpeg（或使用发行版对应的包管理器 / or your distro's package manager）",
     };
-    Err(format!(
+    format!(
         "未找到 {name}。视频抽帧需要 ffmpeg，请先安装：{hint} / {name} not found. Video keyframe extraction needs ffmpeg — install it first: {hint}"
-    ))
+    )
 }
 
-#[derive(Serialize)]
-pub struct VideoInfo {
-    pub path: String,
-    pub duration: f64,
-    pub width: u32,
-    pub height: u32,
-    pub frames: Vec<String>,
-}
-
-/// Extracts evenly-spaced keyframes from a video (scaled to ≤1280px wide JPEGs
-/// so each stays well under the engine's per-image size cap) and probes basic
-/// metadata for the text description.
-#[tauri::command(async)]
-pub fn process_video(path: String, max_frames: Option<u32>) -> Result<VideoInfo, String> {
-    let src = PathBuf::from(&path);
-    if !src.is_file() {
-        return Err(format!("文件不存在: {path}"));
+/// ffprobe next to `ffmpeg` (as packaged together), or next to the file a
+/// link to it points at.
+fn ffprobe_beside(ffmpeg: &Path) -> Option<PathBuf> {
+    let file = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let real = ffmpeg.canonicalize().ok();
+    for path in [Some(ffmpeg), real.as_deref()].into_iter().flatten() {
+        if let Some(dir) = path.parent() {
+            let candidate = dir.join(file);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
     }
-    let ffprobe = find_tool("ffprobe")?;
-    let ffmpeg = find_tool("ffmpeg")?;
+    None
+}
 
-    let out = Command::new(&ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height:format=duration",
-            "-of",
-            "json",
-        ])
-        .arg(&src)
-        .output()
-        .map_err(|e| format!("failed to run ffprobe: {e}"))?;
+/// A video's length in seconds, width and height, from `ffmpeg -i`'s
+/// description of its input (a build without ffprobe: static builds often
+/// come alone). None when ffmpeg could not read it.
+fn parse_ffmpeg_info(stderr: &str) -> Option<(f64, u32, u32)> {
+    if !stderr.contains("Input #") {
+        return None;
+    }
+    let duration = stderr
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("Duration:"))
+        .and_then(|rest| rest.split(',').next())
+        .and_then(|clock| {
+            let mut secs = 0.0;
+            for part in clock.trim().split(':') {
+                secs = secs * 60.0 + part.parse::<f64>().ok()?;
+            }
+            Some(secs)
+        })
+        .unwrap_or(0.0);
+    // `Stream #0:0[0x1](und): Video: h264 (Main) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 2940x1650 [SAR 1:1 DAR 98:55], …`
+    let (width, height) = stderr
+        .lines()
+        .find(|line| line.trim_start().starts_with("Stream #") && line.contains(": Video: "))
+        .and_then(|line| {
+            line.split(", ").find_map(|part| {
+                let size = part.split_whitespace().next()?;
+                let (w, h) = size.split_once('x')?;
+                let (w, h) = (w.parse::<u32>().ok()?, h.parse::<u32>().ok()?);
+                (w > 0 && h > 0).then_some((w, h))
+            })
+        })
+        .unwrap_or((0, 0));
+    Some((duration, width, height))
+}
+
+/// Length and size with ffmpeg alone: given no output, it describes the
+/// input on stderr and stops.
+fn probe_with_ffmpeg(ffmpeg: &Path, src: &Path) -> Result<(f64, u32, u32), String> {
+    let out = hide_console(
+        Command::new(ffmpeg)
+            .args(["-hide_banner", "-i"])
+            .arg(src)
+            .stdin(Stdio::null()),
+    )
+    .output()
+    .map_err(|e| format!("failed to run ffmpeg: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    parse_ffmpeg_info(&text).ok_or_else(|| {
+        format!(
+            "ffmpeg 解析失败: {}",
+            text.lines().last().unwrap_or_default().trim()
+        )
+    })
+}
+
+/// Length and size with ffprobe.
+fn probe_with_ffprobe(ffprobe: &Path, src: &Path) -> Result<(f64, u32, u32), String> {
+    let out = hide_console(
+        Command::new(ffprobe)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height:format=duration",
+                "-of",
+                "json",
+            ])
+            .arg(src)
+            .stdin(Stdio::null()),
+    )
+    .output()
+    .map_err(|e| format!("failed to run ffprobe: {e}"))?;
     if !out.status.success() {
         return Err(format!(
             "ffprobe 解析失败: {}",
@@ -575,6 +613,35 @@ pub fn process_video(path: String, max_frames: Option<u32>) -> Result<VideoInfo,
         .and_then(|s| s.get("height"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
+    Ok((duration, width, height))
+}
+
+#[derive(Serialize)]
+pub struct VideoInfo {
+    pub path: String,
+    pub duration: f64,
+    pub width: u32,
+    pub height: u32,
+    pub frames: Vec<String>,
+}
+
+/// Extracts evenly-spaced keyframes from a video (scaled to ≤1280px wide JPEGs
+/// so each stays well under the engine's per-image size cap) and probes basic
+/// metadata for the text description.
+#[tauri::command(async)]
+pub fn process_video(path: String, max_frames: Option<u32>) -> Result<VideoInfo, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_file() {
+        return Err(format!("文件不存在: {path}"));
+    }
+    let ffmpeg = find_tool("ffmpeg")?;
+    // ffprobe reads the length and size; ffmpeg alone can when a build
+    // comes without it.
+    let ffprobe = ffprobe_beside(&ffmpeg).or_else(|| crate::tool_path::tool("ffprobe", false));
+    let (duration, width, height) = match ffprobe {
+        Some(ffprobe) => probe_with_ffprobe(&ffprobe, &src)?,
+        None => probe_with_ffmpeg(&ffmpeg, &src)?,
+    };
 
     // Roughly one frame per 5s, clamped to [1, cap]; a broken/zero duration
     // still yields the first frame.
@@ -595,7 +662,7 @@ pub fn process_video(path: String, max_frames: Option<u32>) -> Result<VideoInfo,
             0.0
         };
         let frame_path = dir.join(format!("frame-{batch}-{i:02}.jpg"));
-        let status = Command::new(&ffmpeg)
+        let status = hide_console(&mut Command::new(&ffmpeg))
             .args(["-v", "error", "-ss", &format!("{t:.3}"), "-i"])
             .arg(&src)
             .args([
@@ -639,6 +706,57 @@ mod tests {
 
     fn avail(set: &'static [&'static str]) -> impl Fn(&str) -> bool {
         move |name| set.contains(&name)
+    }
+
+    // --- video length and size without ffprobe ---
+
+    #[test]
+    fn ffmpeg_alone_reads_a_videos_length_and_size() {
+        let stderr = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
+  Metadata:
+    major_brand     : isom
+    title           : Video: a tour
+  Duration: 00:01:02.93, start: 0.000000, bitrate: 2599 kb/s
+  Stream #0:0[0x1](und): Video: h264 (Main) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 2940x1650 [SAR 1:1 DAR 98:55], 2595 kb/s, 15 fps, 15 tbr, 6k tbn (default)
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 128 kb/s (default)
+At least one output file must be specified
+";
+        let (duration, width, height) = parse_ffmpeg_info(stderr).unwrap();
+        assert!((duration - 62.93).abs() < 1e-9, "{duration}");
+        assert_eq!((width, height), (2940, 1650));
+    }
+
+    #[test]
+    fn an_unknown_length_reads_as_zero_and_an_unreadable_file_as_none() {
+        let live = "Input #0, matroska,webm, from 'live.webm':
+  Duration: N/A, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: vp9 (Profile 0), yuv420p(tv), 1280x720, SAR 1:1 DAR 16:9, 30 fps
+";
+        assert_eq!(parse_ffmpeg_info(live), Some((0.0, 1280, 720)));
+        let missing = "[in#0 @ 0x145e15cf0] Error opening input: No such file or directory
+Error opening input file nope.mp4.
+";
+        assert_eq!(parse_ffmpeg_info(missing), None);
+    }
+
+    #[test]
+    fn ffprobe_is_looked_for_beside_ffmpeg() {
+        let dir =
+            std::env::temp_dir().join(format!("lynshen-ffprobe-beside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = |name: &str| {
+            dir.join(if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_string()
+            })
+        };
+        std::fs::write(exe("ffmpeg"), b"").unwrap();
+        assert_eq!(ffprobe_beside(&exe("ffmpeg")), None);
+        std::fs::write(exe("ffprobe"), b"").unwrap();
+        assert_eq!(ffprobe_beside(&exe("ffmpeg")), Some(exe("ffprobe")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
