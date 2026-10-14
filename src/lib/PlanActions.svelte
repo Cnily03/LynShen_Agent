@@ -20,9 +20,10 @@
 		onAction: (id: string, action: PlanAction) => void;
 	} = $props();
 
-	// Plans are LynShen's: its sandbox modes (自动改文件 is part of 自动 there).
-	const MODES: ApprovalMode[] = ['ask', 'auto', 'all'];
-	const LABEL: Record<string, string> = { ask: 'approvalAsk', auto: 'approvalAuto', all: 'approvalAll' };
+	// Plans are LynShen's: its sandbox modes to work in, in the composer's
+	// order (plan itself is not one).
+	const MODES: ApprovalMode[] = ['ask', 'edits', 'auto', 'all'];
+	const LABEL: Record<string, string> = { ask: 'approvalAsk', edits: 'approvalEdits', auto: 'approvalAuto', all: 'approvalAll' };
 	let mode = $state<ApprovalMode>('auto');
 	$effect.pre(() => {
 		mode = MODES.includes(defaultMode) ? defaultMode : 'auto';

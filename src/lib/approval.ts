@@ -1,6 +1,6 @@
 // Tool-approval plumbing shared by the composer picker, the approval card and
 // ChatState. The engine owns the auto-approval decision (set via the
-// `set_approval_mode` op); the desktop only maps its three UI modes onto the
+// `set_approval_mode` op); the desktop only maps its UI modes onto the
 // engine's, reconciles from `approval_mode` events, and builds structured
 // `approve` ops — including per-hunk partial approvals for edit tools.
 
@@ -53,19 +53,56 @@ export function buildSetApprovalModeOp(mode: ApprovalMode): {
 	return { op: 'set_approval_mode', mode: toEngineMode(mode) };
 }
 
-/** The modes a session's picker offers, in order. An agent's session shows
- *  the agent's four (changed on its page); a LynShen session the sandbox
- *  four (谨慎 / 计划 / 自动 / 全自动: 自动改文件 is part of 自动 there);
- *  claude and codex add their native plan and auto modes. */
+/** The order every picker lists the modes in, numbered 1–5 in the composer's
+ *  menu, as Claude Code's (ask permissions, accept edits, plan, auto, bypass):
+ *  谨慎 / 自动改文件 / 计划 / 自动 / 全自动. A backend without some of them
+ *  keeps the others in this order. */
+export const MODE_ORDER: readonly ApprovalMode[] = ['ask', 'edits', 'plan', 'auto', 'all'];
+
+/** Each mode's name in the UI (i18n keys). */
+export const MODE_LABEL_KEYS: Record<ApprovalMode, string> = {
+	ask: 'chat.approvalAsk',
+	edits: 'chat.approvalEdits',
+	plan: 'chat.approvalPlan',
+	auto: 'chat.approvalAuto',
+	all: 'chat.approvalAll'
+};
+
+/** The modes a session's picker offers, in MODE_ORDER. An agent's session
+ *  shows the agent's four (changed on its page); a LynShen session all five
+ *  (全自动 keeps the sandbox boundary; 完全访问, the sandbox off, is only in
+ *  Settings); claude and codex too, with their native plan and auto modes. */
 export function approvalModeKeys(
 	c: { sandbox: boolean; extendedApprovalModes: boolean; planMode: boolean },
 	agent = false
 ): ApprovalMode[] {
 	if (agent) return ['ask', 'edits', 'auto', 'all'];
-	if (c.sandbox) return ['ask', 'plan', 'auto', 'all'];
-	if (c.extendedApprovalModes) return ['ask', 'plan', 'auto', 'edits', 'all'];
-	if (c.planMode) return ['ask', 'plan', 'edits', 'all'];
+	if (c.sandbox || c.extendedApprovalModes) return [...MODE_ORDER];
+	if (c.planMode) return ['ask', 'edits', 'plan', 'all'];
 	return ['ask', 'edits', 'all'];
+}
+
+/** The mode after `current` in `keys` (Shift+Tab), skipping the modes this
+ *  engine refused; `current` itself when nothing else is left. */
+export function nextApprovalMode(keys: readonly ApprovalMode[], current: ApprovalMode, refused: readonly ApprovalMode[] = []): ApprovalMode {
+	const usable = keys.filter((k) => k === current || !refused.includes(k));
+	const i = usable.indexOf(current);
+	return usable.length ? usable[(i + 1) % usable.length] : current;
+}
+
+/** The desktop mode an engine names, in the LynShen engine's words (manual,
+ *  auto-edit, auto, full-access, plan) or the desktop's (read-only,
+ *  full-auto); null when it is neither. */
+export function modeOfEngineName(name: string): ApprovalMode | null {
+	const lynshen: Record<string, ApprovalMode> = { manual: 'ask', 'full-access': 'all' };
+	return lynshen[name] ?? fromEngineMode(name);
+}
+
+/** The mode an engine refused as unknown (an engine older than that mode
+ *  says "unknown approval mode 'auto': use …"); null for any other error. */
+export function refusedApprovalMode(message: string): ApprovalMode | null {
+	const m = /^unknown approval mode '([^']*)'/.exec(message.trim());
+	return m ? modeOfEngineName(m[1]) : null;
 }
 
 /** A new session's mode from the one saved last (any backend's). LynShen

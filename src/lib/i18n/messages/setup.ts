@@ -1,19 +1,28 @@
-// Setup area: the welcome page (sign-in and the Get Started walkthrough).
+// Setup area: the welcome page (the sign-in first, the optional agent page
+// after 跳过，稍后登录, and the Get Started walkthrough from the palette).
 const setup = {
 	zh: {
 		welcome: {
 			label: '欢迎使用 Aogiri',
 			login: {
 				title: '登录 LynShen',
-				sub: '登录后可使用 LynShen 账号下的模型。也可以填写自己的 API\u00a0Key，接入其他模型服务商。',
+				sub: '登录后就能开始：用 LynShen 引擎和账号里的模型与套餐。Claude\u00a0Code、Codex 和自己的 API\u00a0Key 之后可以在设置中添加。',
 				apiKey: '使用自己的 API Key',
-				later: '暂不登录，先完成设置'
+				later: '跳过，稍后登录',
+				finishing: '已授权，正在进入 Aogiri…'
+			},
+			// 跳过，稍后登录 on a first run.
+			agents: {
+				title: '选择智能体',
+				sub: '不登录也可以用 Claude\u00a0Code、Codex，或填写自己的 API\u00a0Key。之后都可以在设置中修改。',
+				lynshenNeeds: 'LynShen 引擎需要登录 LynShen，或在设置中填写 API Key。'
 			},
 			guide: {
 				title: '开始使用',
-				sub: '以下各项之后都可以在设置页修改。',
+				sub: '每一步都可以跳过，之后也可以在设置页修改。',
 				progress: '已完成 {done}/{total}',
-				backToLogin: '返回登录'
+				backToLogin: '返回登录',
+				later: '稍后设置'
 			},
 			account: {
 				title: '账号',
@@ -25,7 +34,7 @@ const setup = {
 			agent: {
 				title: '编程智能体',
 				sub: '选择新对话默认使用的智能体。每个对话也可以单独切换。',
-				installFirst: '返回依赖安装，安装此智能体',
+				notInstalled: '未安装',
 				desc: {
 					lynshen: '自带的 LynShen 引擎，可使用账号内的模型和自定义服务商。',
 					claude: 'Anthropic 的 Claude Code，使用本机安装的 claude 命令。',
@@ -36,9 +45,9 @@ const setup = {
 			},
 			model: {
 				title: '模型',
-				sub: '必须选择使用的模型并保存，才能继续。',
+				sub: '选择新对话默认使用的模型。可以跳过，之后在输入框里切换。',
 				nativeHint: '选择 {name} 要使用的模型。登录 LynShen 后可使用账号内对应系列的模型。',
-				chooseRequired: '请选择模型，再点击「确认模型」。预设默认值不会自动完成此步骤。',
+				chooseRequired: '选择模型后点击「确认模型」。',
 				saving: '保存中…',
 				confirm: '确认模型',
 				confirmed: '模型已确认',
@@ -47,16 +56,6 @@ const setup = {
 				pick: '选择要显示的模型',
 				providers: '模型服务商设置',
 				defaultHint: '当前服务商：{provider}。新对话默认使用这个模型。'
-			},
-			env: {
-				title: '依赖安装',
-				sub: '先安装运行所需的工具，再选择智能体和模型。',
-				required: '必需工具',
-				requiredHint: 'Node.js（含 npm）和 Git 必须安装并通过检测。',
-				engines: '智能体安装',
-				enginesHint: '至少准备一个要使用的智能体。Aogiri 正式安装包已内置引擎。',
-				optional: '可选工具',
-				optionalHint: 'FFmpeg 用于录屏，GitHub CLI 用于 Pull Request；可以跳过。'
 			},
 			appearance: {
 				title: '外观',
@@ -147,15 +146,22 @@ const setup = {
 			label: 'Welcome to Aogiri',
 			login: {
 				title: 'Sign in to LynShen',
-				sub: 'Sign in to use the models on your LynShen account, or connect another model provider with your own API key.',
+				sub: 'Sign in and start: the LynShen engine with the models and plan of your account. Claude Code, Codex and your own API keys can be added in Settings later.',
 				apiKey: 'Use my own API key',
-				later: 'Skip sign-in and continue setup'
+				later: 'Skip, sign in later',
+				finishing: 'Authorized. Opening Aogiri…'
+			},
+			agents: {
+				title: 'Choose an agent',
+				sub: 'Without signing in you can use Claude Code, Codex, or your own API key. You can change this in Settings later.',
+				lynshenNeeds: 'The LynShen engine needs a LynShen sign-in, or an API key in Settings.'
 			},
 			guide: {
 				title: 'Get Started',
-				sub: 'Everything here can be changed later in Settings.',
+				sub: 'Every step can be skipped and changed later in Settings.',
 				progress: '{done} of {total} done',
-				backToLogin: 'Back to sign-in'
+				backToLogin: 'Back to sign-in',
+				later: 'Set up later'
 			},
 			account: {
 				title: 'Account',
@@ -167,7 +173,7 @@ const setup = {
 			agent: {
 				title: 'Coding Agent',
 				sub: 'The agent new sessions start with. Each session can still switch on its own.',
-				installFirst: 'Back to dependencies to install this agent',
+				notInstalled: 'Not installed',
 				desc: {
 					lynshen: 'The built-in LynShen engine, with your account models and custom providers.',
 					claude: 'Anthropic Claude Code, using the claude command installed on this machine.',
@@ -178,9 +184,9 @@ const setup = {
 			},
 			model: {
 				title: 'Model',
-				sub: 'Choose and save the model you will use before continuing.',
+				sub: 'The model new sessions start with. You can skip this and switch in the composer.',
 				nativeHint: 'Choose a model for {name}. Sign in to LynShen to use the matching model family on your account.',
-				chooseRequired: 'Choose a model, then click "Confirm model". A preset default does not complete this step.',
+				chooseRequired: 'Choose a model, then click "Confirm model".',
 				saving: 'Saving…',
 				confirm: 'Confirm model',
 				confirmed: 'Model confirmed',
@@ -189,16 +195,6 @@ const setup = {
 				pick: 'Choose models to show',
 				providers: 'Model provider settings',
 				defaultHint: 'Current provider: {provider}. New sessions start with this model.'
-			},
-			env: {
-				title: 'Dependencies',
-				sub: 'Install the required tools first, then choose your agent and model.',
-				required: 'Required tools',
-				requiredHint: 'Node.js (including npm) and Git must be installed and detected.',
-				engines: 'Coding agents',
-				enginesHint: 'Prepare at least one agent you will use. Official Aogiri installers include the engine.',
-				optional: 'Optional tools',
-				optionalHint: 'FFmpeg enables recording; GitHub CLI enables pull requests. You can skip both.'
 			},
 			appearance: {
 				title: 'Appearance',

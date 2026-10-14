@@ -1,6 +1,7 @@
 <script lang="ts">
-	// Onboarding requires an explicit, successfully confirmed model choice.
-	// A configured default is deliberately not a choice made in this wizard.
+	// The walkthrough's model: optional. Only an explicit, confirmed choice is
+	// applied to the first draft; a configured default is not a choice made
+	// here, and skipping the step keeps the defaults.
 	import { untrack } from 'svelte';
 	import ListChecksIcon from 'phosphor-svelte/lib/ListChecksIcon';
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';

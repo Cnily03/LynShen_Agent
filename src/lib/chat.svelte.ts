@@ -4,11 +4,14 @@ import { isBackendId, type BackendId } from './backends/types';
 import { caps } from './backends';
 import {
 	EDIT_TOOLS,
+	MODE_LABEL_KEYS,
 	fromEngineMode,
 	initialApprovalMode,
+	modeOfEngineName,
 	parseHunks,
 	parseQuestions,
 	reconcileMode,
+	refusedApprovalMode,
 	toEngineMode,
 	type AlwaysScope,
 	type ApprovalHunk,
@@ -975,6 +978,12 @@ export class ChatState {
 	// Whether this engine incarnation's startup approval_mode was processed;
 	// later approval_mode events are engine-driven changes (e.g. /approvals).
 	#modeSynced = false;
+	// The mode this engine last said it is in (its `approval_mode`), to fall
+	// back to when it refuses a mode it does not know.
+	#engineMode = '';
+	/** Modes this engine refused as unknown (an engine older than them): the
+	 *  picker shows them disabled and Shift+Tab skips them. */
+	unsupportedModes = $state<ApprovalMode[]>([]);
 	// Latest MCP servers view from this session's engine (emitted at startup and
 	// after every state change/mutation). null until the first event arrives.
 	// Settings reads this off the *active* session's ChatState — the engine's MCP
@@ -1771,6 +1780,7 @@ export class ChatState {
 			}
 			case 'approval_mode': {
 				const engineMode = str(ev.mode);
+				if (fromEngineMode(engineMode)) this.#engineMode = engineMode;
 				if (this.agent || this.followEngineMode) {
 					this.approvalMode = reconcileMode(this.approvalMode, engineMode);
 					break;
@@ -2638,6 +2648,18 @@ export class ChatState {
 				});
 				break;
 			case 'error': {
+				// An engine older than a mode refuses it as unknown: the session
+				// stays in the mode the engine is in, and the picker stops
+				// offering the refused one.
+				const refusedMode = refusedApprovalMode(str(ev.message));
+				if (refusedMode) {
+					if (!this.unsupportedModes.includes(refusedMode)) this.unsupportedModes.push(refusedMode);
+					if (this.pendingModeSync && modeOfEngineName(this.pendingModeSync) === refusedMode) this.pendingModeSync = null;
+					const kept = (this.#engineMode && fromEngineMode(this.#engineMode)) || 'ask';
+					if (this.approvalMode === refusedMode) this.approvalMode = kept;
+					this.messages.push({ kind: 'system', text: t('chat.modeUnsupported', { mode: t(MODE_LABEL_KEYS[refusedMode]), kept: t(MODE_LABEL_KEYS[kept]) }) });
+					break;
+				}
 				// The engine did not take the answer just given to a sandbox
 				// request and keeps it waiting (its words say why): the card
 				// comes back, and the turn goes on.

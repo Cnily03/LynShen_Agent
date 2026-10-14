@@ -1,9 +1,14 @@
 <script lang="ts">
-	// The welcome page over the whole window: sign-in first (over the website's
-	// Signal Raster), then a walkthrough in the manner of VS Code's Get Started —
-	// environment, account, coding agent, model, appearance, basics — each
-	// writing the same settings as the Settings page. Shown on first run and
-	// from the command palette.
+	// The welcome page over the whole window. On a first run it is the sign-in
+	// (over the website's Signal Raster): the LynShen account by device
+	// authorization, after which the app is ready on the LynShen engine and
+	// the account's models and plan. 跳过，稍后登录 leads to one optional page
+	// to pick another agent (Claude Code, Codex) or an API key. The
+	// walkthrough in the manner of VS Code's Get Started (account, agent,
+	// model, appearance, basics; each writing the same settings as the
+	// Settings page) opens from the command palette; every step of it can be
+	// skipped. Node, Git and the agents' tools are asked for only by the agent
+	// that needs them (flow.ts).
 	import { onMount, untrack } from 'svelte';
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
@@ -11,9 +16,11 @@
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import UserCircleIcon from 'phosphor-svelte/lib/UserCircleIcon';
 	import ArrowRightIcon from 'phosphor-svelte/lib/ArrowRightIcon';
-	import { monoizeSession, type MonoizeUser } from '$lib/protocol';
-	import { deps, recheckDeps } from '$lib/deps.svelte';
-	import { STEPS, canVisitStep, canFinishSetup, requiredDepsReady, type StepKey } from './flow';
+	import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeftIcon';
+	import type { MonoizeUser } from '$lib/protocol';
+	import { account } from '$lib/accountSession.svelte';
+	import { recheckDeps } from '$lib/deps.svelte';
+	import { STEPS, type StepKey } from './flow';
 	import { loadBackendSettings } from '$lib/backends/settings';
 	import type { BackendId } from '$lib/backends';
 	import type { SectionKey } from '$lib/settings/nav';
@@ -30,7 +37,6 @@
 	import SignalRaster from './SignalRaster.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import ModelStep from './ModelStep.svelte';
-	import EnvStep from './EnvStep.svelte';
 
 	let {
 		sessionId,
@@ -38,11 +44,13 @@
 		loggedIn,
 		configured,
 		startAt,
+		firstRun = false,
 		hidden = false,
 		onRefreshAuth,
 		onOpenSettings,
-		onClose,
-		onSignedIn
+		onSignedIn,
+		onDismiss,
+		onClose
 	}: {
 		/** The session the /login runs in, to catch a failed login. */
 		sessionId: string;
@@ -51,26 +59,24 @@
 		loggedIn: boolean;
 		/** Any provider has a login or key (LynShen or the user's own). */
 		configured: boolean;
-		/** Palette sign-in can open the login screen; first run starts with dependencies. */
+		/** The first view: the sign-in (a first run, after logging out) or the
+		 *  walkthrough (the command palette). */
 		startAt?: 'login' | 'guide';
+		/** No first run finished yet: 跳过，稍后登录 opens the agent page. */
+		firstRun?: boolean;
 		hidden?: boolean;
 		onRefreshAuth: () => void;
 		onOpenSettings: (section: SectionKey) => void;
+		/** A sign-in here finished (or one was found): the page closes. */
+		onSignedIn: (user: MonoizeUser) => Promise<void> | void;
+		/** Closed without a choice (跳过 after logging out, 稍后设置, Escape). */
+		onDismiss: () => void;
+		/** 开始使用: the agent (and the model, when one was confirmed). */
 		onClose: (choice: { backend: BackendId; model: string; effort: string; gateway: boolean }) => Promise<void> | void;
-		/** Set for someone who finished 开始使用 before: signing in (or skipping
-		 *  it) ends here instead of walking the guide again. */
-		onSignedIn?: () => void;
 	} = $props();
 
-	/** Past the sign-in: the guide on a first run, straight back in after. */
-	function afterLogin() {
-		if (onSignedIn) onSignedIn();
-		else view = 'guide';
-	}
-
-
-	let view = $state<'login' | 'guide'>(untrack(() => startAt ?? 'guide'));
-	let step = $state<StepKey>('env');
+	let view = $state<'login' | 'agents' | 'guide'>(untrack(() => startAt ?? 'login'));
+	let step = $state<StepKey>('account');
 	let visited = $state<StepKey[]>([]);
 	$effect(() => {
 		if (view === 'guide' && !visited.includes(step)) visited.push(step);
@@ -86,7 +92,6 @@
 	let refreshToken = $state(0);
 	let finishing = $state(false);
 	let finishError = $state('');
-	onMount(recheckDeps);
 	let wasHidden = false;
 	$effect(() => {
 		if (wasHidden && !hidden) { refreshToken++; void recheckDeps(); onRefreshAuth(); }
@@ -100,54 +105,74 @@
 		}
 	});
 
-	let monoizeUser = $state<MonoizeUser | null>(null);
-	let mzTouched = $state(false);
+	const monoizeUser = $derived(account.user);
 
+	// Nothing is required: a step is marked done when it is, and every step
+	// opens and can be left as it is.
 	const done = $derived<Record<StepKey, boolean>>({
 		account: loggedIn || !!monoizeUser || configured,
 		agent: agentReady,
 		model: modelReady,
-		env: !deps.loading && !deps.error && requiredDepsReady(deps.list),
 		appearance: visited.includes('appearance'),
 		basics: visited.includes('basics')
 	});
 	const doneCount = $derived(STEPS.filter((s) => done[s]).length);
-	const canFinish = $derived(canFinishSetup(step, done));
 	function next() {
-		if (!done[step]) return;
 		const following = STEPS[STEPS.indexOf(step) + 1];
-		if (following && canVisitStep(following, done)) step = following;
+		if (following) step = following;
 	}
 
+	// Signed in already (the sign-in was opened while signed in): straight back.
+	let touched = false;
 	onMount(async () => {
-		try {
-			const s = await monoizeSession();
-			monoizeUser = s.logged_in && s.session ? s.session.user : null;
-		} catch {
-			monoizeUser = null;
-		}
-		// 已登录的老用户直接进引导，不停在登录页。
-		if (monoizeUser && !mzTouched && view === 'login') afterLogin();
+		if (view !== 'login') return;
+		const user = await account.read().catch(() => null);
+		if (user && !touched && view === 'login') void signedIn(user);
 	});
+
+	let signingIn = $state(false);
+	async function signedIn(user: MonoizeUser) {
+		account.signedIn(user);
+		signingIn = true;
+		try {
+			await onSignedIn(user);
+		} finally {
+			signingIn = false;
+		}
+	}
+	function skip() {
+		touched = true;
+		if (firstRun) view = 'agents';
+		else onDismiss();
+	}
 
 	let legal = $state<LegalDocId | null>(null);
 	const legalTitle = (doc: LegalDocId) => LEGAL[doc][getLocale() === 'zh' ? 'zh' : 'en'].title;
 
 	function openSettings(section: SectionKey) {
-
 		onOpenSettings(section);
 	}
 	async function finish() {
-		if (!canFinish || finishing) return;
+		if (finishing) return;
 		finishing = true;
 		finishError = '';
 		try {
-			await onClose({ backend, model: selectedModel, effort: selectedEffort, gateway: selectedGateway });
+			// A model counts only once it was confirmed (the model step).
+			const model = view === 'guide' && modelReady ? selectedModel : '';
+			await onClose({ backend, model, effort: model ? selectedEffort : '', gateway: !!model && selectedGateway });
 		} catch (e) {
 			finishError = t('settings.page.saveFailed', { msg: String(e) });
 		} finally {
 			finishing = false;
 		}
+	}
+	// Escape leaves the optional pages (not the sign-in, where it would skip
+	// by accident); a dialog over the page (legal text, settings) takes it first.
+	function onKey(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || hidden || legal || e.defaultPrevented || view === 'login') return;
+		e.preventDefault();
+		if (view === 'agents') void finish();
+		else onDismiss();
 	}
 
 	const KEYS: { label: string; key: string }[] = $derived([
@@ -163,6 +188,8 @@
 	]);
 </script>
 
+<svelte:window onkeydown={onKey} />
+
 <div class="welcome" class:concealed={hidden} role="dialog" aria-modal="true" aria-label={t('setup.welcome.label')}>
 	<div class="drag" data-tauri-drag-region></div>
 
@@ -176,13 +203,46 @@
 				<p class="lede">{t('setup.welcome.login.sub')}</p>
 
 				<div class="actions">
-					<BrowserSignIn onSuccess={(user) => { monoizeUser = user; onRefreshAuth(); step = requiredDepsReady(deps.list) ? 'account' : 'env'; afterLogin(); }} />
-					<Button variant="secondary" onclick={() => openSettings('providers')}><KeyIcon size={15} /> {t('setup.welcome.login.apiKey')}</Button>
+					{#if signingIn}
+						<p class="busy" role="status"><CircleNotchIcon size={15} class="spin" /> {t('setup.welcome.login.finishing')}</p>
+					{:else}
+						<BrowserSignIn onSuccess={(user) => { touched = true; void signedIn(user); }} />
+					{/if}
 				</div>
 
-				<button class="later" onclick={() => ((mzTouched = true), afterLogin())}>
-					{t('setup.welcome.login.later')} <ArrowRightIcon size={13} />
-				</button>
+				{#if !signingIn}
+					<button class="later" onclick={skip}>
+						{t('setup.welcome.login.later')} <ArrowRightIcon size={13} />
+					</button>
+				{/if}
+			</div>
+
+			<p class="agree">
+				{t('setup.loginOauth.agreeBefore')}<button class="link" onclick={() => (legal = 'terms')}>{legalTitle('terms')}</button>{t('setup.loginOauth.agreeAnd')}<button class="link" onclick={() => (legal = 'privacy')}>{legalTitle('privacy')}</button>{t('setup.loginOauth.agreeAfter')}
+			</p>
+		</section>
+	{:else if view === 'agents'}
+		<!-- 跳过，稍后登录 on a first run: another agent or an API key, all optional. -->
+		<section class="login agents">
+			<div class="raster" aria-hidden="true"><SignalRaster /></div>
+
+			<div class="copy wide">
+				<h1>{t('setup.welcome.agents.title')}</h1>
+				<p class="lede">{t('setup.welcome.agents.sub')}</p>
+
+				<div class="pick">
+					<AgentStep bind:selected={backend} bind:ready={agentReady} onOpenSettings={() => openSettings('acp')} />
+				</div>
+				{#if backend === 'lynshen' && !configured}<p class="hint">{t('setup.welcome.agents.lynshenNeeds')}</p>{/if}
+				{#if finishError}<Notice>{finishError}</Notice>{/if}
+
+				<div class="actions row">
+					<Button variant="primary" onclick={finish} disabled={finishing}>{#if finishing}<CircleNotchIcon size={14} class="spin" />{/if}{t('setup.nav.start')}</Button>
+					<Button variant="secondary" onclick={() => openSettings('providers')}><KeyIcon size={15} /> {t('setup.welcome.login.apiKey')}</Button>
+					<button class="later back" onclick={() => (view = 'login')}>
+						<ArrowLeftIcon size={13} /> {t('setup.welcome.guide.backToLogin')}
+					</button>
+				</div>
 			</div>
 
 			<p class="agree">
@@ -203,7 +263,7 @@
 			<div class="gbody">
 				<nav class="steps" aria-label={t('setup.welcome.guide.title')}>
 					{#each STEPS as key (key)}
-						<button class="step" class:on={step === key} disabled={!canVisitStep(key, done)} aria-current={step === key ? 'step' : undefined} onclick={() => (step = key)}>
+						<button class="step" class:on={step === key} aria-current={step === key ? 'step' : undefined} onclick={() => (step = key)}>
 							<span class="mark" class:done={done[key]} aria-hidden="true">{#if done[key]}<CheckIcon size={11} weight="bold" />{/if}</span>
 							<span class="stitle">{t(`setup.welcome.${key}.title`)}</span>
 						</button>
@@ -223,7 +283,7 @@
 							{#if step === 'account'}
 								{#if monoizeUser}
 									<div class="okline"><span class="okico"><UserCircleIcon size={20} /></span>{t('setup.welcome.account.loggedIn')} · {monoizeUser.username}</div>
-									<div class="row"><Button size="sm" onclick={() => openSettings('providers')}>{t('setup.welcome.account.manage')}</Button></div>
+									<div class="row"><Button size="sm" onclick={() => openSettings('account')}>{t('setup.welcome.account.manage')}</Button></div>
 								{:else if loggedIn}
 									<div class="okline"><span class="okico"><UserCircleIcon size={20} /></span>{t('setup.welcome.account.loggedIn')}</div>
 									<div class="row"><Button size="sm" onclick={() => openSettings('account')}>{t('setup.welcome.account.manage')}</Button></div>
@@ -231,14 +291,14 @@
 									{#if configured}<div class="okline"><span class="okico"><KeyIcon size={18} /></span>{t('setup.welcome.account.byok')}</div>{/if}
 									<p class="hint">{t('settings.monoize.loginHint')}</p>
 									<div class="row">
-										<Button variant="primary" size="sm" onclick={() => { mzTouched = true; view = 'login'; }}>
+										<Button variant="primary" size="sm" onclick={() => { touched = true; view = 'login'; }}>
 											<SignInIcon size={14} /> {t('settings.monoize.loginRegister')}
 										</Button>
 										<Button variant="ghost" size="sm" onclick={() => openSettings('providers')}><KeyIcon size={14} /> {t('setup.welcome.login.apiKey')}</Button>
 									</div>
 								{/if}
 							{:else if step === 'agent'}
-								<AgentStep bind:selected={backend} bind:ready={agentReady} onInstall={() => (step = 'env')} onOpenSettings={() => openSettings('acp')} />
+								<AgentStep bind:selected={backend} bind:ready={agentReady} onOpenSettings={() => openSettings('acp')} />
 							{:else if step === 'model'}
 								<ModelStep
 									{loggedIn}
@@ -247,11 +307,9 @@
 									bind:selectedModel
 									{refreshToken}
 									onSelected={(model, effort, gateway) => { selectedModel = model; selectedEffort = effort; selectedGateway = gateway; }}
-									onLogin={() => (view = 'login')}
+									onLogin={() => { touched = true; view = 'login'; }}
 									onOpenProviders={() => openSettings('providers')}
 								/>
-							{:else if step === 'env'}
-								<EnvStep />
 							{:else if step === 'appearance'}
 								<div class="field">
 									<span class="flabel">{t('settings.theme')}</span>
@@ -269,21 +327,20 @@
 								</dl>
 								{#if shortcutLabel('shortcuts')}<p class="more">{t('setup.welcome.basics.all')} <kbd>{shortcutLabel('shortcuts')}</kbd></p>{/if}
 							{/if}
-
-
 						</div>
 					{/key}
 				</div>
 			</div>
 
 			<footer class="gfoot">
-				{#if !loggedIn}<button class="later" onclick={() => (view = 'login')}>{t('setup.welcome.guide.backToLogin')}</button>{/if}
+				{#if !loggedIn}<button class="later" onclick={() => { touched = true; view = 'login'; }}>{t('setup.welcome.guide.backToLogin')}</button>{/if}
 				{#if finishError}<Notice>{finishError}</Notice>{/if}
 				<div class="spacer"></div>
+				<Button variant="ghost" onclick={onDismiss}>{t('setup.welcome.guide.later')}</Button>
 				{#if step === STEPS[STEPS.length - 1]}
-					<Button variant="primary" onclick={finish} disabled={!canFinish || finishing}>{#if finishing}<CircleNotchIcon size={14} class="spin" />{/if}{t('setup.nav.start')}</Button>
+					<Button variant="primary" onclick={finish} disabled={finishing}>{#if finishing}<CircleNotchIcon size={14} class="spin" />{/if}{t('setup.nav.start')}</Button>
 				{:else}
-					<Button variant="primary" onclick={next} disabled={!done[step]}>{t('setup.nav.next')} <ArrowRightIcon size={13} /></Button>
+					<Button variant="primary" onclick={next}>{t('setup.nav.next')} <ArrowRightIcon size={13} /></Button>
 				{/if}
 			</footer>
 		</section>
@@ -296,7 +353,6 @@
 
 <style>
 	.welcome.concealed { display: none; }
-	.step:disabled { opacity: 0.45; cursor: not-allowed; }
 	/* Under Modal (z 100), so the model picker and legal docs open on top. On
 	   Windows/Linux the window controls are drawn in the title bar, which stays
 	   visible above the page; macOS keeps its native traffic lights. */
@@ -424,6 +480,54 @@
 	}
 	.copy .later {
 		margin-top: 22px;
+	}
+	.busy {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		color: var(--dim);
+		font-size: var(--fs-sm);
+	}
+	/* The agent page: a wider column for the list, the field further right,
+	   and room to scroll in a short window. */
+	.agents {
+		min-height: 0;
+		justify-content: safe center;
+		overflow-y: auto;
+		padding-top: 48px;
+		padding-bottom: 28px;
+	}
+	/* In the page's flow here: the list can be long. */
+	.agents .agree {
+		position: static;
+		margin-top: 28px;
+	}
+	.copy .actions .back {
+		margin: 0 0 0 8px;
+	}
+	.agents .raster {
+		inset: 0 0 0 56%;
+	}
+	.copy.wide {
+		width: min(520px, 100%);
+	}
+	.agents h1 {
+		margin-bottom: 12px;
+	}
+	.pick {
+		width: 100%;
+		margin-top: 24px;
+	}
+	.agents .hint {
+		margin: 10px 0 0;
+	}
+	.actions.row {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		max-width: none;
+		margin-top: 24px;
 	}
 	.agree {
 		position: absolute;

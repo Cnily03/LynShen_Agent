@@ -100,6 +100,9 @@
 	import type { SectionKey } from '$lib/settings/nav';
 	import { folderName } from '$lib/agentImport';
 	import Welcome from '$lib/welcome/Welcome.svelte';
+	import { SETUP_DONE_KEY, firstRunStart } from '$lib/welcome/flow';
+	import { afterWelcomeSignIn } from '$lib/welcome/firstRun';
+	import { account } from '$lib/accountSession.svelte';
 	import Sidebar from '$lib/Sidebar.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import CommandPalette from '$lib/CommandPalette.svelte';
@@ -180,6 +183,10 @@
 	});
 
 	let providers = $state<string[]>([]);
+	// The sign-in has been read from auth.json at this start. Before that the
+	// account kept from the last run stands in (no 未登录 flash at start).
+	let authKnown = $state(false);
+	const signedInNow = $derived(authKnown ? providers.includes('monoize') || providers.includes('lynshen') : !!account.user);
 
 	async function notify(title: string, body: string) {
 		try {
@@ -239,8 +246,20 @@
 		loadProviders();
 	}
 	let showSetup = $state(false);
-	// The welcome page's first view when opened from the palette (sign-in on request).
-	let setupView = $state<'login' | undefined>();
+	// The welcome page's first view: the sign-in (a first run, after logging
+	// out) or the walkthrough (the palette).
+	let setupView = $state<'login' | 'guide'>('login');
+	// No first run finished yet (SETUP_DONE_KEY): its 跳过 opens the agent page.
+	let firstRun = $state(false);
+	function setupDone() {
+		try {
+			localStorage.setItem(SETUP_DONE_KEY, '1');
+		} catch {
+			/* no storage */
+		}
+		firstRun = false;
+		showSetup = false;
+	}
 	let showPalette = $state(false);
 	let showShortcuts = $state(false);
 	let showFeedback = $state(false);
@@ -375,6 +394,7 @@
 		showSettings = false;
 		showDesk = false;
 		modelSetup.open = false;
+		account.signedOut();
 		setupView = 'login';
 		showSetup = true;
 	}
@@ -1503,11 +1523,29 @@
 						}
 					}
 					providers = p;
+					authKnown = true;
 					syncTrial(p);
-					// A configured provider is not proof that onboarding was completed.
-					if (!localStorage.getItem('lynshen-setup-done')) showSetup = true;
+					// A first run starts at the sign-in. A signed-in account is
+					// ready (and one signed in before this version never sees the
+					// welcome page again); any other provider is not proof of a
+					// finished first run.
+					const start = firstRunStart(!!localStorage.getItem(SETUP_DONE_KEY), p.includes('monoize') || p.includes('lynshen'));
+					if (start === 'done') setupDone();
+					else if (start === 'login') {
+						firstRun = true;
+						setupView = 'login';
+						showSetup = true;
+					}
 				})
-				.catch(() => {});
+				.catch(() => {
+					// Unread sign-in: a first run still starts at the sign-in.
+					authKnown = true;
+					if (!localStorage.getItem(SETUP_DONE_KEY)) {
+						firstRun = true;
+						setupView = 'login';
+						showSetup = true;
+					}
+				});
 		})();
 		return () => {
 			disposed = true;
@@ -1608,7 +1646,7 @@
 				onHome={openHome}
 				homeOpen={showHome}
 				footer={{
-					loggedIn: providers.includes('monoize') || providers.includes('lynshen'),
+					loggedIn: signedInNow,
 					updateAvailable: updater.available,
 					onManageAccount: () => openSettings('account'),
 					onSettings: () => showSettings || openSettings(),
@@ -1868,34 +1906,40 @@
 		<Welcome
 			sessionId={activeId}
 			startAt={setupView}
+			{firstRun}
 			hidden={showSettings}
 			{chat}
 			loggedIn={providers.includes('monoize') || providers.includes('lynshen')}
 			configured={providers.length > 0}
 			onRefreshAuth={refreshAuth}
 			onOpenSettings={openSettings}
-			onSignedIn={localStorage.getItem('lynshen-setup-done')
-				? () => {
-						showSetup = false;
-						setupView = undefined;
-					}
-				: undefined}
+			onSignedIn={async () => {
+				// Signed in: the app is ready on the account. The first run is
+				// over, the trial is claimed now, the engine uses the account
+				// where its provider cannot run.
+				await afterWelcomeSignIn();
+				firstRun = false;
+				showSetup = false;
+				setupView = 'login';
+				refreshAuth();
+			}}
+			onDismiss={setupDone}
 			onClose={async (choice) => {
-				// Apply the explicit model choice to the initial draft, not just its menus.
+				// The agent picked, and an explicit model choice, on the initial
+				// draft, not just in its menus.
 				if (activeId) {
 					await store.switchBackend(activeId, choice.backend);
 					if (choice.backend === 'claude' || choice.backend === 'codex') {
-						await store.applyToolProfile(activeId, choice.gateway ? 'lynshen' : 'system', choice.model);
-					} else if (active?.draft) {
+						await store.applyToolProfile(activeId, choice.gateway ? 'lynshen' : 'system', choice.model || undefined);
+					} else if (choice.model && active?.draft) {
 						active.chat.model = choice.model;
 						active.chat.effort = choice.effort;
 						active.draftPick = { model: choice.model, effort: choice.effort };
-					} else {
+					} else if (choice.model) {
 						dispatch(activeId, { op: 'command', input: `/model ${choice.model}${choice.effort ? ` ${choice.effort}` : ''}` });
 					}
 				}
-				localStorage.setItem('lynshen-setup-done', '1');
-				showSetup = false;
+				setupDone();
 			}}
 		/>
 	{/if}
@@ -2006,7 +2050,7 @@
 			onToggleSidebar={toggleSidebar}
 			onToggleTheme={cycleTheme}
 			onSetup={(view) => {
-				setupView = view;
+				setupView = view ?? 'guide';
 				showSetup = true;
 			}}
 			onHistory={() => activeProject && store.openHistory(activeProject)}

@@ -4,9 +4,14 @@
 	// and the sidebar with folded sections and the archive. Also the places
 	// that show the product's name: the welcome page (?welcome, ?welcome=guide)
 	// and Settings → 更新 (?updates; ?updates=found with the update prompt).
+	// The welcome page as a first run shows it: ?welcome (the sign-in; with
+	// &authorize the browser approves it), ?welcome=relogin (after logging
+	// out: 跳过 closes it), ?welcome=guide (the walkthrough). What closed it
+	// shows in [data-testid=welcome-closed].
 	import SettingsPage from '../../src/lib/settings/SettingsPage.svelte';
 	import Sidebar from '../../src/lib/Sidebar.svelte';
 	import Welcome from '../../src/lib/welcome/Welcome.svelte';
+	import { afterWelcomeSignIn } from '../../src/lib/welcome/firstRun';
 	import UpdatePrompt from '../../src/lib/UpdatePrompt.svelte';
 	import { updater } from '../../src/lib/updater.svelte';
 	import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
@@ -46,6 +51,8 @@
 		named('/Users/me/code/gateway', ['CDN 客户端 IP'], ['Caddy 配置迁移', '限流调整', '日志轮转']);
 	}
 	let active = $state('');
+	let welcomeOpen = $state(true);
+	let closedBy = $state('');
 	const projects = $derived(store.userProjects);
 </script>
 
@@ -78,15 +85,32 @@
 		<div class="canvas-stub"></div>
 	</div>
 {:else if mode.has('welcome')}
-	<Welcome
-		sessionId="draft-test"
-		loggedIn={false}
-		configured={false}
-		startAt={mode.get('welcome') === 'guide' ? 'guide' : 'login'}
-		onRefreshAuth={() => {}}
-		onOpenSettings={() => {}}
-		onClose={() => {}}
-	/>
+	{#if welcomeOpen}
+		<Welcome
+			sessionId="draft-test"
+			loggedIn={false}
+			configured={false}
+			startAt={mode.get('welcome') === 'guide' ? 'guide' : 'login'}
+			firstRun={mode.get('welcome') !== 'relogin'}
+			onRefreshAuth={() => {}}
+			onOpenSettings={() => {}}
+			onSignedIn={async () => {
+				await afterWelcomeSignIn();
+				welcomeOpen = false;
+				closedBy = 'signed-in';
+			}}
+			onDismiss={() => {
+				welcomeOpen = false;
+				closedBy = 'dismissed';
+			}}
+			onClose={(c) => {
+				welcomeOpen = false;
+				closedBy = `start:${c.backend}${c.model ? `:${c.model}` : ''}`;
+			}}
+		/>
+	{:else}
+		<p data-testid="welcome-closed">{closedBy}</p>
+	{/if}
 {:else}
 	<div class="settings-frame">
 		<SettingsPage sessionId="draft-test" navWidth={260} bind:section onClose={() => {}} />

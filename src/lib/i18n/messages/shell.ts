@@ -447,8 +447,9 @@ const shell = {
 			plan: '先出计划',
 			planHint: '先给出拆分计划，你确认后再执行',
 			mode: '任务权限',
-			modes: { manual: '每步询问', 'auto-edit': '自动编辑', auto: '自动', 'full-access': '完全访问' },
-			fullAccess: '完全访问下，派发出去的任务执行命令和改文件都不再询问。',
+			// The composer's modes, by the same names (plan is the switch above).
+			modes: { manual: '谨慎', 'auto-edit': '自动改文件', auto: '自动', 'full-access': '全自动' },
+			fullAccess: '全自动下，派发出去的任务越出沙箱时不再询问，每次都留下记录；git push、提权等仍会问你。',
 			empty: '还没有派发。描述要做的事，Aogiri 会把它分到对应项目的会话里执行，完成后把结果汇总给你。',
 			status: { planning: '拆分中', awaiting: '待确认', running: '执行中', done: '已完成', cancelled: '已取消', failed: '出错' },
 			task: { planned: '待开始', sent: '已发送', running: '执行中', waiting: '等你确认', done: '完成', failed: '失败' },
@@ -885,8 +886,8 @@ const shell = {
 			rpm: 'RPM',
 			tpm: 'TPM',
 			cacheHit: '缓存命中',
-			currency: '显示货币',
-			theme: '主题',
+			windowLeft: '{window}额度剩 {n} 积分',
+			planDetails: '在设置中查看套餐和余额',
 			logout: '退出登录',
 			roles: { admin: '管理员', superAdmin: '超级管理员' }
 		},
@@ -911,7 +912,8 @@ const shell = {
 			fundingBalance: '用余额',
 			fundingPlanHint: '{group}的模型先用套餐额度；当前时段用完时请求会失败，不会自动改用余额。',
 			fundingBalanceHint: '所有请求都从余额扣费，不用套餐额度。',
-			fundingFailed: '计费方式没有改成：{error}'
+			fundingFailed: '计费方式没有改成：{error}',
+			fundingSaving: '正在保存计费方式'
 		},
 		sidebarCollapse: '收起侧栏',
 		sidebarExpand: '展开侧栏',
@@ -1458,8 +1460,8 @@ const shell = {
 			plan: 'Plan first',
 			planHint: 'Show the plan and wait for your go-ahead',
 			mode: 'Task permissions',
-			modes: { manual: 'Ask every step', 'auto-edit': 'Auto-edit', auto: 'Auto', 'full-access': 'Full access' },
-			fullAccess: 'With full access, dispatched tasks run commands and change files without asking.',
+			modes: { manual: 'Cautious', 'auto-edit': 'Auto-edit files', auto: 'Auto', 'full-access': 'Full auto' },
+			fullAccess: 'In full auto, dispatched tasks leave the sandbox without asking, and each crossing is logged; git push, admin rights and the like still ask.',
 			empty: 'Nothing dispatched yet. Describe what needs doing; Aogiri hands each part to a session in the right project and sums up the results when they are done.',
 			status: { planning: 'Planning', awaiting: 'Needs your go-ahead', running: 'Running', done: 'Done', cancelled: 'Cancelled', failed: 'Failed' },
 			task: { planned: 'Planned', sent: 'Sent', running: 'Running', waiting: 'Needs you', done: 'Done', failed: 'Failed' },
@@ -1896,8 +1898,8 @@ const shell = {
 			rpm: 'RPM',
 			tpm: 'TPM',
 			cacheHit: 'Cache hit',
-			currency: 'Currency',
-			theme: 'Theme',
+			windowLeft: '{window}: {n} credits left',
+			planDetails: 'See the plan and balance in Settings',
 			logout: 'Log out',
 			roles: { admin: 'Admin', superAdmin: 'Super admin' }
 		},
@@ -1920,7 +1922,8 @@ const shell = {
 			fundingBalance: 'Balance',
 			fundingPlanHint: 'Models in {group} use the plan first. When a window runs out, requests fail until it recovers; the balance is not used.',
 			fundingBalanceHint: 'Every request is paid from the balance; the plan is not used.',
-			fundingFailed: 'Could not change how requests are paid: {error}'
+			fundingFailed: 'Could not change how requests are paid: {error}',
+			fundingSaving: 'Saving how requests are paid'
 		},
 		sidebarCollapse: 'Collapse sidebar',
 		sidebarExpand: 'Expand sidebar',

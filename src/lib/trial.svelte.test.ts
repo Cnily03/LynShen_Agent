@@ -7,8 +7,15 @@ const gateway = vi.hoisted(() => ({
 	user: { id: 'user-1', username: 'Ann', role: 'user' } as { id: string; username: string; role: string } | null,
 	/** GET /api/desktop/oauth/plan: the body, or a failure (default: a gateway without it). */
 	plan: { fail: { status: 404, code: null } } as unknown,
-	funding: [] as string[]
+	funding: [] as string[],
+	/** Held answers (`hold`): PUTs and GETs wait until the test lets them go. */
+	hold: false,
+	held: [] as { kind: 'put' | 'get'; release: () => void }[],
+	/** The choice the gateway has stored (PUTs change it, GETs read it). */
+	stored: 'plan' as string
 }));
+const wait = (kind: 'put' | 'get') =>
+	gateway.hold ? new Promise<void>((release) => gateway.held.push({ kind, release })) : Promise.resolve();
 const answer = (v: unknown) => {
 	if (v && typeof v === 'object' && 'fail' in v) throw Object.assign(new Error('refused'), (v as { fail: object }).fail);
 	return v;
@@ -23,10 +30,18 @@ vi.mock('$lib/protocol', () => ({
 		if (next === undefined) throw Object.assign(new Error('unreachable'), { status: null, code: null });
 		return next;
 	}),
-	fetchDesktopPlan: vi.fn(async () => answer(gateway.plan)),
+	fetchDesktopPlan: vi.fn(async () => {
+		// The gateway reads its stored choice when the request arrives.
+		const body = answer(gateway.plan) as { plan: unknown; plan_funding: string };
+		const stored = gateway.hold ? gateway.stored : body.plan_funding;
+		await wait('get');
+		return { ...body, plan_funding: stored };
+	}),
 	setPlanFunding: vi.fn(async (funding: string) => {
 		gateway.funding.push(funding);
+		gateway.stored = funding;
 		const body = answer(gateway.plan) as { plan: unknown };
+		await wait('put');
 		return { ...body, plan_funding: funding };
 	})
 }));
@@ -57,6 +72,9 @@ beforeEach(() => {
 	gateway.user = { id: 'user-1', username: 'Ann', role: 'user' };
 	gateway.plan = { fail: { status: 404, code: null } };
 	gateway.funding = [];
+	gateway.hold = false;
+	gateway.held = [];
+	gateway.stored = 'plan';
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -85,23 +103,41 @@ describe('the trial runner', () => {
 		expect(all.size).toBe(1);
 	});
 
-	it('a switched-off trial or an older gateway (404) shows nothing; only a sign-in hours later asks again', async () => {
+	it('a refusal (switched off, 404, not eligible) shows nothing; each later start asks again, once', async () => {
 		const { trial, claimTrial } = await fresh();
-		gateway.replies = [{ fail: { status: 404, code: null } }, { status: 'disabled' }, { status: 'granted', plan: PLAN }];
+		gateway.replies = [{ fail: { status: 404, code: null } }, { status: 'not_eligible' }, { status: 'granted', plan: PLAN }];
 		await trial.signedIn();
 		expect(trial.grant).toBeNull();
 		expect(trial.plan).toBeNull();
-		// No timer asks again.
+		// No timer asks again, nor do later sign-ins in this run.
 		await vi.advanceTimersByTimeAsync(24 * 3_600_000);
+		trial.signedOut();
+		await trial.signedIn();
 		expect(claimTrial).toHaveBeenCalledTimes(1);
-		// A later sign-in (or start) does: still switched off, then on.
+		// The next start does (still refused), once.
+		const second = await fresh();
+		await second.trial.signedIn();
+		await second.trial.signedIn();
+		// (One more reply used: the restarted module may share the mock.)
+		expect(gateway.replies).toHaveLength(1);
+		expect(second.trial.grant).toBeNull();
+		// The start after: granted, and announced.
+		const third = await fresh();
+		await third.trial.signedIn();
+		expect(third.trial.grant).toEqual(PLAN);
+	});
+
+	it('claims right after a fresh sign-in on the first run', async () => {
+		const { trial, claimTrial } = await fresh();
+		// The first start: nobody signed in yet.
+		gateway.user = null;
+		trial.signedOut();
+		expect(claimTrial).not.toHaveBeenCalled();
+		// The welcome page's sign-in.
+		gateway.user = { id: 'user-1', username: 'Ann', role: 'user' };
+		gateway.replies = [{ status: 'granted', plan: PLAN }];
 		await trial.signedIn();
-		expect(claimTrial).toHaveBeenCalledTimes(2);
-		await trial.signedIn();
-		expect(claimTrial).toHaveBeenCalledTimes(2);
-		await vi.advanceTimersByTimeAsync(6 * 3_600_000);
-		await trial.signedIn();
-		expect(claimTrial).toHaveBeenCalledTimes(3);
+		expect(claimTrial).toHaveBeenCalledTimes(1);
 		expect(trial.grant).toEqual(PLAN);
 	});
 
@@ -129,6 +165,96 @@ describe('the trial runner', () => {
 		expect(trial.funding).toBeNull();
 		trial.signedOut();
 		expect(trial.status).toBeNull();
+	});
+
+	describe('the funding choice under a slow gateway', () => {
+		const live = { ...PLAN, active: true, trial: true };
+		async function ready() {
+			const { trial } = await fresh();
+			gateway.plan = { plan: live, plan_funding: 'balance' };
+			gateway.replies = [{ status: 'granted', plan: PLAN }];
+			await trial.signedIn();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(trial.funding).toBe('balance');
+			gateway.stored = 'balance';
+			gateway.hold = true;
+			return trial;
+		}
+		const releaseNext = async (kind?: 'put' | 'get') => {
+			const i = gateway.held.findIndex((h) => !kind || h.kind === kind);
+			gateway.held.splice(i, 1)[0].release();
+			await vi.advanceTimersByTimeAsync(0);
+		};
+
+		it('shows each click at once, drops none, and ends on the last one', async () => {
+			const trial = await ready();
+			const done = trial.setFunding('plan');
+			expect(trial.funding).toBe('plan');
+			expect(trial.saving).toBe(true);
+			void trial.setFunding('balance');
+			expect(trial.funding).toBe('balance');
+			void trial.setFunding('plan');
+			void trial.setFunding('balance');
+			expect(trial.funding).toBe('balance');
+			// One change in flight; the first answer brings the latest pick.
+			expect(gateway.funding).toEqual(['plan']);
+			await releaseNext('put');
+			expect(trial.funding).toBe('balance');
+			expect(gateway.funding).toEqual(['plan', 'balance']);
+			await releaseNext('put');
+			expect(await done).toBe('');
+			expect(trial.funding).toBe('balance');
+			expect(trial.saving).toBe(false);
+			expect(gateway.funding.at(-1)).toBe('balance');
+			expect(gateway.stored).toBe('balance');
+		});
+
+		it('sends nothing more when the clicks come back to the stored choice', async () => {
+			const trial = await ready();
+			void trial.setFunding('plan');
+			void trial.setFunding('balance');
+			await releaseNext('put');
+			// The gateway now has plan; the last click said balance.
+			expect(gateway.funding).toEqual(['plan', 'balance']);
+			await releaseNext('put');
+			expect(trial.funding).toBe('balance');
+		});
+
+		it('keeps the pick over a read that lands in the middle, and drops a read older than the answer', async () => {
+			const trial = await ready();
+			// A read the gateway answers (balance) while the change is in flight.
+			const middle = trial.refreshStatus();
+			void trial.setFunding('plan');
+			await releaseNext('get');
+			await middle;
+			expect(trial.status?.funding).toBe('balance');
+			expect(trial.funding).toBe('plan');
+			await releaseNext('put');
+			expect(trial.funding).toBe('plan');
+			// A read the gateway served before the next change, answering after it.
+			void trial.setFunding('balance');
+			gateway.stored = 'plan';
+			const late = trial.refreshStatus();
+			await releaseNext('put');
+			expect(trial.funding).toBe('balance');
+			await releaseNext('get');
+			await late;
+			expect(trial.funding).toBe('balance');
+			expect(trial.status?.funding).toBe('balance');
+		});
+
+		it('falls back to the gateway\'s choice and says why when a change fails', async () => {
+			const trial = await ready();
+			gateway.hold = false;
+			gateway.plan = { fail: { status: 503, code: null } };
+			expect(await trial.setFunding('plan')).toBe('refused');
+			expect(trial.funding).toBe('balance');
+			expect(trial.fundingError).toBe('refused');
+			gateway.plan = { plan: live, plan_funding: 'balance' };
+			expect(await trial.setFunding('plan')).toBe('');
+			expect(trial.fundingError).toBe('');
+			expect(trial.funding).toBe('plan');
+		});
 	});
 
 	it('keeps the claim plan when the gateway has no plan endpoint, and no choice', async () => {

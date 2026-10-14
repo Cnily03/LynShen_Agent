@@ -44,7 +44,7 @@
 	import { stripGroupSuffix, type ModelRow } from '$lib/composer/modelRows';
 	import type { ChatState } from '$lib/chat.svelte';
 	import { imageViewer } from '$lib/ui/imageViewer.svelte';
-	import { approvalModeKeys, buildApproveOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
+	import { approvalModeKeys, buildApproveOp, nextApprovalMode, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import { commandsIsolated, onWindows } from '$lib/sandbox/request';
 	import ShieldSlashIcon from 'phosphor-svelte/lib/ShieldSlashIcon';
 	import { caps, BACKEND_LABELS, type BackendId } from '$lib/backends';
@@ -365,28 +365,34 @@
 		if (document.activeElement === el) caretToEnd();
 	});
 
-	// Claude and Codex expose two extra native modes (plan / auto) between ask
-	// and edits (extendedApprovalModes). A LynShen session has 谨慎 / 计划 /
-	// 自动 / 全自动 over its sandbox (approvalModeKeys), described as they work
-	// there: with the sandbox's boundary, or, where commands run without
-	// isolation (Windows, full access), without it.
+	// The modes in Claude Code's order, numbered 1–5 in the menu (MODE_ORDER):
+	// 谨慎 / 自动改文件 / 计划 / 自动 / 全自动. A LynShen session has all five
+	// over its sandbox (approvalModeKeys), described as they work there: with
+	// the sandbox's boundary, or, where commands run without isolation
+	// (Windows, full access), without it. Claude and Codex have their own
+	// plan and auto modes.
 	const sandboxed = $derived(bcaps.sandbox && !chat.agent);
 	const isolated = $derived(commandsIsolated(chat.sandbox, onWindows()));
-	const sandboxDesc = (key: 'Ask' | 'Auto' | 'All') => t(`chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}`);
+	const modeDesc = (key: 'Ask' | 'Edits' | 'Auto' | 'All') =>
+		sandboxed ? t(`chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}`) : t(`chat.approval${key}Desc`);
 	const APPROVAL_MODES = $derived<Record<string, ModeItem>>({
-		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: sandboxed ? sandboxDesc('Ask') : t('chat.approvalAskDesc') },
+		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: modeDesc('Ask') },
+		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: modeDesc('Edits') },
 		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc') },
-		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: sandboxed ? sandboxDesc('Auto') : t('chat.approvalAutoDesc') },
-		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: t('chat.approvalEditsDesc') },
-		all: { key: 'all', label: t('chat.approvalAll'), desc: sandboxed ? sandboxDesc('All') : t('chat.approvalAllDesc'), tone: 'warn' }
+		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: modeDesc('Auto') },
+		all: { key: 'all', label: t('chat.approvalAll'), desc: modeDesc('All'), tone: 'warn' }
 	});
 	// An agent's session shows the agent's four modes, read-only: they are
 	// changed on its Agent page. The recommended mode: auto where the engine
-	// has it, else auto-edit.
+	// has it, else auto-edit. A mode this engine refused as unknown (an older
+	// engine) stays listed, disabled.
 	const APPROVAL = $derived.by(() => {
 		const keys = approvalModeKeys(bcaps, !!chat.agent);
 		const recommended = keys.includes('auto') ? 'auto' : 'edits';
-		return keys.map((k) => ({ ...APPROVAL_MODES[k], recommended: k === recommended }));
+		return keys.map((k) => {
+			const old = chat.unsupportedModes.includes(k) && k !== chat.approvalMode;
+			return { ...APPROVAL_MODES[k], recommended: k === recommended && !old, ...(old ? { disabled: true, desc: t('chat.modeOld') } : {}) };
+		});
 	});
 	// A LynShen session whose commands run without isolation says so beside
 	// the mode, with the engine's fix when its sandbox cannot start.
@@ -460,6 +466,12 @@
 			}))
 		}));
 	});
+	// Shift+Tab (in the editor or the open menu): the next mode, as in Claude
+	// Code, skipping one the engine refused.
+	function cycleApproval() {
+		const next = nextApprovalMode(APPROVAL.map((a) => a.key as ApprovalMode), chat.approvalMode, chat.unsupportedModes);
+		if (next !== chat.approvalMode) onApproval(next);
+	}
 	// Persisting + pushing the mode to the engine lives with the page (it owns
 	// the session id); the picker only reports the choice.
 	function setApproval(m: string) {
@@ -741,8 +753,7 @@
 		}
 		if (bcaps.approvalModes && !chat.agent && matches(e, 'approvalMode')) {
 			e.preventDefault();
-			const i = APPROVAL.findIndex((a) => a.key === chat.approvalMode);
-			onApproval(APPROVAL[(i + 1) % APPROVAL.length].key as ApprovalMode);
+			cycleApproval();
 			return;
 		}
 		if (e.key === 'Enter') {
@@ -994,6 +1005,7 @@
 						note={modeNote}
 						disabled={!!chat.agent}
 						onSelect={setApproval}
+						onCycle={cycleApproval}
 						onClose={() => (showApproval = false)}
 					/>
 				{/if}

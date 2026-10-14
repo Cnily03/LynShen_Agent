@@ -616,6 +616,14 @@ input[type='number'] {
 		inset 0 0 0 1px color-mix(in oklab, var(--glass-rim) 60%, transparent),
 		var(--shadow-pop);
 }
+/* Menus and popovers are read over text: their fill stays solid at every
+   glass level (any see-through let the transcript's text show between the
+   rows, most of all in WebKit). They keep the rim. */
+:root[data-glass] .pop {
+	background: var(--panel);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
 :root[data-glass] .composer {
 	box-shadow:
 		inset 0 1px 0 var(--glass-rim),

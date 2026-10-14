@@ -599,6 +599,9 @@ export type MonoizeUser = {
 	 *  `/api/desktop/oauth/avatars/{id}`, or null for none. Absent from an older
 	 *  gateway and from the sign-in answer. */
 	avatar_url?: string | null;
+	/** When the account was created (RFC 3339 or Unix time), where the
+	 *  gateway says so (not yet): the trial claim's 72-hour window. */
+	created_at?: string | number | null;
 };
 export async function monoizeLogout(): Promise<void> {
 	return invoke('monoize_logout');

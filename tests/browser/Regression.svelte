@@ -14,9 +14,13 @@
   import type { DaemonClient } from '../../src/lib/daemon';
   import { prefs } from '../../src/lib/prefs.svelte';
   import FeedbackDialog from '../../src/lib/FeedbackDialog.svelte';
+  import { trial } from '../../src/lib/trial.svelte';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
+  // Settings → 账户 reads the plan through it (?trial): the regressions
+  // start a read of their own in the middle of a funding change.
+  (window as unknown as { __trial: typeof trial }).__trial = trial;
   // Tab contents stay mounted through splits, moves and a neighbour closing.
   (window as unknown as { __mounts: Record<string, number> }).__mounts = {};
   let tiles = $state<TileLayout>(singleLeafLayout([{ id: 't0', panel: 'a' }]));

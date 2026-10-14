@@ -4,7 +4,8 @@
 	import UserIcon from 'phosphor-svelte/lib/UserIcon';
 	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n';
-	import { fetchMonoizeBalance, monoizeSession, type MonoizeUser } from '$lib/protocol';
+	import { fetchMonoizeBalance } from '$lib/protocol';
+	import { account } from '$lib/accountSession.svelte';
 	import { shownBalanceText } from '$lib/money';
 	import { prefs } from '$lib/prefs.svelte';
 	import { avatarInitial } from '$lib/account';
@@ -41,7 +42,9 @@
 		onCardOpenChange?: (open: boolean) => void;
 	} = $props();
 
-	let user = $state<MonoizeUser | null>(null);
+	// The account as last read, kept from the last run (accountSession):
+	// its name shows at once, before this run's read answers.
+	const user = $derived(loggedIn ? account.user : null);
 	let raw = $state<{ total_balance: string; currency: string } | null>(null);
 	let failed = $state(false);
 	const balance = $derived(
@@ -64,13 +67,12 @@
 	function load() {
 		const g = ++generation;
 		loadedAt = Date.now();
-		Promise.all([monoizeSession(), fetchMonoizeBalance().catch(() => null)])
-			.then(([s, b]) => {
+		Promise.all([account.read(), fetchMonoizeBalance().catch(() => null)])
+			.then(([u, b]) => {
 				if (g !== generation) return;
-				user = s.logged_in && s.session ? s.session.user : null;
 				raw = b?.balance_infos?.[0] ?? null;
 				failed = false;
-				void accountAvatar.sync(user);
+				void accountAvatar.sync(u);
 			})
 			.catch(() => {
 				if (g === generation) failed = true;
@@ -82,7 +84,6 @@
 			load();
 		} else {
 			generation++;
-			user = null;
 			raw = null;
 			failed = false;
 			untrack(() => accountAvatar.clear());
@@ -176,6 +177,10 @@
 		width={card.width}
 		side={card.side}
 		onSignIn={() => {
+			closeCard();
+			onManageAccount();
+		}}
+		onAccount={() => {
 			closeCard();
 			onManageAccount();
 		}}

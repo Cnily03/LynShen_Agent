@@ -671,6 +671,30 @@ describe('approval flow (engine-enforced)', () => {
 		vi.unstubAllGlobals();
 	});
 
+	it('keeps the engine\'s mode when an older engine refuses one it does not know', () => {
+		setLocale('zh');
+		const c = new ChatState();
+		c.approvalMode = 'auto'; // persisted preference
+		c.handle({ type: 'startup', model: 'm', cwd: '/', session_id: 's1' });
+		c.handle({ type: 'approval_mode', mode: 'read-only' }); // the engine's own (manual)
+		expect(c.pendingModeSync).toBe('auto');
+		// The page sends set_approval_mode auto; an engine before auto refuses it.
+		c.handle({ type: 'error', message: "unknown approval mode 'auto': use manual, auto-edit, full-access, or plan" });
+		expect(c.approvalMode).toBe('ask');
+		expect(c.pendingModeSync).toBeNull();
+		expect(c.unsupportedModes).toEqual(['auto']);
+		const last = c.messages.at(-1);
+		expect(last?.kind).toBe('system');
+		expect(last?.kind === 'system' && last.text).toContain('「自动」');
+		expect(c.messages.some((m) => m.kind === 'error')).toBe(false);
+		// A mode it knows still switches.
+		c.handle({ type: 'approval_mode', mode: 'auto-edit' });
+		expect(c.approvalMode).toBe('edits');
+		c.handle({ type: 'error', message: "unknown approval mode 'full-access'" });
+		expect(c.approvalMode).toBe('edits');
+		expect(c.unsupportedModes).toEqual(['auto', 'all']);
+	});
+
 	it('requests no push when the startup announcement already matches', () => {
 		const c = new ChatState();
 		c.approvalMode = 'ask';

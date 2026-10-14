@@ -391,8 +391,10 @@ try {
   // kept picture without a session (offline).
   await page.goto(base + '?loggedIn&avatar');
   const kept = await page.evaluate(() => window.__keptAvatar);
-  const heroAvatar = page.locator('.hero .avatar img');
+  const heroAvatar = page.locator('.acct-profile .avatar img');
   await expect(heroAvatar).toHaveAttribute('src', kept);
+  // The avatar itself is the button that changes it.
+  await expect(page.locator('.acct-profile').getByRole('button',{name:'更换头像'})).toBeVisible();
   const picture = await page.evaluate(() => {
     const c = document.createElement('canvas');
     c.width = 300;
@@ -404,7 +406,7 @@ try {
     x.fillRect(50, 0, 200, 200);
     return c.toDataURL('image/png').split(',')[1];
   });
-  const avatarPicker = page.locator('.hero input[type=file]');
+  const avatarPicker = page.locator('.acct-profile input[type=file]');
   assert.equal(await avatarPicker.getAttribute('accept'), 'image/png,image/jpeg,image/webp');
   await avatarPicker.setInputFiles({name:'me.png', mimeType:'image/png', buffer:Buffer.from(picture, 'base64')});
   const uploads = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_avatar_upload').map((c) => c.args.image));
@@ -785,10 +787,11 @@ try {
   await expect(page.getByRole('heading',{name:'发现新版本 Aogiri 9.9.9'})).toBeVisible();
   await page.goto(base + '?skills&oldEngine');
   await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
-  // The first-use trial plan against a stubbed gateway: one claim per
-  // installation and account; a grant shows its card until 知道了, then never
-  // again; the account card shows both windows; an older gateway (404) shows
-  // nothing and is not asked again.
+  // The first-use trial plan against a stubbed gateway: claimed at most once
+  // per start (and right after a fresh sign-in: see the first run below); a
+  // grant shows its card until 知道了, then never again, and is final; the
+  // account card shows the plan on one line; a refusal or an older gateway
+  // (404) shows nothing and is asked again at the next start, once.
   const trialPage = await browser.newPage({viewport:{width:1440,height:860}});
   trialPage.on('pageerror', e => errors.push(e.message));
   const claimCount = () => trialPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_trial_claim').length);
@@ -812,35 +815,209 @@ try {
   await expect(grantCard).toHaveCount(0);
   await openTrial('?shell&trial');
   await expect(grantCard).toHaveCount(0);
-  assert.equal(await claimCount(), 0, 'the trial was claimed again after a restart');
+  assert.equal(await claimCount(), 0, 'the trial was claimed again after a grant');
+  // The account card: a short menu. The plan on one line (name, end, the
+  // window with the least left), the balance, 设置, 退出登录; the rest is in
+  // Settings → 账户 / 外观. It fits without a scroll.
   await trialPage.getByRole('button',{name:'账号'}).click();
   const acctCard = trialPage.locator('.acct-card');
-  await expect(acctCard).toContainText('7 天体验套餐');
-  await expect(acctCard.locator('.trial .win')).toHaveCount(2);
-  await expect(acctCard.locator('.trial .win').first()).toContainText(/5 小时\s*0\.00 \/ 4\.00 积分/);
-  await expect(acctCard.locator('.trial .win').last()).toContainText(/7 天\s*0\.00 \/ 10\.00 积分/);
-  await expect(acctCard.locator('.trial .ends')).toHaveText(/\d+月\d+日 \d\d:\d\d 到期/);
-  // The funding choice (GET / PUT /api/desktop/oauth/plan): the plan first by
-  // default; a payer can switch to the balance.
-  const funding = acctCard.locator('.funding');
-  await expect(funding.locator('.opt.on')).toHaveText('优先用体验套餐');
-  await expect(funding).toContainText('当前时段用完时请求会失败，不会自动改用余额');
-  await funding.getByRole('button',{name:'用余额'}).click();
-  await expect(funding.locator('.opt.on')).toHaveText('用余额');
-  await expect(funding).toContainText('所有请求都从余额扣费');
-  assert.ok(await trialPage.evaluate(() => window.__calls.some((c) => c.command === 'monoize_set_plan_funding' && c.args.funding === 'balance')));
+  const planLine = acctCard.locator('.line.plan');
+  await expect(planLine).toContainText('7 天体验套餐');
+  await expect(planLine).toContainText(/\d+月\d+日 到期/);
+  await expect(planLine).toContainText('5 小时额度剩 4.00 积分');
+  await expect(acctCard).toContainText('余额');
+  await expect(acctCard.getByRole('button',{name:/设置/})).toBeVisible();
+  await expect(acctCard.getByRole('button',{name:'退出登录'})).toBeVisible();
+  for (const gone of ['最近 60 秒', '计费方式', '显示货币', '主题']) await expect(acctCard).not.toContainText(gone);
+  assert.ok(await acctCard.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && el.getBoundingClientRect().top >= 0), 'the account card does not fit');
   await openTrial('?shell&trial=404', {fresh: true});
   await expect(grantCard).toHaveCount(0);
   assert.equal(await claimCount(), 1);
   await trialPage.evaluate(() => window.__trial.signedIn());
-  assert.equal(await claimCount(), 1, 'a 404 was asked again');
+  assert.equal(await claimCount(), 1, 'a 404 was asked twice in one run');
   await openTrial('?shell&trial=404');
-  assert.equal(await claimCount(), 0, 'a 404 was asked again after a restart');
+  assert.equal(await claimCount(), 1, 'a 404 was not asked again at the next start');
+  await trialPage.evaluate(() => window.__trial.signedIn());
+  assert.equal(await claimCount(), 1, 'a 404 was asked twice in one run');
   await trialPage.getByRole('button',{name:'账号'}).click();
-  await expect(trialPage.locator('.acct-card')).toContainText('未分配订阅套餐');
-  await expect(trialPage.locator('.acct-card .trial')).toHaveCount(0);
+  await expect(trialPage.locator('.acct-card .line.plan')).toHaveCount(0);
   await expect(trialPage.locator('.acct-card .funding')).toHaveCount(0);
+  // not_eligible: the same, asked again at the next start.
+  await openTrial('?shell&trial=not_eligible', {fresh: true});
+  assert.equal(await claimCount(), 1);
+  await openTrial('?shell&trial=not_eligible');
+  assert.equal(await claimCount(), 1, 'not_eligible was not asked again at the next start');
   await trialPage.close();
+
+  // Who pays (Settings → 账户) against a slow gateway (each answer 300–1500
+  // ms later): every click shows at once, none is dropped, the control never
+  // snaps back, a read landing in between changes nothing, and the last
+  // click is what the gateway ends with.
+  const fundPage = await browser.newPage({viewport:{width:1280,height:900}});
+  fundPage.on('pageerror', e => errors.push(e.message));
+  await fundPage.goto(base + '?trial=used&latency=random');
+  const choice = fundPage.locator('#set-account-plan .funding');
+  await expect(choice.locator('.opt.on')).toHaveText('优先用体验套餐', {timeout:30000});
+  // The plan's state, end and windows (used / quota, when each recovers).
+  const planGroup = fundPage.locator('#set-account-plan');
+  await expect(planGroup).toContainText('使用中');
+  await expect(planGroup).toContainText(/\d+月\d+日 \d\d:\d\d 到期/);
+  await expect(planGroup.locator('.win')).toHaveCount(2);
+  await expect(planGroup.locator('.win').first()).toContainText(/5 小时\s*1\.36 \/ 4\.00 积分/);
+  await expect(planGroup.locator('.win').last()).toContainText(/7 天\s*3\.58 \/ 10\.00 积分/);
+  await expect(planGroup.locator('.win').first()).toContainText(/恢复/);
+  await choice.evaluate((el) => {
+    window.__shown = [el.querySelector('.opt.on')?.textContent?.trim()];
+    new MutationObserver(() => {
+      const now = el.querySelector('.opt.on')?.textContent?.trim();
+      if (now && now !== window.__shown.at(-1)) window.__shown.push(now);
+    }).observe(el, { subtree: true, attributes: true, childList: true, characterData: true });
+  });
+  const clicks = ['用余额', '优先用体验套餐', '用余额', '优先用体验套餐', '用余额'];
+  for (const [i, label] of clicks.entries()) {
+    if (i === 3) await fundPage.evaluate(() => { void window.__trial.refreshStatus(); });
+    await choice.getByRole('button',{name:label}).click();
+    await expect(choice.locator('.opt.on')).toHaveText(label);
+    await fundPage.waitForTimeout(150);
+  }
+  await expect.poll(() => fundPage.evaluate(() => window.__trial.saving), {timeout:20000}).toBe(false);
+  await expect(choice.locator('.opt.on')).toHaveText('用余额');
+  const puts = await fundPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding));
+  assert.equal(puts.at(-1), 'balance', `the last change sent was ${puts.at(-1)}`);
+  assert.deepEqual(await fundPage.evaluate(() => window.__shown), ['优先用体验套餐', ...clicks], 'the funding choice snapped back');
+  await fundPage.evaluate(() => window.__trial.refreshStatus());
+  await expect(choice.locator('.opt.on')).toHaveText('用余额');
+  await fundPage.close();
+
+  // Settings → 账户 while the account is read (查看账户 from a 余额不足 error
+  // opens it): loading, never 未登录 or the sign-in. The next start shows the
+  // account kept from the last read at once.
+  const acctPage = await browser.newPage();
+  acctPage.on('pageerror', e => errors.push(e.message));
+  await acctPage.goto(base + '?loggedIn&accountLatency=2500');
+  await expect(acctPage.locator('.acct-wait')).toBeVisible({timeout:30000});
+  await expect(acctPage.getByText('未登录')).toHaveCount(0);
+  await expect(acctPage.locator('#account-login')).toHaveCount(0);
+  await expect(acctPage.locator('.acct-profile')).toContainText('Test user', {timeout:10000});
+  // The page: profile, then 套餐与余额 / 用量 / 更多 / 登录 as full-width
+  // groups; 重新登录 and 退出登录 are quiet rows at the bottom.
+  await expect(acctPage.locator('.sec h3')).toHaveText(['套餐与余额', '用量', '更多', '登录']);
+  await expect(acctPage.locator('#set-account-noplan')).toContainText('没有套餐');
+  await expect(acctPage.locator('#set-account-currency')).toContainText('显示货币');
+  await expect(acctPage.locator('.acct-profile').getByRole('button',{name:'退出登录'})).toHaveCount(0);
+  await expect(acctPage.getByRole('button',{name:'退出登录',exact:true})).toBeVisible();
+  const widths = await acctPage.locator('.sec .body').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
+  assert.equal(new Set(widths).size, 1, `the groups have different widths: ${widths}`);
+  await acctPage.reload();
+  await expect(acctPage.locator('.acct-profile')).toContainText('Test user', {timeout:30000});
+  await expect(acctPage.locator('.acct-wait')).toHaveCount(0);
+  assert.equal(await acctPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_session').length), 1);
+  await acctPage.close();
+
+  // The first run: the LynShen sign-in is the first screen (no Node, Git or
+  // model step). Signed in, the app is ready: the welcome page closes, the
+  // trial is claimed at once, and a new computer's engine runs on the account.
+  const first = await browser.newPage({viewport:{width:1280,height:800}});
+  first.on('pageerror', e => errors.push(e.message));
+  await first.goto(base + '?welcome&authorize&freshConfig');
+  await expect(first.getByRole('heading',{name:'登录 LynShen'})).toBeVisible({timeout:30000});
+  await expect(first.getByRole('button',{name:'跳过，稍后登录'})).toBeVisible();
+  await expect(first.getByText(/Node\.js|Git\b|依赖/)).toHaveCount(0);
+  await first.getByRole('button',{name:'在浏览器中授权 Aogiri'}).click();
+  await expect(first.getByTestId('welcome-closed')).toHaveText('signed-in', {timeout:20000});
+  const firstCalls = () => first.evaluate(() => window.__calls);
+  await expect.poll(async () => (await firstCalls()).some((c) => c.command === 'monoize_trial_claim'), {message: 'the trial was not claimed right after the sign-in'}).toBe(true);
+  assert.ok((await firstCalls()).some((c) => c.command === 'write_config' && c.args.patch.provider === 'monoize'), 'the engine was not pointed at the account');
+  assert.equal(await first.evaluate(() => localStorage.getItem('lynshen-setup-done')), '1');
+  // 跳过，稍后登录: one optional page for other agents. Tools show only for
+  // the agent that needs them (none for LynShen's engine; Node, then Claude
+  // Code for Claude Code); 开始使用 always goes on.
+  await first.goto(base + '?welcome');
+  await first.getByRole('button',{name:'跳过，稍后登录'}).click();
+  await expect(first.getByRole('heading',{name:'选择智能体'})).toBeVisible();
+  await expect(first.locator('.install')).toHaveCount(0);
+  await first.getByRole('radio',{name:/Claude Code/}).click();
+  await expect(first.locator('.install')).toContainText('Node.js');
+  await expect(first.locator('.install')).not.toContainText('Git');
+  await first.getByRole('button',{name:'开始使用'}).click();
+  await expect(first.getByTestId('welcome-closed')).toHaveText('start:claude');
+  // After logging out (not a first run), 跳过 just closes the page.
+  await first.goto(base + '?welcome=relogin');
+  await first.getByRole('button',{name:'跳过，稍后登录'}).click();
+  await expect(first.getByTestId('welcome-closed')).toHaveText('dismissed');
+  // The walkthrough (command palette): every step opens at once; 稍后设置
+  // and Escape close it.
+  await first.goto(base + '?welcome=guide');
+  await first.getByRole('button',{name:'基础操作'}).click();
+  await expect(first.getByRole('heading',{name:'基础操作',level:2})).toBeVisible();
+  await first.getByRole('button',{name:'稍后设置'}).click();
+  await expect(first.getByTestId('welcome-closed')).toHaveText('dismissed');
+  await first.goto(base + '?welcome=guide');
+  await expect(first.getByRole('heading',{name:'开始使用'})).toBeVisible();
+  await first.keyboard.press('Escape');
+  await expect(first.getByTestId('welcome-closed')).toHaveText('dismissed');
+  await first.close();
+
+  // The composer's modes: five, in Claude Code's order, numbered 1–5. In a
+  // narrow window, in Chinese and English, each description wraps inside its
+  // row (also a long one), never under the check or the number, and the menu
+  // stays inside the window. Shift+Tab switches to the next mode; with the
+  // menu open the number keys pick.
+  const MODE_LABELS = {zh: ['谨慎', '自动改文件', '计划', '自动', '全自动'], en: ['Cautious', 'Auto-edit files', 'Plan', 'Auto', 'Full auto']};
+  const LONG = {zh: '保留沙箱边界，越界自动放行并留下记录；git push、提权、删除工作区以外的文件等仍会问你，每次越界都会在对话里留下一条记录', en: 'Keeps the sandbox boundary, allows leaving it and records each time; still asks for git push, admin rights, deleting files outside the workspace and the like'};
+  for (const lang of ['zh', 'en']) {
+    for (const viewport of [{width:1040,height:680}, {width:720,height:520}]) {
+      const mp = await browser.newPage({viewport});
+      mp.on('pageerror', e => errors.push(e.message));
+      await mp.goto(base + `?shell&empty${lang === 'en' ? '&lang=en' : ''}`);
+      await mp.locator('.fbtn.mode').click({timeout:30000});
+      const menu = mp.locator('.pop.modes');
+      await expect(menu.getByRole('menuitemradio')).toHaveCount(5);
+      await expect(menu.locator('.pop-label')).toHaveText(MODE_LABELS[lang]);
+      await expect(menu.locator('.key')).toHaveText(['1', '2', '3', '4', '5']);
+      await expect(menu.getByRole('menuitemradio',{checked:true})).toContainText(MODE_LABELS[lang][3]);
+      // Under glass (on by default) the menu stays solid: nothing behind it
+      // shows between its rows.
+      assert.ok(await mp.evaluate(() => 'glass' in document.documentElement.dataset), 'glass is off in the fixture');
+      const fill = await menu.evaluate((m) => getComputedStyle(m).backgroundColor);
+      assert.ok(!/\/\s*0?\.\d+\)$|rgba\(.*,\s*0?\.\d+\)$/.test(fill), `the mode menu is see-through: ${fill}`);
+      const fits = async (what) => {
+        // The menu fits itself to the window as its size changes (next frame).
+        await menu.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        const rows = await menu.evaluate((m) => {
+          const box = (el) => { const r = el.getBoundingClientRect(); return {l: r.left, r: r.right, t: r.top, b: r.bottom}; };
+          return {menu: box(m), vw: innerWidth, vh: innerHeight, rows: [...m.querySelectorAll('.pop-row')].map((row) => ({row: box(row), desc: box(row.querySelector('.pop-desc')), name: box(row.querySelector('.name')), check: box(row.querySelector('.check')), key: box(row.querySelector('.key')), lines: Math.round(row.querySelector('.pop-desc').getBoundingClientRect().height / parseFloat(getComputedStyle(row.querySelector('.pop-desc')).lineHeight))}))};
+        });
+        const at = `${lang} ${viewport.width} ${what}`;
+        assert.ok(rows.menu.l >= 0 && rows.menu.r <= rows.vw && rows.menu.t >= 0 && rows.menu.b <= rows.vh, `${at}: the menu leaves the window ${JSON.stringify(rows.menu)}`);
+        for (const [i, r] of rows.rows.entries()) {
+          assert.ok(r.desc.r <= r.check.l + 0.5 && r.name.r <= r.check.l + 0.5, `${at}: row ${i + 1}'s text runs under its check`);
+          assert.ok(r.check.r <= r.key.l + 0.5 && r.key.r <= r.row.r + 0.5, `${at}: row ${i + 1}'s check and number overlap`);
+          assert.ok(r.desc.r <= rows.menu.r && r.desc.l >= rows.menu.l, `${at}: row ${i + 1}'s description leaves the menu`);
+        }
+        return rows;
+      };
+      const plain = await fits('as shipped');
+      // The shipped descriptions are one line each where the menu is wide enough.
+      if (viewport.width >= 1040) assert.ok(plain.rows.every((r) => r.lines === 1), `${lang}: a description takes more than one line`);
+      // A long description wraps inside its row.
+      await menu.locator('.pop-desc').nth(4).evaluate((el, text) => { el.textContent = text; }, LONG[lang]);
+      const long = await fits('long text');
+      assert.ok(long.rows[4].lines >= 2, `${lang}: the long description did not wrap`);
+      // The number keys pick while the menu is open; Shift+Tab switches in the composer.
+      await mp.keyboard.press('2');
+      await expect(menu).toHaveCount(0);
+      await expect(mp.locator('.fbtn.mode')).toHaveText(MODE_LABELS[lang][1]);
+      await mp.locator('.composer .rich').click();
+      await mp.keyboard.press('Shift+Tab');
+      await expect(mp.locator('.fbtn.mode')).toHaveText(MODE_LABELS[lang][2]);
+      await mp.keyboard.press('Shift+Tab');
+      await mp.keyboard.press('Shift+Tab');
+      await mp.keyboard.press('Shift+Tab');
+      await expect(mp.locator('.fbtn.mode')).toHaveText(MODE_LABELS[lang][0]);
+      await mp.close();
+    }
+  }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, account card windows and funding choice, 404 not asked again).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
 } finally { await browser.close(); await server.close(); }
