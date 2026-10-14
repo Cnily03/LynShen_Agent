@@ -77,6 +77,14 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - Empty states: one line of `--dim` text in the place where the list would be. No illustrations in tool panels. [SHOULD]
 - Errors in a conversation: an inline card with title, one line of cause, then the fixing action as a button and raw details behind a disclosure. [SHOULD]
 
+### Status, attention and emphasis
+Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made".
+- An item that waits for the reader (an approval, a question) shows a 6px `--warn` dot before its title. The reason is `--dim` text on the line below. A list of such items has a plain `--fs-xs` 600 `--dim2` heading with its count. The heading has no fill, border, glow or colored text. [SHOULD]
+- Status, risk and scope inside a card are plain `--dim` text, joined with " · ". A status color appears only as one 6px dot, or as the text color of an error. [SHOULD]
+- A multi-step task shows its progress as text: the count and the current step, for example "3/7 · 跑单元测试". It has no segmented or decorative bar. A bar shows only byte or time progress. [SHOULD]
+- In the transcript, only the item that needs the reader's action is raised (`--panel` + `--shadow-float`). Earlier turns, summaries and finished cards sit flat on `--bg`. Blocks inside a raised item use a `--surface` fill, never a second shadow or border. [SHOULD]
+- A view region has one primary button. Secondary actions are `secondary` or `ghost` buttons, or a menu. [SHOULD]
+
 ### Icons
 - Phosphor (`phosphor-svelte`), regular weight; `fill` marks the selected nav item. Navigation icons 18px, row actions 16px, tab and inline icons 11–13px. Icons beside a label are `aria-hidden`. [SHOULD]
 
@@ -110,7 +118,9 @@ Extension boundary:
 - All visible text and every `aria-label` comes from `t()` (`src/lib/i18n/messages/*`), with zh and en entries. No literal English in markup. [MUST]
 - Titles are nouns ("终端", "提交历史"). Buttons are verbs ("拉取", "重新打开授权页面"). Errors: what failed, then what to do ("在设置中重新登录 LynShen 后再试。"). [SHOULD]
 - Durations `48.3s`, tokens `18.4k` with ↑ input / ↓ output, line changes `+42 −7`, in mono. Placeholder for a missing value: `—`. [SHOULD]
-- Keyboard keys render as mono `kbd` chips (`⌘K`). Use Ctrl on Windows and Linux (`shortcutLabel`). [SHOULD]
+- Keyboard keys render as mono `kbd` chips (`⌘K`). Use Ctrl on Windows and Linux (`shortcutLabel`). Chips appear only in menus (`.pop-hint`), tooltips and the shortcuts page. Buttons, nav items, list rows and input placeholders do not show shortcuts. [SHOULD] — Decision 2026-10-14, same feedback as "Status, attention and emphasis".
+- An input placeholder names the action in a few words ("回复", "输入 / 使用命令"). It does not list options or shortcuts. [SHOULD]
+- A prototype or a page with sample data shows one `--dim2` line "原型 · 示例数据" outside the window frame. It shows no design annotations, rule numbers or imitation OS chrome. [SHOULD] — Decision 2026-10-14.
 
 ## 7. Anti-Patterns
 
@@ -124,6 +134,9 @@ Extension boundary:
 - Pill labels for ordinary metadata (pills are for counts and state only). [SHOULD]
 - Outlines around rows or tabs to show selection (use the fill). [SHOULD]
 - Brand purple as a fill or button color. [SHOULD]
+- Glow, halo, rim light or a tinted container to make a group stand out. [SHOULD]
+- Glyph bullets (◆, ▲, ●●●) or an icon in front of a card title to signal status. [SHOULD]
+- Tokens that `src/lib/app.css` does not define, including in prototypes. [MUST]
 
 ## 8. Implementation and Integration
 
