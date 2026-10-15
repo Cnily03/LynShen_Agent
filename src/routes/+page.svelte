@@ -109,7 +109,7 @@
 	import CommandPalette from '$lib/CommandPalette.svelte';
 	import ShortcutsDialog from '$lib/ShortcutsDialog.svelte';
 	import { matches } from '$lib/shortcuts';
-	import { readSidebarCollapsed, writeSidebarCollapsed, SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
+	import { readSidebarCollapsed, writeSidebarCollapsed, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import TaskDialog from '$lib/TaskDialog.svelte';
 	import DeskPage from '$lib/DeskPage.svelte';
 	import ProjectPage from '$lib/ProjectPage.svelte';
@@ -475,7 +475,7 @@
 
 	const savedSidebarWidth = Number(localStorage.getItem('lynshen-sidebar-width'));
 	/** The expanded navigator's width (the user drags it, 240–460px). */
-	let sidebarWidth = $state(savedSidebarWidth >= 240 && savedSidebarWidth <= 460 ? savedSidebarWidth : 292);
+	let sidebarWidth = $state(savedSidebarWidth >= 240 && savedSidebarWidth <= 460 ? savedSidebarWidth : SIDEBAR_DEFAULT_WIDTH);
 	/** Width left of the sidebar (none since the workspace rail is gone); the
 	 *  title bar aligns the title past it. */
 	const RAIL_WIDTH = 0;
@@ -1582,6 +1582,7 @@
 		sidebarOpen={!sidebarCollapsed}
 		onToggleSidebar={toggleSidebar}
 		showToggle={!showSetup}
+		heading={!showSettings && !showDesk && !showSetup && !homeShown && !pageProject && !!active}
 		title={showSettings ? t('settings.title') : showDesk ? t('shell.desk.title') : showSetup ? 'Aogiri' : pageProject ? pageProject.name : showHome || !active ? t('shell.home.title') : shownTitle(active.chat.title)}
 		subtitle={showSettings || showDesk || showSetup || showHome || pageProject || !activeProject || activeProject.home ? '' : activeProject.name}
 		addOptions={showSettings || showDesk || showSetup ? [] : addOptions}
@@ -2104,10 +2105,13 @@
 	:global(:root[data-canvas-bg]) .app {
 		background: var(--rail) var(--canvas-image) center / cover no-repeat;
 	}
+	/* Under the title bar, across the full width: the first region boundary
+	   (design.md, "Window frame"). */
 	.body {
 		flex: 1;
 		display: flex;
 		min-height: 0;
+		border-top: 1px solid var(--divider);
 	}
 	.panel {
 		flex: 1;
@@ -2128,12 +2132,14 @@
 	}
 
 	/* ---------- the canvas ---------- */
-	/* The canvas shares the session list's layer; only a hairline divides them. */
+	/* Edge to edge: no inset, radius or shadow; a 1px divider at the
+	   navigator's edge. */
 	.canvas {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+		border-left: 1px solid var(--divider);
 		background: var(--bg);
 		position: relative;
 		/* Switching conversations and pages crossfades it (ui/viewTransition.ts). */

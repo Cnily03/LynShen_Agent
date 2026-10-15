@@ -551,8 +551,9 @@ try {
   // The conversation column follows its pane and that setting, the composer
   // with it; a wide table and a code block take the column, the page never
   // scrolls sideways, and the composer stays in view at the size a user
-  // reported blank margins at (1720 × 789, sidebar open: a 1428px pane; the
-  // fixture's conversation has the turn rail, so 56px beside the column).
+  // reported blank margins at (1720 × 789, sidebar open at its 272px default
+  // and the 1px divider: a 1447px pane; the fixture's conversation has the
+  // turn rail, so 56px beside the column).
   const shell = await browser.newPage({viewport:{width:1720,height:789}});
   shell.on('pageerror', e => errors.push(e.message));
   await shell.goto(base + '?shell');
@@ -576,17 +577,17 @@ try {
     assert.equal(l.sideways, 0, `${what}: the page scrolls sideways`);
     assert.ok(l.composerInView, `${what}: the composer is cut off`);
   };
-  await expectColumn(1071, '自适应, 1720 wide');
+  await expectColumn(1085, '自适应, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('standard'));
   await expectColumn(844, '标准, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('full'));
-  await expectColumn(1316, '铺满, 1720 wide');
+  await expectColumn(1335, '铺满, 1720 wide');
   await shell.setViewportSize({width:1280,height:800});
-  await expectColumn(876, '铺满, 1280 wide');
+  await expectColumn(895, '铺满, 1280 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('auto'));
   await expectColumn(844, '自适应, 1280 wide');
   await shell.setViewportSize({width:1040,height:680});
-  await expectColumn(640, '自适应, the smallest window');
+  await expectColumn(655, '自适应, the smallest window');
   await shell.close();
   // The window frost is off unless chosen. Preferences stored with the old
   // default (on, without a version) are switched off once: in storage, in

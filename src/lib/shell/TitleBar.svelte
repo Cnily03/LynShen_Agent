@@ -11,16 +11,18 @@
 	import { withShortcut } from '$lib/shortcuts';
 	import PopMenu, { type PopMenuItem } from '$lib/ui/PopMenu.svelte';
 
-	// The window's title bar, across the full width in the chrome colour: the
-	// traffic lights (macOS) and the sidebar toggle over the rail and session
-	// list, then the title of what is in front, aligned with the canvas, and the
-	// canvas actions (plus the drawn window controls on Windows/Linux).
+	// The window's title bar (design.md, "Title bar"): 38px across the full
+	// width with no fill of its own, so the frame tone shows. The traffic
+	// lights (macOS) and the navigator toggle over the navigator, then the
+	// title of what is in front, aligned with the canvas, and the canvas
+	// actions (plus the drawn window controls on Windows/Linux).
 	let {
 		leftWidth,
 		resizing = false,
 		sidebarOpen,
 		onToggleSidebar,
 		showToggle = true,
+		heading = false,
 		title = '',
 		subtitle = '',
 		addOptions = [],
@@ -36,6 +38,9 @@
 		onToggleSidebar: () => void;
 		/** Hide the toggle on full-window surfaces (the welcome screen). */
 		showToggle?: boolean;
+		/** The title is the view's heading (h1): a conversation in front, whose
+		 *  canvas has no page title of its own. */
+		heading?: boolean;
 		title?: string;
 		subtitle?: string;
 		/** Panels that can be opened next to the focused one. */
@@ -74,19 +79,19 @@
 				title={withShortcut(t(sidebarOpen ? 'shell.sidebarCollapse' : 'shell.sidebarExpand'), 'sidebar')}
 				aria-label={t(sidebarOpen ? 'shell.sidebarCollapse' : 'shell.sidebarExpand')}
 				aria-expanded={sidebarOpen}
-				onclick={onToggleSidebar}><SidebarSimpleIcon size={18} /></button
+				onclick={onToggleSidebar}><SidebarSimpleIcon size={16} /></button
 			>
 		{/if}
 	</div>
-	<div class="title" data-tauri-drag-region>
+	<svelte:element this={heading ? 'h1' : 'div'} class="title" data-tauri-drag-region>
 		{#if title}<span class="t">{title}</span>{/if}
 		{#if subtitle}<span class="s">{subtitle}</span>{/if}
-	</div>
+	</svelte:element>
 	<div class="acts">
 		{#if actions}{@render actions()}{/if}
 		{#if addOptions.length}
-			<button class="tb-btn" title={t('shell.addPanel')} aria-label={t('shell.addPanel')} aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}
-				><PlusIcon size={18} /></button
+			<button class="tb-btn" class:open={menuOpen} title={t('shell.addPanel')} aria-label={t('shell.addPanel')} aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}
+				><PlusIcon size={16} /></button
 			>
 			{#if menuOpen}
 				<PopMenu
@@ -102,16 +107,16 @@
 	</div>
 	{#if drawnControls}
 		<div class="winctl">
-			<button class="wc" title={t('shell.window.minimize')} aria-label={t('shell.window.minimize')} onclick={() => win().minimize()}><MinusIcon size={18} /></button>
+			<button class="wc" title={t('shell.window.minimize')} aria-label={t('shell.window.minimize')} onclick={() => win().minimize()}><MinusIcon size={16} /></button>
 			<button
 				class="wc"
 				title={maximized ? t('shell.window.restore') : t('shell.window.maximize')}
 				aria-label={maximized ? t('shell.window.restore') : t('shell.window.maximize')}
 				onclick={() => win().toggleMaximize()}
 			>
-				{#if maximized}<CopyIcon size={14} />{:else}<SquareIcon size={13} />{/if}
+				{#if maximized}<CopyIcon size={13} />{:else}<SquareIcon size={12} />{/if}
 			</button>
-			<button class="wc close" title={t('shell.window.close')} aria-label={t('shell.window.close')} onclick={() => win().close()}><XIcon size={18} /></button>
+			<button class="wc close" title={t('shell.window.close')} aria-label={t('shell.window.close')} onclick={() => win().close()}><XIcon size={16} /></button>
 		</div>
 	{/if}
 </header>
@@ -121,22 +126,23 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		height: 48px;
+		height: 38px;
 		flex-shrink: 0;
-		padding-right: 12px;
+		padding-right: 8px;
 		background: transparent;
 		user-select: none;
 	}
-	/* Over the rail and session list. On macOS the traffic lights sit at its
-	   start (trafficLightPosition in tauri.macos.conf.json centres them in the
-	   bar); the toggle follows them. */
+	/* Over the navigator, as wide as it is (or as its own contents). The
+	   toggle sits on the collapsed rail's centre line; on macOS the traffic
+	   lights come first (trafficLightPosition in tauri.macos.conf.json
+	   centres them on the bar, on the toggle's centre line). */
 	.lead {
 		display: flex;
 		align-items: center;
 		flex-shrink: 0;
 		min-width: max-content;
-		padding-left: 14px;
+		height: 100%;
+		padding-left: 10px;
 		/* Moves with the sidebar collapsing and expanding (Sidebar.svelte). */
 		transition: width var(--t-base) var(--ease-base);
 	}
@@ -179,6 +185,7 @@
 	}
 	.wc {
 		display: inline-flex;
+		padding: 0;
 		align-items: center;
 		justify-content: center;
 		width: 46px;
@@ -200,26 +207,32 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 34px;
-		height: 34px;
+		width: 28px;
+		height: 28px;
 		flex-shrink: 0;
+		padding: 0;
 		border: none;
 		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		cursor: pointer;
 	}
-	.tb-btn:hover {
+	.tb-btn:hover,
+	.tb-btn.open {
 		background: var(--surface2);
 		color: var(--text);
 	}
+	/* Starts at the canvas's left edge (past the 1px divider), plus a gap. */
 	.title {
 		flex: 1;
-		padding-left: 12px;
+		margin: 0;
+		padding-left: 13px;
 		min-width: 0;
 		display: flex;
 		align-items: baseline;
-		gap: 10px;
+		gap: 8px;
+		font: inherit;
+		line-height: 18px;
 		white-space: nowrap;
 		overflow: hidden;
 	}

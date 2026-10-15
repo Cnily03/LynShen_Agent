@@ -1,8 +1,12 @@
 // The navigator's expanded / collapsed state. Collapsed, it is a narrow rail:
 // the logo, the primary nav as icons and the account avatar.
 
-/** Width of the collapsed navigator (the icon rail). Its items centre on 31px. */
-export const SIDEBAR_RAIL_WIDTH = 62;
+/** Width of the collapsed navigator (the icon rail, design.md "Navigator").
+ *  Its items centre on 24px. */
+export const SIDEBAR_RAIL_WIDTH = 48;
+
+/** The expanded navigator's width before the user drags it (240–460px). */
+export const SIDEBAR_DEFAULT_WIDTH = 272;
 
 const KEY = 'lynshen-sidebar-collapsed';
 /** Before the rail, ⌘B hid the navigator completely ('0' = hidden). */
