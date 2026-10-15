@@ -46,16 +46,19 @@ export function toggleFolder(fold: SidebarFold, id: string): SidebarFold {
 	return { ...fold, folders: { ...fold.folders, [id]: !fold.folders[id] } };
 }
 
-/** Whether no project shows its conversations: the 项目 section is folded,
- *  or every one of these folders is (no projects: false). */
-export function allFolded(fold: SidebarFold, ids: string[]): boolean {
-	return ids.length > 0 && (!!fold.sections.projects || ids.every((id) => fold.folders[id]));
+/** Whether nothing shows its conversations: the 对话 section is folded (when
+ *  it lists any), and the 项目 section or every project folder is folded.
+ *  With nothing to fold, false. */
+export function allFolded(fold: SidebarFold, ids: string[], chats = false): boolean {
+	if (!chats && !ids.length) return false;
+	const chatsFolded = !chats || !!fold.sections.chats;
+	const projectsFolded = !ids.length || !!fold.sections.projects || ids.every((id) => fold.folders[id]);
+	return chatsFolded && projectsFolded;
 }
 
-/** The toolbar's 全部折叠 / 全部展开: every project folder folded, or every
- *  one open with the 项目 section open too, so the result shows. */
+/** The toolbar's 全部折叠 / 全部展开: the 对话 section and every project folder
+ *  folded, or all of them open with both sections open, so the result shows. */
 export function foldAll(fold: SidebarFold, ids: string[], folded: boolean): SidebarFold {
-	const folders = folded ? Object.fromEntries(ids.map((id) => [id, true])) : {};
-	const sections = folded ? fold.sections : { ...fold.sections, projects: false };
-	return { sections, folders };
+	if (folded) return { sections: { ...fold.sections, chats: true }, folders: Object.fromEntries(ids.map((id) => [id, true])) };
+	return { sections: { ...fold.sections, chats: false, projects: false }, folders: {} };
 }
