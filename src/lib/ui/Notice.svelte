@@ -42,7 +42,7 @@
 		padding: 8px 10px;
 		border-radius: var(--r-md);
 		font-size: var(--fs-xs);
-		line-height: 1.5;
+		line-height: 16px;
 		animation: rise var(--t-fast) var(--ease-out);
 	}
 	.error {

@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import type { WebRef } from '$lib/browser.svelte';
+	import type { ProviderModel } from '$lib/settings/providerFields';
 	import type { PlanAction as PaneAction } from '$lib/PlanCard.svelte';
 
 	/** Configured provider (builtin or custom) with its model list — the page
@@ -10,7 +11,7 @@
 		name?: string;
 		base_url: string;
 		format: string;
-		models: { name: string; display_name?: string | null; context_window?: number; reasoning_efforts?: string[] }[];
+		models: ProviderModel[];
 	}
 
 	/** Imperative surface the page reaches through its pane registry: global
@@ -57,6 +58,8 @@
 		type Op
 	} from '$lib/protocol';
 	import { buildModelRows, splitRoute, stripGroupSuffix, toolModels, type ToolModel } from '$lib/composer/modelRows';
+	import { displayNameOf } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 	import { configModelList } from '$lib/configModels';
 	import { confirm } from '$lib/ui/confirm.svelte';
 	import { BACKEND_LABELS, caps } from '$lib/backends';
@@ -67,7 +70,6 @@
 	import { CHAT_PAD, CHAT_PAD_RAIL, CHAT_W_STANDARD, chatColumnPad, chatColumnWidth } from '$lib/chatWidth';
 	import { followTop, shortOfEnd } from '$lib/chatFollow';
 	import { t } from '$lib/i18n';
-	import { shortcutLabel } from '$lib/shortcuts';
 	import type { SessionStore } from '$lib/session.svelte';
 	import type { Session } from '$lib/types';
 	import { editorStore } from '$lib/editor/editorStore.svelte';
@@ -79,10 +81,11 @@
 	import RateLimitBanner from '$lib/RateLimitBanner.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
-	import ProgressTray from '$lib/agents/ProgressTray.svelte';
+	import ProgressCards from '$lib/agents/ProgressCards.svelte';
+	import { anyCard, cardsLayout, cardsShown } from '$lib/agents/progressCards';
 	import NewSessionPicker from '$lib/NewSessionPicker.svelte';
 	import { placeFor, subagentPages, type OpenHow } from '$lib/agents/subagentPages.svelte';
-	import { agentRows, isLive, numstatTotals, porcelainFiles, type AgentRow } from '$lib/agentProgress';
+	import { agentRows, isLive, numstatTotals, planSummary, porcelainFiles, type AgentRow } from '$lib/agentProgress';
 	import { agentChanges } from '$lib/agents/agentChanges.svelte';
 	import { confirmStop } from '$lib/agents/confirmStop';
 	import { parseToolOutput, toolTarget, toolVerb } from '$lib/toolSummary';
@@ -92,6 +95,7 @@
 	import Modal from '$lib/ui/Modal.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
+	import { acceptsImages } from '$lib/settings/providerFields';
 	import { planPages } from '$lib/planPages.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import Picker from '$lib/shell/Picker.svelte';
@@ -128,6 +132,7 @@
 		onOpenRequirement,
 		onOpenTrace,
 		onOpenTeam,
+		onOpenChanges,
 		onOpenSession
 	}: {
 		session: Session;
@@ -150,6 +155,8 @@
 		onOpenTrace?: () => void;
 		/** Opens the agent team's panel (task board, messages). */
 		onOpenTeam?: () => void;
+		/** Opens the Changes panel (a turn's change pill). */
+		onOpenChanges?: () => void;
 		/** Opens a conversation by its session id (where another
 		 *  conversation's message came from). */
 		onOpenSession?: (session: string) => void;
@@ -165,6 +172,8 @@
 	const willLink = $derived(!linked && session.requirement ? reqs.get(session.requirement) : undefined);
 	/** A draft made for a requirement shows its start card until started. */
 	const starting = $derived(session.draft && session.requirementStart ? willLink : undefined);
+	/** No message yet, nothing starting: the greeting over a centred composer. */
+	const fresh = $derived(chat.messages.length === 0 && !chat.busy && !(chat.booting && chat.engineState !== 'exited') && !starting);
 	/** The start's confirmation, once this session's turn has ended. */
 	const gate = $derived(linked?.status === 'confirm' && !chat.busy ? gateOf(linked, chat.sessionId) : undefined);
 	let confirming = $state(false);
@@ -236,8 +245,8 @@
 	// The room the pane wants beside the column (more with the rail at the
 	// left edge), and what the column leaves of it.
 	const sidePad = $derived(marks.length > 1 ? CHAT_PAD_RAIL : CHAT_PAD);
-	const chatW = $derived(wrapW > 0 ? chatColumnWidth(wrapW, prefs.chatWidth, sidePad) : CHAT_W_STANDARD);
-	const chatPad = $derived(wrapW > 0 ? chatColumnPad(wrapW, chatW, sidePad) : sidePad);
+	const columnW = $derived(wrapW > 0 ? chatColumnWidth(wrapW, prefs.chatWidth, sidePad) : CHAT_W_STANDARD);
+	const chatPad = $derived(wrapW > 0 ? chatColumnPad(wrapW, columnW, sidePad) : sidePad);
 
 	// In-conversation find (⌘F). The raw input updates per keystroke; the actual
 	// scan (findHits) keys off the debounced `findQuery` so the O(n) message scan
@@ -417,9 +426,15 @@
 					active: name === current,
 					context_window: typeof m.context_window === 'number' ? m.context_window : (prev?.context_window ?? 0),
 					max_output_tokens: typeof m.max_output_tokens === 'number' ? m.max_output_tokens : (prev?.max_output_tokens ?? 0),
-					reasoning_efforts: Array.isArray(m.reasoning_efforts)
-						? (m.reasoning_efforts as string[])
-						: (prev?.reasoning_efforts ?? [])
+					// A model configured not to think offers no tiers.
+					reasoning_efforts:
+						m.reasoning === false
+							? []
+							: Array.isArray(m.reasoning_efforts)
+								? (m.reasoning_efforts as string[])
+								: (prev?.reasoning_efforts ?? []),
+					...(m.reasoning === false ? { reasoning: false } : {}),
+					...(Array.isArray(m.input_modalities) ? { input_modalities: m.input_modalities as string[] } : {})
 				};
 			});
 	}
@@ -504,6 +519,21 @@
 	});
 
 	const isImage = (p: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(p);
+	// Whether the model takes images: what the engine reports for the running
+	// model, else (a draft, an older engine) its catalog or provider entry.
+	const takesImages = $derived.by(() => {
+		if (!session.draft && chat.inputModalities) return chat.inputModalities.includes('image');
+		const listed =
+			chat.modelCatalog.find((m) => m.model === chat.model)?.input_modalities ??
+			providersList.find((p) => p.id === chat.provider)?.models.find((m) => m.name === chat.model)?.input_modalities;
+		return acceptsImages({ input_modalities: listed });
+	});
+	/** Refuses an image for a model that takes none; true when it may attach. */
+	function imageAllowed(path: string): boolean {
+		if (takesImages) return true;
+		toast.error(t('chat.imageNotAccepted', { model: chat.modelLabel || chat.model, name: base(path) }));
+		return false;
+	}
 	const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 	// The agent trace (AgentRunsPanel, a workbench panel) of this session.
 	const traceable = $derived(caps(chat).agentTrace && !!onOpenTrace);
@@ -520,7 +550,7 @@
 		return null;
 	}
 	// The subagents of this conversation: every run (the message list's cards
-	// find theirs), and the current turn's (the progress card). Derived from
+	// find theirs), and the current turn's (the subagents card). Derived from
 	// the trace and lifecycle state, never from the streaming text.
 	const lastTool = (label: string) => {
 		const m = chat.subagentLastTool[label];
@@ -537,6 +567,17 @@
 			since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER
 		})
 	);
+	// The plan card and the subagents card (agents/ProgressCards.svelte), at
+	// the top right of the pane while the turn has a plan or subagents. Where
+	// the pane leaves room right of the column they sit beside it, and the
+	// column moves left to make that room (progressCards.ts, cardsLayout);
+	// the composer and the cards above it move with the column.
+	const turnPlan = $derived(planSummary(chat.plan, chat.team));
+	const planFresh = $derived(chat.turnStartedAt > 0 && chat.planAt >= chat.turnStartedAt);
+	const cards = $derived(cardsShown(turnPlan, turnAgents, chat.busy, planFresh));
+	const cardsAt = $derived(wrapW > 0 && anyCard(cards) ? cardsLayout(wrapW, columnW, chatPad) : null);
+	const beside = $derived(!!cardsAt?.beside);
+	const chatW = $derived(beside ? cardsAt!.width : columnW);
 	/** A subagent's conversation in a page of its own (see OpenHow); a
 	 *  Workflow opens the trace's run list. */
 	function openAgent(row: AgentRow, how: OpenHow = 'default') {
@@ -568,6 +609,10 @@
 	function openTeam() {
 		store.activeId = session.id;
 		onOpenTeam?.();
+	}
+	function openChanges() {
+		store.activeId = session.id;
+		onOpenChanges?.();
 	}
 	// A finished attempt's worktree: the lines it adds and removes, read once
 	// (git diff there; files it created are not counted).
@@ -679,6 +724,14 @@
 		});
 	});
 
+	// The model button's name: the catalog's, or one read from the id, as the
+	// model pickers show it (src/lib/models). Claude Code / Codex keep theirs.
+	const shownModelName = $derived.by(() => {
+		const stored = stripGroupSuffix(providersList.find((p) => p.id === chat.provider)?.models.find((m) => m.name === chat.model)?.display_name || '');
+		if (chat.backendId !== 'lynshen' || !chat.model) return stored || undefined;
+		return displayNameOf(chat.provider ?? '', chat.model, stored || stripGroupSuffix(chat.modelLabel || ''), gatewayCatalog.lookup);
+	});
+
 	// Claude Code / Codex: the current model and where it can run, for the
 	// menu's provider row.
 	const toolModel = $derived.by((): ToolModel | undefined => {
@@ -780,7 +833,7 @@
 		else if (!attachments.some((a) => a.path === path)) attachments.push({ path, image: false });
 	}
 	function addImage(path: string) {
-		if (images.some((i) => i.path === path)) return;
+		if (images.some((i) => i.path === path) || !imageAllowed(path)) return;
 		const n = ++imageSeq;
 		images.push({ n, path });
 		const token = `[图片 #${n}]`;
@@ -797,7 +850,8 @@
 	// show the result and errors surface immediately. 重试 looks for ffmpeg
 	// again (process_video): installed meanwhile, it is found without a restart.
 	async function attachVideo(path: string) {
-		if (videos.some((v) => v.path === path)) return;
+		// A video goes to the model as keyframe images.
+		if (videos.some((v) => v.path === path) || !imageAllowed(path)) return;
 		try {
 			const info = await processVideo(path);
 			videos.push({ path: info.path, frames: info.frames, duration: info.duration });
@@ -990,7 +1044,8 @@
 			const entry = chat.modelCatalog.find((m) => m.model === name);
 			chat.model = name;
 			chat.modelLabel = entry?.label ?? '';
-			if (entry?.reasoning_efforts?.length) {
+			if (entry?.reasoning === false) chat.efforts = [];
+			else if (entry?.reasoning_efforts?.length) {
 				chat.efforts = entry.reasoning_efforts;
 				if (!chat.efforts.includes(chat.effort)) chat.effort = defaultEffort(chat.efforts);
 			}
@@ -1148,6 +1203,12 @@
 		if (e.deltaY >= 0 || !scroller || scroller.scrollHeight <= scroller.clientHeight) return;
 		if ((e.target as Element | null)?.closest?.('.pop')) return;
 		atBottom = false;
+	}
+	/** A wheel over the cards beside the column that they cannot take. */
+	function wheelFromCards(e: WheelEvent) {
+		if (!scroller) return;
+		onWheel(e);
+		scroller.scrollTop += e.deltaMode === 1 ? e.deltaY * 18 : e.deltaY;
 	}
 	function pin() {
 		if (!scroller) return;
@@ -1354,7 +1415,15 @@
 
 <svelte:window onkeydown={onWindowKey} onfocus={refreshGitBranch} />
 
-<div class="chatpane" style:--chat-w="{chatW}px" style:--chat-pad="{chatPad}px">
+<div
+	class="chatpane"
+	class:fresh
+	class:beside
+	style:--chat-w="{chatW}px"
+	style:--chat-pad="{chatPad}px"
+	style:--col-l={beside ? `${cardsAt!.left}px` : undefined}
+	style:--col-r={beside ? `${cardsAt!.right}px` : undefined}
+>
 	{#if owner}
 		<div class="owner">
 			<AgentAvatar agent={owner} size={16} />
@@ -1401,9 +1470,23 @@
 	{/if}
 
 	<div class="mainwrap" bind:clientWidth={wrapW}>
+	<ProgressCards
+		{chat}
+		sessionId={session.id}
+		plan={turnPlan}
+		rows={turnAgents}
+		shown={cards}
+		{beside}
+		lane={cardsAt?.right ?? 0}
+		onOpen={traceable ? openAgent : undefined}
+		onStop={(id) => send({ op: 'stop_task', task_id: id })}
+		onStopAgent={teamOps ? stopAgent : undefined}
+		onOpenTeam={teamPanel ? openTeam : undefined}
+		onWheel={wheelFromCards}
+	/>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
-			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
+			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
 		</div>
 		{#if chat.booting && chat.engineState !== 'exited'}
 			<div class="welcome spawning">
@@ -1414,15 +1497,12 @@
 			<div class="welcome">
 				<RequirementStart requirement={starting} {session} />
 			</div>
-		{:else if chat.messages.length === 0 && !chat.busy}
-			<div class="welcome">
-				{#if session.draft && !project?.chats}<NewSessionPicker {store} {session} />{:else}<p class="welcome-tip">{t('shell.welcomeTip')}</p>{/if}
-				<div class="welcome-hints">
-					<span><kbd>/</kbd> {t('shell.hintCommand')}</span>
-					<span><kbd>@</kbd> {t('shell.hintRef')}</span>
-					{#if shortcutLabel('palette')}<span><kbd>{shortcutLabel('palette')}</kbd> {t('shell.hintPalette')}</span>{/if}
-					<span>{t('shell.hintImage')}</span>
-				</div>
+		{:else if fresh}
+			<!-- A conversation with no messages: the greeting one line above
+			     the composer, which sits in the middle of the pane. -->
+			<div class="welcome fresh">
+				<p class="greeting">{t('shell.home.greeting')}</p>
+				{#if session.draft && !project?.chats}<NewSessionPicker {store} {session} />{/if}
 			</div>
 		{/if}
 	</main>
@@ -1462,16 +1542,6 @@
 		{#if chat.rateLimit}
 			<RateLimitBanner rateLimit={chat.rateLimit} onDismiss={() => (chat.rateLimit = null)} />
 		{/if}
-
-		<ProgressTray
-			{chat}
-			sessionId={session.id}
-			rows={turnAgents}
-			onOpen={traceable ? openAgent : undefined}
-			onStop={(id) => send({ op: 'stop_task', task_id: id })}
-			onStopAgent={teamOps ? stopAgent : undefined}
-			onOpenTeam={teamPanel ? openTeam : undefined}
-		/>
 
 		{#if chat.planRevising}
 			<div class="approval-wrap">
@@ -1514,7 +1584,7 @@
 			onModelSelect={selectRow}
 			onModelClose={() => chat.closePicker()}
 			modelRows={filteredRows}
-			modelDisplayName={stripGroupSuffix(providersList.find(p => p.id === chat.provider)?.models.find(m => m.name === chat.model)?.display_name || '') || undefined}
+			modelDisplayName={shownModelName}
 			modelSearch={showPickerSearch}
 			{backendLocked}
 			toolProvider={toolModel
@@ -1672,21 +1742,25 @@
 		-webkit-mask-image: linear-gradient(to right, transparent, #000 var(--plate-feather), #000 calc(100% - var(--plate-feather)), transparent);
 		mask-image: linear-gradient(to right, transparent, #000 var(--plate-feather), #000 calc(100% - var(--plate-feather)), transparent);
 	}
+	:global(:root[data-canvas-bg]) .chatpane.beside::before {
+		inset-inline: max(0px, calc(var(--col-l, 0px) - var(--chat-pad) - var(--plate-feather))) max(0px, calc(var(--col-r, 0px) - var(--chat-pad) - var(--plate-feather)));
+	}
 	.jump {
 		position: absolute;
 		left: 50%;
 		bottom: 132px; /* overridden inline to sit just above the composer */
 		transform: translateX(-50%);
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border-radius: var(--r-full);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		background: var(--panel);
-		border: 1px solid var(--border);
+		border: none;
 		color: var(--text);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+		box-shadow: var(--shadow-pop);
 		cursor: pointer;
 		z-index: 10;
 		animation: jump-in var(--t-med) var(--ease-out);
@@ -1707,12 +1781,19 @@
 		}
 	}
 	.jump:hover {
-		background: var(--surface2);
+		background: color-mix(in oklab, var(--panel) 94%, var(--text));
 		transform: translateX(-50%) translateY(-1px);
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
 	}
 	.jump:active {
 		transform: translateX(-50%) scale(0.92);
+	}
+	/* With the cards beside it the column is off the pane's centre: the
+	   button, the composer and what sits above it follow the column. */
+	.chatpane.beside .jump {
+		left: calc(var(--col-l, 0px) + var(--chat-w) / 2);
+	}
+	.chatpane.beside .bottom {
+		padding-inline: calc(var(--col-l, 0px) - var(--chat-pad)) calc(var(--col-r, 0px) - var(--chat-pad));
 	}
 	/* Match the composer's outer frame (the column plus --chat-pad a side) so
 	   the approval box lines up flush with the input box. */
@@ -1820,8 +1901,12 @@
 		flex-direction: column;
 		gap: 16px;
 		/* Full width, so the scrollbar sits at the pane's edge; the padding
-		   centres the column. */
+		   centres the column (or, with the cards beside it, leaves their
+		   room at its right). */
 		padding-inline: max(var(--chat-pad), calc((100% - var(--chat-w)) / 2));
+	}
+	.chatpane.beside main {
+		padding-inline: var(--col-l, 0px) var(--col-r, 0px);
 	}
 	/* Fill backwards only: a fill that held the end left the block transformed
 	   for good, so the new-conversation picker's menus (fixed click-away
@@ -1845,28 +1930,27 @@
 		font-size: var(--fs-md);
 		color: var(--dim);
 	}
-	.welcome-hints {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
-		gap: 8px 16px;
-		margin-top: 6px;
-		font-size: var(--fs-xs);
-		color: var(--dim2);
+	/* A conversation with no messages (design.md, "Workbench canvas"): the
+	   transcript and the composer's area split the pane, so the composer's
+	   top sits on its middle and the greeting one line above it. After the
+	   first message the composer goes back to the bottom. */
+	.chatpane.fresh .mainwrap,
+	.chatpane.fresh .bottom {
+		flex: 1 1 0;
 	}
-	.welcome-hints span {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
+	.welcome.fresh {
+		margin: auto 0 0;
+		padding: 0 24px 4px;
+		gap: 12px;
 	}
-	.welcome-hints kbd {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--dim);
-		background: var(--surface2);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-xs);
-		padding: 1px 6px;
+	/* The empty-conversation greeting, a display moment (design.md, "Type"). */
+	.greeting {
+		margin: 0;
+		color: var(--text);
+		font-family: var(--font-display);
+		font-size: var(--fs-2xl);
+		font-weight: 500;
+		line-height: 36px;
 	}
 
 	/* ---------- modals (trust / rewind) ---------- */

@@ -1,6 +1,7 @@
 import { mount } from 'svelte';
 import '../../src/lib/app.css';
 import { imageSrc, previewFacts } from './previewFiles';
+import { SAMPLE_CATALOG, SAMPLE_PLAIN_IDS } from '../../src/lib/models/catalogSample';
 
 const calls: { command: string; args: any }[] = [];
 // The picture the app keeps for an account with an avatar (?avatar).
@@ -21,6 +22,9 @@ const slow = () => new Promise((r) => setTimeout(r, latency === 'random' || late
 // ?accountLatency=<ms>: the account (monoize_session) answers that much later.
 const params0 = new URL(location.href).searchParams;
 const accountLatency = Number(params0.get('accountLatency') || 0);
+// ?models[=old]: a gateway account with the sample models (catalogSample.ts):
+// the model catalog, or (=old) a gateway without it (404, the plain list only).
+const modelsMode = params0.get('models');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null;
 let planFunding = 'plan';
 const trialPlan = (used: boolean) => ({
@@ -48,6 +52,15 @@ Object.assign(window, {
       const avatarUrl = (window as unknown as { __avatarUrl?: string }).__avatarUrl;
       if (command === 'monoize_session' && accountLatency) await new Promise((r) => setTimeout(r, accountLatency));
       if (command === 'monoize_session' && loggedIn && avatarUrl) return {logged_in: true, session: {user: {username: 'Test user', avatar_url: avatarUrl}}};
+      if (modelsMode != null) {
+        if (command === 'monoize_model_catalog') {
+          if (modelsMode === 'old') throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
+          return SAMPLE_CATALOG;
+        }
+        if (command === 'fetch_monoize_models') return {data: SAMPLE_PLAIN_IDS.map((id) => ({id, routing_status: 'ready'}))};
+        if (command === 'read_config') return {provider: 'monoize', model: 'deepseek-v4.1-flash', models: SAMPLE_PLAIN_IDS.map((name) => ({name})), compact_model: 'glm-5.3-flash', image_model: 'gpt-image-2'};
+        if (command === 'read_auth_providers') return ['monoize'];
+      }
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
         // not written its own list yet.
@@ -89,6 +102,7 @@ Object.assign(window, {
         ];
         case 'check_backend': return args.backend === 'lynshen' ? {found: true, version: '0.6.0'} : {found: false};
         case 'fetch_monoize_models': return {data:[]};
+        case 'monoize_model_catalog': throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
         case 'provider_oauth_start': return 'attempt-1';
         case 'provider_oauth_poll': return {status:'waiting',url:'https://auth.openai.com/oauth/authorize?state=test'};
         // ?balance: an account with money on it.
@@ -113,7 +127,7 @@ Object.assign(window, {
         // Only the agent-UX pages have a (stand-in) daemon.
         case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell', 'agents'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
         // Plugins of other agents, as the import scan finds them.
-        case 'import_scan': return {sessions: [], skills: [
+        case 'import_scan': return {sessions: [], skipped: [], skills: [
           {source:'claude', name:'docx', description:'', path:'/p/document-skills/docx', plugin:'document-skills', present:false},
           {source:'claude', name:'xlsx', description:'', path:'/p/document-skills/xlsx', plugin:'document-skills', present:false},
           {source:'claude', name:'frontend-design', description:'', path:'/p/frontend-design/skills/frontend-design', plugin:'frontend-design', present:true},

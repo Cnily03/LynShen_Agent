@@ -37,6 +37,72 @@ try {
   await page.getByRole('button',{name:'在浏览器中授权 ChatGPT / Codex'}).click();
   await expect(page.getByRole('button',{name:'重新打开授权页面'})).toBeVisible();
   assert.ok(await page.evaluate(() => window.__calls.some(c => c.command === 'provider_oauth_start' && c.args.provider === 'openai-codex')));
+  // A provider of one's own (提供商 → 添加 → 手动配置): the form checks the
+  // base URL, token counts and input kinds; each model keeps its window,
+  // output cap, thinking, effort tiers and input kinds; 编辑 reopens them.
+  await page.goto(base);
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  const providerForm = page.getByRole('dialog');
+  const field = (name) => providerForm.getByRole('textbox',{name,exact:true});
+  const tick = (name) => providerForm.getByRole('checkbox',{name,exact:true});
+  await field('Provider ID').fill('my-llm');
+  await field('Base URL').fill('llm.example.com/v1');
+  await field('模型名').fill('my-model');
+  await field('上下文窗口').fill('16k');
+  await field('最大输出').fill('32k');
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm.getByText('最大输出不能大于上下文窗口。')).toBeVisible();
+  await field('上下文窗口').fill('200k');
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await field('模型名').fill('my-small-model');
+  await field('上下文窗口').fill('64k');
+  await tick('图片').uncheck({force:true});
+  await tick('文本').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await expect(providerForm.getByText('至少勾选一种输入。')).toBeVisible();
+  await tick('文本').check({force:true});
+  await tick('支持思考（推理）').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm.getByText(/以 http:\/\/ 或 https:\/\/ 开头/)).toBeVisible();
+  await field('Base URL').fill('https://llm.example.com/v1');
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  const storedModels = () => page.evaluate(() => JSON.parse(localStorage.getItem('lynshen-custom-providers')).find((p) => p.id === 'my-llm').models
+    .map((m) => [m.name, m.context_window, m.max_output_tokens, m.reasoning, m.reasoning_efforts.join(' '), m.input_modalities.join(' ')]));
+  assert.deepEqual(await storedModels(), [
+    ['my-model', 200000, 32000, true, 'none low medium high xhigh', 'text image'],
+    ['my-small-model', 64000, 8192, false, 'none', 'text']
+  ]);
+  await page.locator('#pcard-my-llm .pcard-main').click();
+  await page.locator('#pcard-my-llm').getByRole('button',{name:'编辑',exact:true}).click();
+  await expect(field('Provider ID')).toBeDisabled();
+  await expect(field('Base URL')).toHaveValue('https://llm.example.com/v1');
+  await providerForm.getByRole('button',{name:'编辑 my-model'}).click();
+  await expect(field('上下文窗口')).toHaveValue('200k');
+  await field('上下文窗口').fill('1M');
+  await tick('关闭').uncheck({force:true});
+  await tick('Ultra').check({force:true});
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  assert.deepEqual((await storedModels())[0], ['my-model', 1000000, 32000, true, 'low medium high xhigh ultra', 'text image']);
+  // A model that takes no images and does not think: the composer refuses
+  // an image and shows no effort; one that takes images attaches it.
+  await page.goto(base + '?shell&textOnly');
+  await page.waitForFunction(() => window.__chat, null, {timeout:30000});
+  await expect(page.locator('.fbtn.effort')).toHaveCount(0);
+  await page.evaluate(() => { window.__chat.pendingAttach = ['/Users/me/Desktop/shot.png']; });
+  await expect(page.getByText('my-small-model 不接受图片输入，没有添加 shot.png。', {exact:false})).toBeVisible();
+  await expect(page.getByText('图片 #1')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__chat.handle({type:'model_status', provider:'my-llm', model:'my-model', reasoning_effort:'high', reasoning_efforts:['low','high'], input_modalities:['text','image'], context_window:200000, context_limit:150000, max_output_tokens:32000, state:'ready'});
+    window.__chat.pendingAttach = ['/Users/me/Desktop/shot.png'];
+  });
+  await expect(page.getByText('图片 #1')).toBeVisible();
+  await expect(page.locator('.fbtn.effort')).toHaveText('High');
   // Opening a panel beside a tab mounted the tab again (a TUI went blank).
   await page.goto(base + '?mosaic');
   const probe = page.locator('[data-probe="t0"]');
@@ -50,9 +116,10 @@ try {
   }
   // The home page offers the gateway's models before any conversation exists.
   await page.goto(base + '?home');
-  await page.locator('button.model').click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(2);
-  await page.getByRole('menuitemradio',{name:'Claude Opus 5.5'}).click();
+  await page.locator('.model-anchor .trigger').click();
+  await expect(page.locator('.pop.mp .mline')).toHaveCount(2);
+  await page.locator('.pop.mp .mline', {hasText:'Claude Opus 5.5'}).click();
+  await expect(page.locator('textarea')).toBeFocused();
   await page.locator('textarea').fill('你好');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('started')).toHaveText('你好 @ claude-opus-5-5');
@@ -369,13 +436,13 @@ try {
   // (the last has no space after it). (The whole reply rendered again, as
   // one document: time and memory that grew with the reply.)
   const spaces = () => reply.locator('.md > p:last-child').evaluateAll((ps) => ps.map((p) => getComputedStyle(p).marginBottom));
-  assert.deepEqual([...new Set(await spaces())], ['10px'], 'the paragraphs of a streaming reply are spaced');
+  assert.deepEqual([...new Set(await spaces())], ['12px'], 'the paragraphs of a streaming reply are spaced');
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
   await expect(reply.locator('.stream')).toHaveCount(0);
   await expect(reply.locator('.md')).toHaveCount(32);
   await expect(reply.locator('.md').last()).toHaveText('Done.');
   assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a paragraph rendered again as the reply ended');
-  assert.deepEqual(await spaces(), [...Array(30).fill('10px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
+  assert.deepEqual(await spaces(), [...Array(30).fill('12px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
   // A steered message cuts the streaming reply off: it stays, finished and
   // marked, and the next response is a reply of its own after the message.
   await page.evaluate(() => {
@@ -551,8 +618,9 @@ try {
   // The conversation column follows its pane and that setting, the composer
   // with it; a wide table and a code block take the column, the page never
   // scrolls sideways, and the composer stays in view at the size a user
-  // reported blank margins at (1720 × 789, sidebar open: a 1428px pane; the
-  // fixture's conversation has the turn rail, so 56px beside the column).
+  // reported blank margins at (1720 × 789, sidebar open at its 272px default
+  // and the 1px divider: a 1447px pane; the fixture's conversation has the
+  // turn rail, so 56px beside the column).
   const shell = await browser.newPage({viewport:{width:1720,height:789}});
   shell.on('pageerror', e => errors.push(e.message));
   await shell.goto(base + '?shell');
@@ -576,18 +644,251 @@ try {
     assert.equal(l.sideways, 0, `${what}: the page scrolls sideways`);
     assert.ok(l.composerInView, `${what}: the composer is cut off`);
   };
-  await expectColumn(1071, '自适应, 1720 wide');
+  await expectColumn(1085, '自适应, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('standard'));
   await expectColumn(844, '标准, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('full'));
-  await expectColumn(1316, '铺满, 1720 wide');
+  await expectColumn(1335, '铺满, 1720 wide');
   await shell.setViewportSize({width:1280,height:800});
-  await expectColumn(876, '铺满, 1280 wide');
+  await expectColumn(895, '铺满, 1280 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('auto'));
   await expectColumn(844, '自适应, 1280 wide');
   await shell.setViewportSize({width:1040,height:680});
-  await expectColumn(640, '自适应, the smallest window');
+  await expectColumn(655, '自适应, the smallest window');
   await shell.close();
+  // The plan and subagents cards (design.md, "Status, attention and
+  // emphasis"): a turn at work with a 3/7 plan and four subagents of the
+  // agent team (?shell&cards). At 1440 × 900 (a 1148px chat leaf) the column
+  // moves left to leave 280px at its right and the cards sit there, clear of
+  // the text; nothing about them sits on the composer's top edge.
+  const cardsPage = await browser.newPage({viewport:{width:1440,height:900}});
+  cardsPage.on('pageerror', e => errors.push(e.message));
+  await cardsPage.goto(base + '?shell&cards');
+  await expect(cardsPage.locator('.composer')).toBeVisible({timeout:30000});
+  const cards = cardsPage.getByRole('region', {name:'计划和子智能体'});
+  const planHead = cards.locator('.card.plan .head');
+  const agentsHead = cards.locator('.card.agents .head');
+  await expect(cardsPage.locator('.chatpane.beside')).toHaveCount(1);
+  await expect(planHead).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+  await expect(agentsHead).toHaveText(/子智能体\s*4\s*·\s*2 个运行中/);
+  const besideLayout = () => cardsPage.evaluate(() => {
+    const main = document.querySelector('.chatpane main');
+    const m = main.getBoundingClientRect();
+    const cs = getComputedStyle(main);
+    const left = m.left + parseFloat(cs.paddingLeft);
+    const right = m.left + main.clientWidth - parseFloat(cs.paddingRight);
+    const col = document.querySelector('[aria-label="计划和子智能体"]').getBoundingClientRect();
+    // Where the transcript's visible text ends beside the cards (a code
+    // block or a table scrolls sideways inside its own box: clipped there).
+    const clip = (el) => { let right = Infinity; for (let a = el; a && a !== main; a = a.parentElement) if (getComputedStyle(a).overflowX !== 'visible') right = Math.min(right, a.getBoundingClientRect().right); return right; };
+    let textRight = 0;
+    const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (!n.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const edge = clip(n.parentElement);
+      for (const r of range.getClientRects()) if (r.width && r.left < edge && r.bottom > col.top && r.top < col.bottom) textRight = Math.max(textRight, Math.min(r.right, edge));
+    }
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    const bottom = document.querySelector('.chatpane .bottom');
+    return {
+      column: [Math.round(left), Math.round(right - left)], composer: [Math.round(composer.left), Math.round(composer.width)],
+      gap: Math.round(col.left - right), textRight: Math.round(textRight), cardsLeft: Math.round(col.left), cardsRight: Math.round(col.right),
+      paneRight: Math.round(m.right), sideways: document.documentElement.scrollWidth - innerWidth,
+      onComposer: bottom.textContent.includes('3/7') || !!bottom.querySelector('.tray, .bar'),
+      h1: document.querySelectorAll('h1').length,
+      decor: document.querySelectorAll('[aria-label="计划和子智能体"] svg circle, [aria-label="计划和子智能体"] .bead, [aria-label="计划和子智能体"] progress').length
+    };
+  });
+  {
+    const l = await besideLayout();
+    assert.deepEqual(l.composer, l.column, 'the composer follows the column the cards moved');
+    assert.ok(l.gap >= 16, `the cards sit ${l.gap}px from the column`);
+    assert.ok(l.textRight <= l.cardsLeft, `transcript text runs under the cards (${l.textRight} > ${l.cardsLeft})`);
+    assert.ok(l.paneRight - l.cardsRight >= 8, 'the cards stay inside the leaf');
+    assert.equal(l.sideways, 0, 'the page scrolls sideways');
+    assert.equal(l.onComposer, false, 'the plan shows on the composer\'s top edge');
+    assert.equal(l.decor, 0, 'the cards draw a ring, a bar or beads');
+    assert.ok(l.h1 <= 1, 'more than one h1');
+  }
+  // The checklist: done steps checked, the current one at 500 (the others
+  // 400; 600 is for titles, design.md "Type"); each subagent
+  // a 6px dot, its role, attempt, action and time; the team's tokens and board.
+  const steps = cards.locator('.card.plan .step');
+  await expect(steps).toHaveCount(7);
+  await expect(cards.locator('.card.plan .step.done svg')).toHaveCount(3);
+  const current = cards.locator('.card.plan .step.current');
+  await expect(current).toHaveText(/跑单元测试/);
+  const weightOf = (step) => step.locator('.text').evaluate((el) => Number(getComputedStyle(el).fontWeight));
+  assert.equal(await weightOf(current), 500, 'the current step does not stand out at 500');
+  assert.equal(await weightOf(steps.nth(4)), 400, 'a pending step is not at 400');
+  await expect(current.locator('.owner')).toHaveText('worker-2');
+  const worker = cards.locator('.agent', {has: cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'})});
+  await expect(worker).toContainText('编写 · #2');
+  await expect(worker).toContainText('运行 pnpm vitest run src/lib/cache');
+  await expect(worker.locator('.l1')).toContainText(/\d+m\d\ds/);
+  assert.deepEqual(await worker.locator('.sdot').evaluate((el) => [getComputedStyle(el).width, getComputedStyle(el).height]), ['6px', '6px']);
+  await expect(cards.locator('.card.agents .meta')).toContainText('182k / 400k tokens');
+  await expect(cards.locator('.card.agents .meta')).toContainText('任务 2/4');
+  // The team panel from the card's title line; a row opens its subagent.
+  await cards.getByRole('button', {name:'打开工作组'}).click();
+  await cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'}).click();
+  assert.deepEqual(await cardsPage.evaluate(() => window.__opened), ['team', 'agent:/root/worker-2:side']);
+  await worker.getByRole('button', {name:'在新标签页打开'}).click({force:true});
+  assert.equal(await cardsPage.evaluate(() => window.__opened.at(-1)), 'agent:/root/worker-2:tab');
+  // Stopping an agent: its row action shows on hover, sends close_agent and
+  // then waits for the agent to stop.
+  const stop = worker.getByRole('button', {name:'停止 worker-2'});
+  assert.equal(await worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity), '0', 'the row actions show before hover');
+  await worker.hover();
+  await expect.poll(() => worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  await stop.click();
+  await expect(worker.getByRole('img', {name:'正在停止'})).toBeVisible();
+  assert.ok(await cardsPage.evaluate(() => '/root/worker-2' in window.__shellChat.stopRequested), 'close_agent was not sent');
+  assert.deepEqual(await cardsPage.evaluate(() => window.__sent.filter((o) => o.op === 'close_agent')), [{op: 'close_agent', target: '/root/worker-2'}]);
+  // A card collapses to its title line, by click or by keyboard (Tab to it,
+  // Enter), and stays so for this session.
+  await planHead.click();
+  await expect(planHead).toHaveAttribute('aria-expanded', 'false');
+  await expect(cards.locator('.card.plan .step')).toHaveCount(0);
+  assert.deepEqual(await cardsPage.evaluate(() => JSON.parse(localStorage.getItem(`lynshen-progress-cards:${window.__shellSession}`) ?? 'null')), {plan: false});
+  await agentsHead.focus();
+  await cardsPage.keyboard.press('Shift+Tab');
+  await expect(planHead).toBeFocused();
+  assert.notEqual(await planHead.evaluate((el) => getComputedStyle(el).outlineStyle), 'none', 'no focus ring on the title line');
+  await cardsPage.keyboard.press('Enter');
+  await expect(planHead).toHaveAttribute('aria-expanded', 'true');
+  await cardsPage.keyboard.press('Enter');
+  await expect(planHead).toHaveAttribute('aria-expanded', 'false');
+  // Row actions show on keyboard focus too.
+  await agentsHead.focus();
+  for (let i = 0; i < 12 && !(await worker.evaluate((el) => el.contains(document.activeElement))); i++) await cardsPage.keyboard.press('Tab');
+  await expect.poll(() => worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  // A step that fails expands the collapsed plan card, in the error color.
+  await cardsPage.evaluate(() => window.__shellChat.handle({type: 'subagent_lifecycle', path: '/root/worker-2', status: 'failed', message: '3 个测试失败：cache.test.ts'}));
+  await expect(planHead).toHaveAttribute('aria-expanded', 'true');
+  const failed = cards.locator('.card.plan .step.failed');
+  await expect(failed).toHaveText(/跑单元测试\s*worker-2 失败：3 个测试失败：cache\.test\.ts/);
+  const errColor = await cardsPage.evaluate(() => { const p = document.createElement('p'); p.style.color = 'var(--err)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
+  assert.equal(await failed.locator('.text').evaluate((el) => getComputedStyle(el).color), errColor, 'a failed step is not in --err');
+  await expect(planHead.locator('.what.err')).toHaveText('跑单元测试');
+  await cardsPage.close();
+
+  // Narrower leaves: 1100 × 760, 1040 × 680, and 1440 × 900 with a tool leaf
+  // beside the chat. Each card is its title line at the top right, on a
+  // strip above the transcript; a click opens it as a solid popover over the
+  // transcript, closed by Escape (focus back on its title line) or a click
+  // outside; Tab goes from the title line into it.
+  for (const [w, h, query] of [[1100, 760, '?shell&cards'], [1040, 680, '?shell&cards'], [1440, 900, '?shell&cards&tool']]) {
+    const what = `${w} × ${h}${query.includes('tool') ? ' with a tool leaf' : ''}`;
+    const p = await browser.newPage({viewport:{width:w,height:h}});
+    p.on('pageerror', e => errors.push(e.message));
+    await p.goto(base + query);
+    await expect(p.locator('.composer')).toBeVisible({timeout:30000});
+    const strip = p.getByRole('region', {name:'计划和子智能体'});
+    await expect(p.locator('.chatpane.beside'), what).toHaveCount(0);
+    await expect(strip.locator('.tline'), what).toHaveCount(2);
+    const planLine = strip.locator('.tline').first();
+    await expect(planLine).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+    const geo = () => p.evaluate(() => {
+      const pane = document.querySelector('.chatpane').getBoundingClientRect();
+      const s = document.querySelector('[aria-label="计划和子智能体"]').getBoundingClientRect();
+      const lines = [...document.querySelectorAll('.tline')].map((el) => el.getBoundingClientRect());
+      const main = document.querySelector('.chatpane main').getBoundingClientRect();
+      const pop = document.querySelector('.cardpop')?.getBoundingClientRect();
+      const fill = document.querySelector('.cardpop') ? getComputedStyle(document.querySelector('.cardpop')).backgroundColor : '';
+      const stripFill = getComputedStyle(document.querySelector('.strip')).backgroundColor;
+      return {
+        paneRight: Math.round(pane.right), paneLeft: Math.round(pane.left), stripBottom: Math.round(s.bottom), mainTop: Math.round(main.top),
+        lastRight: Math.round(Math.max(...lines.map((r) => r.right))), firstLeft: Math.round(Math.min(...lines.map((r) => r.left))),
+        pop: pop && [Math.round(pop.left), Math.round(pop.top), Math.round(pop.right), Math.round(pop.bottom)], fill, stripFill,
+        sideways: document.documentElement.scrollWidth - innerWidth, h1: document.querySelectorAll('h1').length
+      };
+    });
+    let g = await geo();
+    assert.ok(g.paneRight - g.lastRight <= 12, `${what}: the title lines are not at the top right`);
+    assert.ok(g.firstLeft > (g.paneLeft + g.paneRight) / 2 - 200, `${what}: the title lines spread left`);
+    assert.ok(g.stripBottom <= g.mainTop, `${what}: the strip covers the transcript`);
+    assert.ok(!/rgba\(.*, 0(\.\d+)?\)$/.test(g.stripFill), `${what}: the strip is not opaque (${g.stripFill})`);
+    assert.equal(g.sideways, 0, `${what}: the page scrolls sideways`);
+    assert.ok(g.h1 <= 1, `${what}: more than one h1`);
+    await planLine.click();
+    const pop = p.getByRole('dialog').filter({has: p.locator('.step')});
+    await expect(pop).toBeVisible();
+    await expect(pop.locator('.step')).toHaveCount(7);
+    g = await geo();
+    assert.match(g.fill, /^rgb\(/, `${what}: the popover is not solid (${g.fill})`);
+    assert.ok(g.pop[0] >= g.paneLeft && g.pop[2] <= g.paneRight && g.pop[3] <= h, `${what}: the popover leaves the chat leaf ${JSON.stringify(g)}`);
+    assert.ok(g.pop[1] >= g.stripBottom, `${what}: the popover covers its title line`);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    // A click outside closes it.
+    await planLine.click();
+    await expect(pop).toBeVisible();
+    await p.locator('.chatpane main').click({position:{x:40, y:200}});
+    await expect(pop).toHaveCount(0);
+    // Keyboard: Enter opens, Tab goes into it, Escape closes it and gives
+    // the focus back to the title line.
+    await planLine.focus();
+    await p.keyboard.press('Enter');
+    await expect(pop).toBeVisible();
+    await expect(planLine).toHaveAttribute('aria-expanded', 'true');
+    await p.keyboard.press('Tab');
+    assert.ok(await pop.evaluate((el) => el.contains(document.activeElement)), `${what}: Tab does not go into the popover`);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    await expect(planLine).toBeFocused();
+    // The subagents popover: a row opens its subagent and closes nothing else;
+    // stopping an agent is its row action.
+    const agentsLine = strip.locator('.tline').last();
+    await agentsLine.click();
+    const apop = p.getByRole('dialog').filter({has: p.locator('.agent')});
+    await expect(apop.locator('.agent')).toHaveCount(4);
+    await expect(apop.getByRole('button', {name:'打开工作组'})).toBeVisible();
+    const row = apop.locator('.agent', {has: p.getByRole('button', {name:'查看 worker-2 在做什么'})});
+    await row.hover();
+    await row.getByRole('button', {name:'停止 worker-2'}).click();
+    await expect(row.getByRole('img', {name:'正在停止'})).toBeVisible();
+    await apop.getByRole('button', {name:'查看 worker-1 在做什么'}).click();
+    assert.equal(await p.evaluate(() => window.__opened.at(-1)), 'agent:/root/worker-1:side');
+    await p.keyboard.press('Escape');
+    await expect(apop).toHaveCount(0);
+    // A step that waits for the reader opens the plan popover by itself;
+    // Escape closes the popover first and leaves the approval waiting.
+    await p.evaluate(() => window.__shellChat.handle({type: 'subagent_lifecycle', path: '/root/worker-2', status: 'running', message: '等待确认'}));
+    await p.evaluate(() => window.__shellChat.handle({type: 'approval_request', call_id: 'c9', name: 'shell', summary: 'pnpm vitest run', subagent_id: '/root/worker-2', scopes: ['session']}));
+    await expect(pop).toBeVisible();
+    await expect(pop.locator('.step.waiting')).toHaveText(/跑单元测试\s*等你确认/);
+    await expect(planLine.locator('.dot.warn')).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    assert.ok(await p.evaluate(() => !!window.__shellChat.pendingApproval), `${what}: Escape over the popover answered the approval`);
+    await p.close();
+  }
+
+  // The phone page: the cards' title lines as chips under the header; a tap
+  // opens one as a sheet from the bottom, closed by Escape or the scrim; a
+  // subagent row opens its conversation.
+  const cardsPhone = await browser.newPage({viewport:{width:390,height:844}});
+  cardsPhone.on('pageerror', e => errors.push(e.message));
+  await cardsPhone.goto(base + '?remote&cards');
+  const chips = cardsPhone.getByRole('region', {name:'计划和子智能体'});
+  await expect(chips.locator('.chip')).toHaveCount(2, {timeout:30000});
+  await expect(chips.locator('.chip').first()).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+  assert.ok(await cardsPhone.evaluate(() => document.querySelector('.chips').getBoundingClientRect().top >= document.querySelector('.session > header').getBoundingClientRect().bottom), 'the chips are not under the header');
+  await chips.locator('.chip').first().click();
+  const sheet = cardsPhone.locator('.sheet[role="dialog"]');
+  await expect(sheet.locator('.step')).toHaveCount(7);
+  await cardsPhone.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await chips.locator('.chip').last().click();
+  await expect(sheet.locator('.agent')).toHaveCount(3);
+  await sheet.getByRole('button', {name:'查看 worker-2 在做什么'}).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(cardsPhone.locator('.trace-sheet')).toBeVisible();
+  assert.equal(await cardsPhone.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'the phone page scrolls sideways');
+  await cardsPhone.close();
   // The window frost is off unless chosen. Preferences stored with the old
   // default (on, without a version) are switched off once: in storage, in
   // what the app is told, and nothing is translucent. (?frost: the system
@@ -609,7 +910,7 @@ try {
   }));
   const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
   await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
-  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(32, 32, 32)', stored: [2, false], told: [false]});
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [2, false], told: [false]});
   // Turned on afterwards it is a choice: macOS frosts at once, and it is
   // still on after a restart.
   await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
@@ -639,7 +940,7 @@ try {
   await light.goto(base + '?shell&theme=light');
   await expect(light.locator('.composer')).toBeVisible({timeout:30000});
   const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
-  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(238, 236, 232)', 'rgb(251, 250, 248)']);
+  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(240, 239, 235)', 'rgb(251, 250, 248)']);
   await light.close();
   // A message sent with a file shows what was typed and the file as a chip,
   // never the list the engine reads after the text; history from the
@@ -1098,6 +1399,180 @@ try {
       await mp.close();
     }
   }
+
+  // The model pickers (src/lib/models), on the gateway's catalog
+  // (catalogSample.ts, a trial account), at the smallest window in both
+  // themes: the quick switcher under the composer's model button, its keys,
+  // typing into the full browser, search by Chinese words and aliases,
+  // folded versions, an unavailable model, and a long name that wraps.
+  // A model row by its full name.
+  const row = (scope, name) => scope.locator('.mline').filter({has: scope.page().getByText(name, {exact: true})});
+  const cutOff = (loc) => loc.evaluate((el) => el.scrollWidth > el.clientWidth + 1 || getComputedStyle(el).textOverflow === 'ellipsis' && getComputedStyle(el).whiteSpace === 'nowrap');
+  const solid = async (loc, what) => {
+    const fill = await loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+    assert.ok(!/\/\s*0?\.\d+\)$|rgba\(.*,\s*0?\.\d+\)$/.test(fill), `${what} is see-through: ${fill}`);
+  };
+  for (const theme of ['dark', 'light']) {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + `?shell&models&theme=${theme}`);
+    // The button names the model as the catalog does, not by its id.
+    await expect(mp.locator('.fbtn.model')).toHaveText('DeepSeek V4.1 Flash', {timeout:30000});
+    await mp.locator('.fbtn.model').click();
+    await mp.mouse.move(5, 5);
+    const quick = mp.locator('.pop.mm .qs');
+    await solid(mp.locator('.pop.mm'), `${theme}: the model menu`);
+    // The model in use, then the plan's picks (a trial: what it pays for
+    // first); an unavailable model and an image model are not offered.
+    await expect(quick.locator('.head')).toHaveText(['最近使用', '推荐']);
+    await expect(quick.locator('.mline .name')).toHaveText(['DeepSeek V4.1 Flash', 'GLM-5.3', 'Kimi K3', 'Auto', 'Claude Opus 5.5', 'Claude Sonnet 5.5 (1M context, extended thinking)', 'GPT-6 Sol']);
+    await expect(row(quick, 'GLM-5.3').locator('.aside')).toHaveText('套餐内');
+    await expect(row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.aside')).toHaveText('不稳定');
+    await expect(row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.dot')).toHaveCount(1);
+    // The long name wraps inside its row: nothing cut, nothing under the check.
+    const long = row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)');
+    assert.equal(await cutOff(long.locator('.name')), false, `${theme}: the long name is cut in the quick switcher`);
+    const [nameBox, checkBox] = await Promise.all([long.locator('.name').boundingBox(), long.locator('.pop-check').boundingBox()]);
+    assert.ok(nameBox.x + nameBox.width <= checkBox.x, `${theme}: the long name runs under the check`);
+    // Keys: the search field has the focus; the arrows move, ⌘D pins, Enter picks.
+    await expect(quick.locator('input')).toBeFocused();
+    await expect(quick.locator('.mline.sel .name')).toHaveText('DeepSeek V4.1 Flash');
+    await mp.keyboard.press('ArrowDown');
+    await mp.keyboard.press('ArrowDown');
+    await expect(quick.locator('.mline.sel .name')).toHaveText('Kimi K3');
+    await mp.keyboard.press('ControlOrMeta+d');
+    await expect(quick.locator('.head')).toHaveText(['收藏', '最近使用', '推荐']);
+    await expect(quick.locator('.mline').first().locator('.name')).toHaveText('Kimi K3');
+    await expect(quick.locator('.mline.sel .name')).toHaveText('Kimi K3');
+    await mp.keyboard.press('Enter');
+    await expect(mp.locator('.pop.mm')).toHaveCount(0);
+    await expect(mp.locator('.fbtn.model.pending')).toHaveCount(1);
+    assert.deepEqual(await mp.evaluate(() => JSON.parse(localStorage.getItem('lynshen-model-picks'))), {favorites: ['monoize::kimi-k3'], recent: ['monoize::kimi-k3']});
+    // An input method: nothing moves while it composes (its Enter picks
+    // nothing); the browser opens with the finished text.
+    await mp.locator('.fbtn.model').click();
+    const qi = mp.locator('.pop.mm .qs input');
+    const compose = (loc, text, done) => loc.evaluate((el, [text, done]) => {
+      el.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+      el.value = text;
+      el.dispatchEvent(new InputEvent('input', {isComposing: true, bubbles: true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 229, isComposing: true, bubbles: true}));
+      if (done) {
+        el.value = done;
+        el.dispatchEvent(new InputEvent('input', {isComposing: true, bubbles: true}));
+        el.dispatchEvent(new CompositionEvent('compositionend', {data: done, bubbles: true}));
+      }
+    }, [text, done]);
+    await compose(qi, 'kan', '');
+    await expect(mp.locator('.pop.mm')).toHaveCount(1);
+    await expect(mp.locator('.mb')).toHaveCount(0);
+    await compose(qi, 'kantu', '看图');
+    const ime = mp.locator('.mb');
+    await expect(ime.locator('input')).toHaveValue('看图');
+    await expect(ime.locator('.mline .name')).toContainText(['Kimi K3']);
+    await expect(row(ime, 'GLM-5.3')).toHaveCount(0);
+    await compose(ime.locator('input'), 'guo', '');
+    await expect(ime.locator('.empty')).toHaveCount(0);
+    await expect(row(ime, 'Kimi K3')).toHaveCount(1);
+    await compose(ime.locator('input'), 'guochan', '国产');
+    await expect(row(ime, 'GLM-5.3')).toHaveCount(1);
+    await mp.keyboard.press('Escape');
+    await expect(ime).toHaveCount(0);
+    // Typing opens the full browser with the text.
+    await mp.locator('.fbtn.model').click();
+    await mp.keyboard.type('opus');
+    const dlg = mp.locator('.mb');
+    await expect(dlg.locator('input')).toBeFocused();
+    await expect(dlg.locator('input')).toHaveValue('opus');
+    await mp.mouse.move(5, 5);
+    await expect(dlg.locator('.mline .name')).toHaveText(['Claude Opus 5.5', 'Claude Opus 5', 'Claude Opus 4.8']);
+    await solid(dlg, `${theme}: the model browser`);
+    for (const [query, names] of [
+      ['opus 4.8', ['Claude Opus 4.8']],
+      ['能看图的国产模型', ['Kimi K3']],
+      ['zhipuai', ['GLM-5.3']],
+      ['DeepSeek-V4.1-Flash', ['DeepSeek V4.1 Flash']],
+      ['便宜 国产', ['DeepSeek V4.1 Flash', 'DeepSeek V4 Pro', 'GLM-5.3', 'GLM-5.3 Flash']]
+    ]) {
+      await dlg.locator('input').fill(query);
+      await expect(dlg.locator('.mline .name'), query).toHaveText(names);
+    }
+    await dlg.locator('input').fill('没有这种模型');
+    await expect(dlg.locator('.empty')).toHaveText('没有匹配的模型');
+    // No query: vendor sections (a trial: domestic first), older versions folded.
+    await dlg.locator('input').fill('');
+    await expect(dlg.locator('.vhead .vname')).toHaveText(['DeepSeek', '智谱', 'Kimi', 'LynShen', 'Anthropic', 'OpenAI', 'Google', '其他']);
+    await expect(row(dlg, 'Claude Opus 4.8')).toHaveCount(0);
+    const opus = row(dlg, 'Claude Opus 5.5');
+    await opus.hover();
+    await mp.keyboard.press('ArrowRight');
+    await expect(dlg.locator('.mline.folded .name')).toHaveText(['Claude Opus 5', 'Claude Opus 4.8']);
+    await expect(dlg.locator('.more.sel, .mline.sel')).toHaveCount(1);
+    await mp.keyboard.press('ArrowLeft');
+    await expect(dlg.locator('.mline.folded')).toHaveCount(0);
+    await expect(dlg.locator('.more.sel .pop-label')).toHaveText('更多版本 · 2');
+    // The long name in the browser: one row, full text.
+    assert.equal(await cutOff(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.name')), false, `${theme}: the long name is cut in the browser`);
+    await expect(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.facts')).toHaveText('不稳定 · 1M 上下文 · ¥21.3 / ¥107 每百万 · 看图 · 思考');
+    // An unavailable model: after the working ones, its dot, picked after a confirmation.
+    const openai = await dlg.locator('.mline').evaluateAll((rows) => rows.map((r) => r.querySelector('.name').textContent).filter((n) => /^GPT/.test(n)));
+    // A chat picker lists no image model (GPT Image 2).
+    assert.deepEqual(openai, ['GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-5.5']);
+    const down = row(dlg, 'GPT-6.1 Sol');
+    await expect(down.locator('.dot.err')).toHaveCount(1);
+    await expect(down.locator('.facts')).toContainText('暂不可用');
+    await down.click();
+    await expect(mp.getByText('这个模型暂不可用')).toBeVisible();
+    await mp.getByRole('button',{name:'仍然使用'}).click();
+    await expect(dlg).toHaveCount(0);
+    assert.equal(await mp.evaluate(() => JSON.parse(localStorage.getItem('lynshen-model-picks')).recent[0]), 'monoize::gpt-6.1-sol');
+    await mp.close();
+  }
+  // An older gateway (no catalog, 404): names, vendors and families read
+  // from the ids; no price, health or plan.
+  {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + '?shell&models=old');
+    await expect(mp.locator('.fbtn.model')).toHaveText('DeepSeek V4.1 Flash', {timeout:30000});
+    await mp.locator('.fbtn.model').click();
+    await expect(mp.locator('.qs .mline').first().locator('.name')).toHaveText('DeepSeek V4.1 Flash');
+    await mp.getByRole('option', {name:/全部模型/}).click();
+    const dlg = mp.locator('.mb');
+    await expect(dlg.locator('.vhead .vname').first()).toHaveText('LynShen');
+    await expect(row(dlg, 'Claude Opus 5.5')).toHaveCount(1);
+    await expect(row(dlg, 'Claude Opus 4.8')).toHaveCount(0);
+    await expect(dlg.getByText(/¥|套餐内|不稳定|暂不可用/)).toHaveCount(0);
+    // Two spellings of one model are one row.
+    await dlg.locator('input').fill('v4.1');
+    await expect(dlg.locator('.mline .name')).toHaveText(['DeepSeek V4.1 Flash']);
+    await mp.close();
+  }
+  // Settings → 模型与推理: the same pickers; the image model's lists only
+  // models that draw images.
+  {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + '?models&loggedIn');
+    await mp.getByRole('button', {name:'模型与推理', exact:true}).click({timeout:30000});
+    const trigger = mp.locator('#set-default-model .trigger');
+    await expect(trigger).toContainText('DeepSeek V4.1 Flash');
+    await expect(mp.locator('#set-compact-model .trigger')).toContainText('GLM-5.3 Flash');
+    await expect(mp.locator('#set-image-model .trigger')).toContainText('GPT Image 2');
+    await trigger.click();
+    await mp.mouse.move(5, 5);
+    const quick = mp.locator('.pop.mp');
+    await solid(quick, 'the settings model list');
+    await expect(quick.locator('input')).toBeFocused();
+    await row(quick, 'Kimi K3').click();
+    await expect(trigger).toContainText('Kimi K3');
+    await expect.poll(() => mp.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => c.args.patch.model).filter(Boolean))).toContain('kimi-k3');
+    await mp.locator('#set-image-model .trigger').click();
+    await expect(mp.locator('.pop.mp .qs [role=option]')).toHaveText([/自动选择|自动/, /GPT Image 2/, /全部模型/]);
+    await mp.keyboard.press('Escape');
+    await expect(mp.locator('.pop.mp')).toHaveCount(0);
+    await mp.close();
+  }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
 } finally { await browser.close(); await server.close(); }

@@ -3,7 +3,16 @@
 // MCP servers still need adding, and the summary of a run. Framework-free so
 // it is unit-testable.
 
-import type { ImportMcp, ImportOutcome, ImportScan, ImportSession, ImportSkill, ImportSource } from './protocol';
+import type {
+	ImportMcp,
+	ImportOutcome,
+	ImportScan,
+	ImportSession,
+	ImportSkill,
+	ImportSkipKind,
+	ImportSkipped,
+	ImportSource
+} from './protocol';
 
 export const SOURCES: ImportSource[] = ['claude', 'codex', 'opencode', 'zcode', 'omp'];
 
@@ -22,6 +31,45 @@ export const mcpKey = (m: ImportMcp) => `mcp:${m.source}:${m.from}:${m.name}`;
 /** Last path component (either separator). */
 export function folderName(path: string): string {
 	return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
+
+/** An absolute path (a project folder), not a plugin name: `/x`, `C:\x`,
+ *  `C:/x` or `\\server\share`. */
+export function isPath(text: string): boolean {
+	return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(text);
+}
+
+/** A reason as the page words it; `store` is a whole database that did not open. */
+export type SkipWhy = ImportSkipKind | 'store';
+
+export interface SkippedGroup {
+	source: ImportSource;
+	/** Conversations left out. */
+	count: number;
+	/** A whole store (a database) could not be read. */
+	whole: boolean;
+	/** Each reason once, in the order first seen, with how many it left out (0 for a store). */
+	whys: { why: SkipWhy; count: number }[];
+}
+
+/** What the scan could not read, per tool in SOURCES order. */
+export function skippedBySource(skipped: ImportSkipped[]): SkippedGroup[] {
+	return SOURCES.map((source) => {
+		const items = skipped.filter((s) => s.source === source);
+		const whys: SkippedGroup['whys'] = [];
+		for (const s of items) {
+			const why: SkipWhy = s.count === 0 ? 'store' : s.kind;
+			const seen = whys.find((w) => w.why === why);
+			if (seen) seen.count += s.count;
+			else whys.push({ why, count: s.count });
+		}
+		return {
+			source,
+			count: items.reduce((n, s) => n + s.count, 0),
+			whole: items.some((s) => s.count === 0),
+			whys
+		};
+	}).filter((g) => g.whys.length > 0);
 }
 
 export interface ProjectGroup {

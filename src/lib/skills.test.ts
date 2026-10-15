@@ -221,6 +221,7 @@ describe('plugins of other agents', () => {
 		const entry = { name: 'x', transport: 'stdio' as const, enabled: true };
 		const scan: ImportScan = {
 			sessions: [],
+			skipped: [],
 			skills: [
 				{ source: 'claude', name: 'docx', description: '', path: '/p/docx', plugin: 'document-skills', present: false },
 				{ source: 'claude', name: 'pdf', description: '', path: '/p/pdf', plugin: 'document-skills', present: true },

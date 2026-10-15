@@ -2,13 +2,17 @@
 	import { popOut } from '$lib/ui/motion';
 	import { onMount, tick } from 'svelte';
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
-	import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlassIcon';
-	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeftIcon';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import SessionSwitches, { type SessionSwitch } from '$lib/composer/SessionSwitches.svelte';
-	import Vendor from '$lib/Vendor.svelte';
 	import BackendIcon from '$lib/BackendIcon.svelte';
+	import QuickSwitcher from '$lib/models/QuickSwitcher.svelte';
+	import ModelBrowser from '$lib/models/ModelBrowser.svelte';
+	import { itemsFromRows } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
+	import { factsOptions, onTrial, refreshCatalog } from '$lib/models/pickerState.svelte';
+	import { pick } from '$lib/models/pick';
+	import type { PickItem } from '$lib/models/catalog';
 	import { acpAgentsList, checkBackend, type AcpAgent } from '$lib/protocol';
 	import { loadBackendSettings, versionLabel } from '$lib/backends/settings';
 	import { CAPS, NATIVE_BACKEND_IDS, BACKEND_LABELS, type BackendId } from '$lib/backends';
@@ -21,22 +25,21 @@
 	import { modelSetup } from '$lib/modelSetupState.svelte';
 
 	// The composer's model menu, opened from the model button: everything about
-	// "who answers and how hard it thinks" in one place. The first page shows
-	// the current model (a row that opens the model list), the thinking effort,
-	// the provider (gateway group or this machine) and, while the session can still switch, the coding
-	// agent. The second page is the model list, searchable when it is long.
+	// "who answers and how hard it thinks" in one place. On top, the quick
+	// switcher (src/lib/models): the few models the user is likely to want,
+	// and 全部模型… for the full browser (a dialog; typing opens it with the
+	// text). Under it the session switches, the provider (gateway group or
+	// this machine) and, while the session can still switch, the coding agent.
+	// A model several gateway Providers serve has a route page.
 	// (The plan quota is in the context ring's card.)
 	let {
 		chat,
 		canPickModel = false,
 		rows = [],
-		showSearch = false,
 		backendLocked = true,
 		toolProvider,
 		effortDisabled = false,
 		anchor,
-		query = $bindable(''),
-		selIdx = $bindable(0),
 		onClose,
 		onSelect,
 		onEffort,
@@ -48,7 +51,6 @@
 		/** The engine has a model catalog (not ACP agents). */
 		canPickModel?: boolean;
 		rows?: ModelRow[];
-		showSearch?: boolean;
 		/** Locked sessions (restored / first user turn sent) can't change agent. */
 		backendLocked?: boolean;
 		/** A Claude Code / Codex session: where its model runs (`model` is the
@@ -56,8 +58,6 @@
 		toolProvider?: ToolProvider & { model: string };
 		effortDisabled?: boolean;
 		anchor?: HTMLElement;
-		query?: string;
-		selIdx?: number;
 		onClose: () => void;
 		onSelect: (command: string) => void;
 		onEffort: (effort: string) => void;
@@ -80,11 +80,15 @@
 		popLeft = Math.min(Math.max(r.right - popEl.offsetWidth, margin), window.innerWidth - popEl.offsetWidth - margin);
 		popTop = top >= margin ? top : Math.min(r.bottom + 8, window.innerHeight - popEl.offsetHeight - margin);
 	}
-	onMount(() => {
+	// Rows arrive after the catalog request; keep the menu anchored as it
+	// grows. The popover is drawn anew when the browser closes for a route
+	// page: the new one is observed.
+	$effect(() => {
+		const el = popEl;
+		if (!el) return;
 		tick().then(position);
-		// Rows arrive after the catalog request; keep the menu anchored as it grows.
 		const ro = new ResizeObserver(position);
-		if (popEl) ro.observe(popEl);
+		ro.observe(el);
 		return () => ro.disconnect();
 	});
 
@@ -138,7 +142,31 @@
 		}
 	}
 
-	let page = $state<'main' | 'models' | 'routes'>('main');
+	let page = $state<'main' | 'routes'>('main');
+	/** The full browser is open, with this query. */
+	let browsing = $state<string | null>(null);
+	// The rows as the model components list them, described by the gateway
+	// catalog where it knows the model (read again when older than a minute).
+	// A chat picker lists models that chat: image models are set in
+	// Settings → 图片生成 (one already in use still shows).
+	const items = $derived(itemsFromRows(rows, gatewayCatalog.lookup).filter((i) => !i.drawsImages || i.active));
+	const facts = $derived(factsOptions());
+	const trial = $derived(onTrial());
+	onMount(refreshCatalog);
+	const rowOf = (item: PickItem) => rows.find((r) => r.command === item.value);
+	function pickItem(item: PickItem) {
+		void pick(item, (picked) => {
+			const row = rowOf(picked);
+			// A row with routes picks its chosen one; its page offers the others.
+			onSelect(row?.command ?? picked.value);
+		});
+	}
+	function routesOf(item: PickItem) {
+		const row = rowOf(item);
+		if (!row) return;
+		browsing = null;
+		openRow(row);
+	}
 	/** The model whose lines the route page lists. */
 	let routeRow = $state<ModelRow | null>(null);
 	// A LynShen model several groups serve: its groups, cheapest first, and
@@ -182,35 +210,37 @@
 	const mult = (n: number) => `×${Number(n.toFixed(3))}`;
 	const billing = (g: LynShenGroup) =>
 		g.billing_source === 'plan_only' ? t('chat.groupPlan') : g.billing_source === 'balance_only' ? t('chat.groupBalance') : '';
+	/** The route page's model, by its full name. */
+	const routeName = $derived(routeRow ? (items.find((i) => i.value === routeRow?.command)?.name ?? routeRow.label) : '');
 	const modelName = $derived(rows.find(row => row.active)?.label || stripGroupSuffix(chat.modelLabel || '') || chat.model || BACKEND_LABELS[chat.backendId]);
-	// On the first page the list's keys (arrows, Enter) open the list instead
-	// of picking a row nobody can see. Capture phase, ahead of the pane.
-	function onKeyCapture(e: KeyboardEvent) {
-		if (page !== 'main' || !canPickModel) return;
-		if (['ArrowDown', 'ArrowUp', 'ArrowRight', 'Enter'].includes(e.key)) {
-			e.preventDefault();
-			e.stopPropagation();
-			page = 'models';
-		}
-	}
-
-	// Group headers only help when the list spans more than one source.
-	const grouped = $derived(new Set(rows.map((r) => r.group)).size > 1);
 </script>
 
-<svelte:window onkeydowncapture={onKeyCapture} />
+{#if browsing !== null}
+	<ModelBrowser
+		{items}
+		{trial}
+		{facts}
+		query={browsing}
+		onPick={pickItem}
+		onRoutes={routesOf}
+		{onClose}
+		manage={chat.backendId === 'lynshen'
+			? {
+					label: t('chat.manageModels'),
+					onClick: () => {
+						modelSetup.open = true;
+						onClose();
+					}
+				}
+			: undefined}
+	/>
+{:else}
 <button class="mm-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={onClose}></button>
 <div class="pop mm" role="dialog" out:popOut|global aria-label={t('chat.switchModel')} bind:this={popEl} style:left="{popLeft}px" style:top="{popTop}px">
 	{#if page === 'main'}
 		<section class="current">
 			{#if canPickModel}
-				<button class="pop-row" onclick={() => (page = 'models')} title={t('chat.pickModel')}>
-					<span class="pop-ico"><Vendor model={chat.model || modelName} size={16} /></span>
-					<span class="pop-txt">
-						<span class="pop-label">{modelName}</span>
-					</span>
-					<span class="pop-ico caret"><CaretRightIcon size={14} /></span>
-				</button>
+				<QuickSwitcher {items} {trial} {facts} onPick={pickItem} onBrowse={(q) => (browsing = q)} onRoutes={routesOf} />
 			{:else}
 				<div class="pop-row static">
 					<span class="pop-ico"><BackendIcon backend={chat.backendId} size={15} /></span>
@@ -254,69 +284,15 @@
 				{/each}
 			</section>
 		{/if}
-	{:else if page === 'models'}
-		<section class="models">
+	{:else if routeRow}
+		<section class="models routes">
 			<div class="mhead">
 				<IconButton size="sm" label={t('shell.remote.back')} title={t('shell.remote.back')} onclick={() => (page = 'main')}>
 					<CaretLeftIcon size={14} />
 				</IconButton>
-				<span class="mtitle">{t('chat.pickModel')}</span>
-				{#if chat.backendId === 'lynshen'}
-					<!-- Which LynShen models show, and their context windows. -->
-					<button
-						class="manage"
-						onclick={() => {
-							modelSetup.open = true;
-							onClose();
-						}}>{t('chat.manageModels')}</button
-					>
-				{/if}
+				<span class="mtitle">{t('chat.routeTitle', { model: routeName })}</span>
 			</div>
-			{#if showSearch}
-				<label class="search">
-					<MagnifyingGlassIcon size={15} />
-					<!-- svelte-ignore a11y_autofocus -->
-					<input bind:value={query} placeholder={t('shell.pickerSearchPlaceholder')} autofocus />
-				</label>
-			{/if}
-			<div class="list" role="listbox" aria-label={t('chat.switchModel')}>
-				{#each rows as row, i (row.id)}
-					{#if grouped && row.group && (i === 0 || rows[i - 1]?.group !== row.group)}
-						<div class="group">{row.group}</div>
-					{/if}
-					<button
-						class="pop-row"
-						class:sel={i === selIdx}
-						role="option"
-						aria-selected={row.active}
-						onclick={() => openRow(row)}
-						onmouseenter={() => (selIdx = i)}
-					>
-						<span class="pop-ico"><Vendor model={row.vendor ?? row.label} size={16} /></span>
-						<span class="pop-txt">
-							<span class="pop-label">{row.label || t('shell.empty')}</span>
-						</span>
-						{#if row.choices?.length}
-							<span class="routes-n">{t('chat.routeCount', { n: row.choices.length })}</span>
-						{/if}
-						<span class="pop-check" class:off={!row.active}><CheckIcon size={16} /></span>
-						{#if row.choices?.length || row.groupsPage}<span class="pop-ico caret"><CaretRightIcon size={14} /></span>{/if}
-					</button>
-				{/each}
-				{#if rows.length === 0}
-					<div class="empty">{query.trim() ? t('shell.noMatch') : t('shell.noOptions')}</div>
-				{/if}
-			</div>
-		</section>
-	{:else if routeRow}
-		<section class="models routes">
-			<div class="mhead">
-				<IconButton size="sm" label={t('shell.remote.back')} title={t('shell.remote.back')} onclick={() => (page = 'models')}>
-					<CaretLeftIcon size={14} />
-				</IconButton>
-				<span class="mtitle">{t('chat.routeTitle', { model: routeRow.label })}</span>
-			</div>
-			<div class="list" role="listbox" aria-label={t('chat.routeTitle', { model: routeRow.label })}>
+			<div class="list" role="listbox" aria-label={t('chat.routeTitle', { model: routeName })}>
 				{#if routeRow.groupsPage}
 					{@const row = routeRow}
 					<button class="pop-row" role="option" aria-selected={!pinned} onclick={() => pickGroup(row, '')}>
@@ -352,6 +328,7 @@
 		</section>
 	{/if}
 </div>
+{/if}
 
 <style>
 	.mm-backdrop {
@@ -367,7 +344,8 @@
 	.mm {
 		position: fixed;
 		z-index: 21;
-		width: min(340px, calc(100vw - 24px));
+		/* Wide enough for most names on one line; a longer one wraps. */
+		width: min(380px, calc(100vw - 24px));
 		max-height: min(72vh, 620px);
 		/* Taller than that (switches, providers): the menu scrolls rather than
 		   running over the composer. */
@@ -406,10 +384,6 @@
 	.pop-row.static {
 		cursor: default;
 	}
-	.caret {
-		width: auto;
-		color: var(--dim2);
-	}
 	.mhead {
 		display: flex;
 		align-items: center;
@@ -420,21 +394,6 @@
 		color: var(--dim);
 		font-size: var(--fs-sm);
 		font-weight: 500;
-	}
-	.manage {
-		margin-left: auto;
-		padding: 2px 6px;
-		border: none;
-		border-radius: var(--r-xs);
-		background: none;
-		color: var(--dim);
-		font: inherit;
-		font-size: var(--fs-xs);
-		cursor: pointer;
-	}
-	.manage:hover {
-		background: var(--surface2);
-		color: var(--text);
 	}
 	.agents {
 		display: flex;
@@ -479,27 +438,6 @@
 		flex-direction: column;
 		min-height: 0;
 	}
-	.search {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin: 0 2px 6px;
-		padding: 0 10px;
-		height: 34px;
-		border-radius: var(--r-md);
-		background: var(--surface2);
-		color: var(--dim2);
-	}
-	.search input {
-		flex: 1;
-		min-width: 0;
-		border: none;
-		background: none;
-		color: var(--text);
-		font: inherit;
-		font-size: var(--fs-sm);
-		outline: none;
-	}
 	.list {
 		display: flex;
 		flex-direction: column;
@@ -507,24 +445,6 @@
 		min-height: 0;
 		overflow-y: auto;
 	}
-	.group {
-		padding: 8px 12px 4px;
-		color: var(--dim2);
-		font-size: var(--fs-2xs);
-		font-weight: 500;
-	}
-	/* Name and detail ("This machine · LynShen · 258K") share one line. WebKit
-	   (the macOS app) does not wrap text inside the row button, so both
-	   truncate instead of overlapping; the detail gives way before the name. */
-	.mm .pop-txt {
-		flex: 1 1 auto;
-	}
-	.mm .pop-label {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	/* Second line of a model row: group · channel · window. */
 	/* Keep the check's column so names and context line up on every row. */
 	.pop-check.off {
 		visibility: hidden;
@@ -532,10 +452,5 @@
 	/* The check lands on a newly picked model. */
 	.pop-check:not(.off) :global(svg) {
 		animation: pop-in var(--t-pop) var(--ease-enter);
-	}
-	.empty {
-		padding: 14px 12px;
-		color: var(--dim2);
-		font-size: var(--fs-sm);
 	}
 </style>

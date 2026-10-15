@@ -21,6 +21,18 @@ export interface ModelRow {
 	choices?: RouteChoice[];
 	/** A LynShen model several groups serve: the row opens the group page. */
 	groupsPage?: boolean;
+	/** The model id the row describes (Claude Code: the resolved id, not the alias). */
+	model?: string;
+	/** The provider that runs it (`claude` / `codex` for their own lists). */
+	provider?: string;
+	context?: number;
+	efforts?: string[];
+	/** From the custom provider form: ["text", "image"]. */
+	modalities?: string[];
+	/** Claude Code / Codex: where the model runs ("此电脑 · LynShen"), and
+	 *  whether the LynShen gateway is one of the places. */
+	where?: string;
+	onGateway?: boolean;
 }
 
 /** One line a model can run through, on the model's route page. */
@@ -38,6 +50,7 @@ export interface EngineModel {
 	vendor?: string;
 	active: boolean;
 	context_window?: number;
+	reasoning_efforts?: string[];
 	/** false: not in the engine's catalog, only marking what runs. */
 	listed?: boolean;
 }
@@ -62,6 +75,8 @@ export interface CatalogProvider {
 		context_total?: number;
 		groups?: string[];
 		routes?: ModelRoute[];
+		reasoning_efforts?: string[];
+		input_modalities?: string[];
 	}[];
 }
 
@@ -285,7 +300,12 @@ export function buildModelRows(input: {
 				: m.local !== undefined
 					? `/model ${m.local}`
 					: `@tool lynshen ${m.lynshen}`,
-			depth: undefined
+			depth: undefined,
+			model: m.key,
+			provider: backendId,
+			context: m.context_window,
+			where: [m.local !== undefined && localLabel, m.lynshen !== undefined && 'LynShen'].filter(Boolean).join(' · '),
+			onGateway: m.lynshen !== undefined
 		}));
 	}
 	// One heading per provider: the LynShen gateway (monoize, or the old lynshen
@@ -324,7 +344,12 @@ export function buildModelRows(input: {
 			active: m.active,
 			command: `/model ${m.model}`,
 			depth: undefined,
-			group: activeGroup
+			group: activeGroup,
+			model: m.model,
+			provider: cur,
+			context: m.context_window,
+			efforts: m.reasoning_efforts?.length ? m.reasoning_efforts : entry?.reasoning_efforts,
+			modalities: entry?.input_modalities
 		};
 		// A gateway model several Providers serve: one row, its route page lists them.
 		const choices = entry?.routes ?? [];
@@ -351,7 +376,12 @@ export function buildModelRows(input: {
 					active: false,
 					command: `@switch ${pv.id} ${m.name}`,
 					depth: undefined,
-					group: groupOf(pv.id)
+					group: groupOf(pv.id),
+					model: m.name,
+					provider: pv.id,
+					context: m.context_window,
+					efforts: m.reasoning_efforts,
+					modalities: m.input_modalities
 				};
 				const choices = m.routes ?? [];
 				if (choices.length === 1) return [{ ...row, detail: routeLine(choices[0]) }];

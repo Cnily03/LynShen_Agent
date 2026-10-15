@@ -20,7 +20,7 @@
 <style>
 	.seg {
 		display: inline-flex;
-		padding: 3px;
+		padding: 2px;
 		gap: 2px;
 		background: var(--surface2);
 		border: 1px solid var(--hairline);
@@ -28,13 +28,14 @@
 	}
 	.opt {
 		flex: 1;
-		padding: 6px 14px;
+		padding: 3px 12px;
 		border: none;
 		background: none;
 		color: var(--dim);
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		font-family: var(--font-sans);
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		cursor: pointer;
 		white-space: nowrap;
 		transition:
@@ -52,7 +53,7 @@
 	.opt.on {
 		background: var(--panel);
 		color: var(--text);
-		box-shadow: var(--shadow-sm);
+		box-shadow: 0 0 0 1px var(--border);
 	}
 	/* On a phone the labels can be wider than the control's row (the remote
 	   page's new-session dialog: LynShen | Claude Code | Codex in ~300px).

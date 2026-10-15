@@ -69,7 +69,7 @@
 <style>
 	.toaster {
 		position: fixed;
-		top: 56px;
+		top: 48px;
 		left: 50%;
 		z-index: 200;
 		width: 0;
@@ -83,8 +83,8 @@
 		gap: 10px;
 		width: max-content;
 		max-width: min(560px, calc(100vw - 48px));
-		min-height: 44px;
-		padding: 8px 10px 8px 14px;
+		min-height: 40px;
+		padding: 6px 8px 6px 12px;
 		border-radius: var(--r-lg);
 		background: var(--panel);
 		box-shadow: var(--shadow-pop);
@@ -115,7 +115,7 @@
 	}
 	.msg {
 		min-width: 0;
-		line-height: 1.4;
+		line-height: 18px;
 	}
 	.act {
 		flex-shrink: 0;

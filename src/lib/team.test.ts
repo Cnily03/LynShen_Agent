@@ -185,7 +185,7 @@ describe('agent team state', () => {
 		expect(planSummary(c.plan, c.team).steps.map((s) => s.agent)).toEqual(['/root/scan', W, '']);
 	});
 
-	it('sums up the turn for the progress card', () => {
+	it('sums up the turn for the subagents card', () => {
 		const c = new ChatState();
 		c.handle({ type: 'connecting' });
 		c.handle({

@@ -16,6 +16,7 @@
 	import MicrophoneIcon from 'phosphor-svelte/lib/MicrophoneIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import GitBranchIcon from 'phosphor-svelte/lib/GitBranchIcon';
+	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
 	import BranchMenu from '$lib/composer/BranchMenu.svelte';
 	import CommandIcon from 'phosphor-svelte/lib/CommandIcon';
 	import { toast } from '$lib/ui/toast.svelte';
@@ -963,12 +964,12 @@
 					aria-label={t('chat.voiceTitle')}
 					title={voice === 'rec' ? t('chat.voiceStopTitle') : voice === 'busy' ? t('chat.voiceBusyTitle') : t('chat.voiceTitle')}
 				>
-					{#if voice === 'busy'}<CircleNotchIcon size={15} class="spin" />{:else if voice === 'rec'}<StopCircleIcon size={16} />{:else}<MicrophoneIcon size={17} />{/if}
+					{#if voice === 'busy'}<CircleNotchIcon size={14} class="spin" />{:else if voice === 'rec'}<StopCircleIcon size={16} />{:else}<MicrophoneIcon size={16} />{/if}
 				</button>
 				{#if chat.busy && !currentQ}
-					<button class="cact stop" onclick={onStop} aria-label={t('chat.stopTitle')} title={withShortcut(t('chat.stopTitle'), 'stop')}><SquareIcon size={13} weight="fill" /></button>
+					<button class="cact stop" onclick={onStop} aria-label={t('chat.stopTitle')} title={withShortcut(t('chat.stopTitle'), 'stop')}><SquareIcon size={12} weight="fill" /></button>
 				{:else}
-					<button class="cact send" onclick={submit} disabled={!input.trim() && !attachments.length && !videos.length} aria-label={t('chat.sendTitle')} title={t('chat.sendTitle')}><ArrowUpIcon size={16} weight="bold" /></button>
+					<button class="cact send" onclick={submit} disabled={!input.trim() && !attachments.length && !videos.length} aria-label={t('chat.sendTitle')} title={t('chat.sendTitle')}><ArrowUpIcon size={14} weight="bold" /></button>
 				{/if}
 			</div>
 		</div>
@@ -985,7 +986,7 @@
 			title={t('chat.addTitle')}
 			aria-expanded={showAdd}
 		>
-			<PlusIcon size={17} />
+			<PlusIcon size={16} />
 		</button>
 		{#if bcaps.approvalModes}
 			<span class="anchor">
@@ -997,7 +998,7 @@
 					title={withShortcut(t('chat.approvalModeTitle'), 'approvalMode')}
 					aria-haspopup="menu"
 					aria-expanded={showApproval}
-				>{approvalCurrent.label}</button>
+				>{approvalCurrent.label}<CaretDownIcon size={12} class="car" /></button>
 				{#if showApproval}
 					<ModeMenu
 						items={APPROVAL}
@@ -1057,6 +1058,7 @@
 					</span>
 				{/key}
 				{#if chat.ultracode}<span class="u">Ultracode</span>{/if}
+				<CaretDownIcon size={12} class="car" />
 			</button>
 		{:else if chat.model}
 			<span class="fbtn model static"
@@ -1068,13 +1070,10 @@
 				{chat}
 				canPickModel={bcaps.modelPicker}
 				rows={bcaps.modelPicker ? modelRows : []}
-				showSearch={modelSearch}
 				{backendLocked}
 				{toolProvider}
 				{effortDisabled}
 				anchor={modelButton}
-				bind:query={pickerQuery}
-				bind:selIdx={pickerSelIdx}
 				onClose={closeModelPopover}
 				onSelect={selectFromPopover}
 				onEffort={setEffort}
@@ -1098,7 +1097,7 @@
 							class="e"
 							class:effort-max={isTopEffort(chat.effort, chat.efforts)}
 							style:--effort-accent={modelColor(chat.model) || 'var(--text)'}>{effortLabel(chat.effort) || t('chat.effortTitle')}</span
-						>{/key}
+						>{/key}<CaretDownIcon size={12} class="car" />
 				</button>
 				{#if effortOpen}
 					<EffortMenu
@@ -1145,15 +1144,19 @@
 		width: 100%;
 		margin: 0 auto;
 	}
+	/* The box (design.md, "Workbench canvas"): --panel, a 1px --border,
+	   --r-2xl and --shadow-float. Focus turns the border --border-strong: no
+	   glow, no larger shadow. */
 	.composer {
 		background: var(--panel);
+		border: 1px solid var(--border);
 		border-radius: var(--r-2xl);
-		padding: 10px 10px 10px 18px;
+		padding: 0 10px 0 0;
 		box-shadow: var(--shadow-float);
-		transition: box-shadow var(--t-med) var(--ease-out);
+		transition: border-color var(--t-fast) var(--ease-base);
 	}
 	.composer:focus-within {
-		box-shadow: var(--shadow-float-strong);
+		border-color: var(--border-strong);
 	}
 	/* Text on the left, voice and send at the right end, bottom-aligned so
 	   they stay put while a long message grows the box. */
@@ -1167,8 +1170,8 @@
 		flex: 1;
 		min-width: 0;
 		align-self: center;
-		min-height: 24px;
-		max-height: 220px;
+		min-height: 48px;
+		max-height: 240px;
 		overflow-y: auto;
 		border: none;
 		outline: none;
@@ -1176,8 +1179,8 @@
 		color: var(--text);
 		font-family: var(--font-sans);
 		font-size: var(--fs-md);
-		line-height: 1.55;
-		padding: 4px 0;
+		line-height: 24px;
+		padding: 12px 14px;
 		white-space: pre-wrap;
 		overflow-wrap: break-word;
 		word-break: break-word;
@@ -1187,8 +1190,8 @@
 	.rich.empty::before {
 		content: attr(data-placeholder);
 		position: absolute;
-		left: 0;
-		right: 0;
+		left: 14px;
+		right: 14px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1251,18 +1254,21 @@
 		margin-right: 3px;
 		font-size: var(--fs-2xs);
 	}
+	/* Voice and send: 28px, round, on the first line's centre. */
 	.box-acts {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: 4px;
 		flex-shrink: 0;
+		margin-bottom: 10px;
 	}
 	.cact {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
 		border-radius: var(--r-full);
 		border: none;
 		cursor: pointer;
@@ -1282,7 +1288,7 @@
 		color: var(--on-accent);
 	}
 	.cact.send:hover:not(:disabled) {
-		opacity: 0.85;
+		background: var(--accent-bright);
 	}
 	.cact.send:disabled {
 		background: color-mix(in oklab, var(--text) 18%, var(--panel));
@@ -1295,7 +1301,7 @@
 		color: var(--on-accent);
 	}
 	.cact.stop:hover {
-		opacity: 0.85;
+		background: var(--accent-bright);
 	}
 	/* Voice: a plain icon until it records. */
 	.cact.voice {
@@ -1329,24 +1335,30 @@
 		display: inline-flex;
 		min-width: 0;
 	}
-	/* Every footer control: plain text, a fill on hover, no border. */
+	/* Every footer control is a text dropdown: 28px, --fs-xs, --dim, a
+	   --surface2 fill on hover, no border. */
 	.fbtn {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: 4px;
 		min-width: 0;
-		height: 30px;
+		height: 28px;
 		padding: 0 8px;
 		border: none;
 		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		font-family: var(--font-sans);
-		font-size: var(--fs-sm);
+		font-size: var(--fs-xs);
+		line-height: 16px;
 		cursor: pointer;
 		transition:
-			background var(--t-fast) var(--ease-out),
-			color var(--t-fast) var(--ease-out);
+			background var(--t-fast) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
+	}
+	.fbtn :global(.car) {
+		flex-shrink: 0;
+		color: var(--dim2);
 	}
 	.fbtn:hover:not(:disabled):not(.static),
 	.fbtn.on {
@@ -1362,10 +1374,9 @@
 	}
 	/* The first and last controls sit on the box's edges. */
 	.fbtn.add {
-		width: 30px;
+		width: 28px;
 		padding: 0;
 		justify-content: center;
-		margin-left: -2px;
 	}
 	.fbtn.mode.warn {
 		color: var(--warn);
@@ -1388,7 +1399,7 @@
 		white-space: nowrap;
 	}
 	.fbtn.branch {
-		gap: 5px;
+		gap: 4px;
 		font-family: var(--font-mono);
 		font-size: var(--fs-2xs);
 		color: var(--dim2);
@@ -1403,8 +1414,10 @@
 	}
 	.foot-cost {
 		flex: none;
+		padding: 0 8px;
 		white-space: nowrap;
-		font-size: var(--fs-2xs);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
 		font-variant-numeric: tabular-nums;
 		color: var(--dim);
 	}
@@ -1489,7 +1502,7 @@
 		margin: -2px -5px -2px 0;
 		padding: 2px;
 		border: none;
-		border-radius: var(--r-xs, 4px);
+		border-radius: var(--r-xs);
 		background: none;
 		color: var(--dim);
 		cursor: pointer;
@@ -1497,7 +1510,7 @@
 	}
 	.qtake:hover {
 		color: var(--text);
-		background: var(--surface3, var(--border));
+		background: var(--surface2);
 	}
 	.qsteer {
 		display: inline-flex;

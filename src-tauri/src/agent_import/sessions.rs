@@ -12,27 +12,27 @@
 //! reasoning only replays on the account that wrote it, and a compaction's
 //! summary stands for history the copy has in full.
 //!
-//! opencode and zcode (an opencode fork) keep conversations in SQLite —
-//! `session`, `message` (one row per message, JSON `data`) and `part` (its
-//! text, tool calls, reasoning …) — read here read-only. omp (oh-my-pi) keeps
-//! a JSONL tree per conversation under `~/.omp/agent/sessions/<folder>/`; the
-//! active branch runs from the last entry back through `parentId`.
+//! opencode and zcode are read in opencode.rs. omp (oh-my-pi) keeps a JSONL
+//! tree per conversation under `~/.omp/agent/sessions/<folder>/`; the active
+//! branch runs from the last entry back through `parentId`.
+//!
+//! A conversation that is there but cannot be read (a file that is not JSON,
+//! a database that does not open) is not listed; the scan reports it
+//! (`Report`), so the page can say how many were left out and why.
 
-use super::{Roots, SessionPick};
-use crate::claude_history::{is_session_id, is_synthetic, preview_of, row_text, truncate_chars};
+use super::{opencode, Roots, SessionPick};
+use crate::claude_history::{is_session_id, is_synthetic, row_text, truncate_chars};
 use crate::native_import::{
-    claude_copy_path, codex_first_prompt, codex_names, codex_threads, existing_copy, import_claude,
-    import_codex, is_conversation, load_registry, mtime_ms, now_ms, save_registry, ImportRecord,
-    LYNSHEN_ORIGINATOR, MAX_TITLE_CHARS,
+    codex_first_prompt, codex_names, codex_threads, existing_copy, import_claude, import_codex, is_conversation,
+    load_registry, mtime_ms, now_ms, rollout_files, save_registry, ImportRecord, LYNSHEN_ORIGINATOR, MAX_TITLE_CHARS,
 };
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A conversation offered for import.
 #[derive(Serialize, Debug, Clone)]
@@ -50,13 +50,73 @@ pub struct Found {
     pub imported: bool,
 }
 
-pub fn scan(roots: &Roots) -> Vec<Found> {
+/// Why conversations were left out, as the page names it (the English
+/// `reason` goes to the log).
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipKind {
+    /// A file, folder or database cannot be opened or read.
+    Unreadable,
+    /// Not in a form this version knows (not JSON, no header, no id).
+    Unrecognised,
+    /// No working folder recorded.
+    NoFolder,
+    /// Compressed (.jsonl.zst).
+    Compressed,
+}
+
+/// Conversations of one tool a scan found but could not read, for one reason.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Skipped {
+    pub source: String,
+    /// How many; 0 when a whole store (a database) could not be read.
+    pub count: usize,
+    pub kind: SkipKind,
+    pub reason: String,
+}
+
+/// What a scan saw besides the conversations it lists: what it could not
+/// read (shown on the page) and, per tool, where it looked (for the log;
+/// each line starts with `<source>: `).
+#[derive(Default, Debug)]
+pub struct Report {
+    pub skipped: Vec<Skipped>,
+    pub log: Vec<String>,
+}
+
+impl Report {
+    pub(super) fn skip(&mut self, source: &str, kind: SkipKind, reason: impl Into<String>) {
+        self.skip_n(source, 1, kind, reason);
+    }
+
+    pub(super) fn skip_n(&mut self, source: &str, count: usize, kind: SkipKind, reason: impl Into<String>) {
+        let reason = reason.into();
+        if count == 0 {
+            return;
+        }
+        match self.skipped.iter_mut().find(|s| s.source == source && s.reason == reason && s.count > 0) {
+            Some(s) => s.count += count,
+            None => self.skipped.push(Skipped { source: source.into(), count, kind, reason }),
+        }
+    }
+
+    /// A whole store (a database) could not be read.
+    pub(super) fn store_failed(&mut self, source: &str, reason: impl Into<String>) {
+        self.skipped.push(Skipped { source: source.into(), count: 0, kind: SkipKind::Unreadable, reason: reason.into() });
+    }
+
+    pub(super) fn note(&mut self, source: &str, text: impl AsRef<str>) {
+        self.log.push(format!("{source}: {}", text.as_ref()));
+    }
+}
+
+pub fn scan(roots: &Roots, report: &mut Report) -> Vec<Found> {
     let registry = load_registry(&roots.registry());
-    let mut out = scan_claude(roots, &registry);
-    out.extend(scan_codex(roots, &registry));
-    out.extend(scan_db(roots, Db::Opencode, &registry));
-    out.extend(scan_db(roots, Db::Zcode, &registry));
-    out.extend(scan_omp(roots, &registry));
+    let mut out = scan_claude(roots, &registry, report);
+    out.extend(scan_codex(roots, &registry, report));
+    out.extend(opencode::scan(roots, opencode::Tool::Opencode, &registry, report));
+    out.extend(opencode::scan(roots, opencode::Tool::Zcode, &registry, report));
+    out.extend(scan_omp(roots, &registry, report));
     out.sort_by_key(|s| std::cmp::Reverse(s.updated_at_ms));
     out
 }
@@ -89,8 +149,10 @@ pub fn import(roots: &Roots, pick: &SessionPick) -> Result<Imported, String> {
                 reused: load_registry(&h.registry).len() == before,
             })
         }
-        "opencode" => import_converted(roots, "opencode", &pick.id, load_db(roots, Db::Opencode, &pick.id)?),
-        "zcode" => import_converted(roots, "zcode", &pick.id, load_db(roots, Db::Zcode, &pick.id)?),
+        "opencode" => {
+            import_converted(roots, "opencode", &pick.id, opencode::load(roots, opencode::Tool::Opencode, &pick.id)?)
+        }
+        "zcode" => import_converted(roots, "zcode", &pick.id, opencode::load(roots, opencode::Tool::Zcode, &pick.id)?),
         "omp" => import_converted(roots, "omp", &pick.id, load_omp(roots, &pick.id)?),
         other => Err(format!("unknown source: {other}")),
     }
@@ -125,52 +187,161 @@ fn matching_rows(path: &Path, needles: &[&str], mut each: impl FnMut(Value)) {
 
 // --- Claude Code -------------------------------------------------------------
 
-fn scan_claude(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
-    let h = roots.native();
+/// What the list shows of a Claude Code session file.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct ClaudeFile {
+    /// The folder it belongs to: the last `relocated` row's, else the first
+    /// row's `cwd` (as Claude Code decides it).
+    pub cwd: Option<String>,
+    /// Prompts the user typed (not tool results, slash-command echoes,
+    /// sub-agent or compaction rows).
+    pub prompts: usize,
+    /// The name the user gave it, else Claude's title, else the first prompt.
+    pub title: String,
+}
+
+fn first_line_of(text: &str) -> String {
+    truncate_chars(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), MAX_TITLE_CHARS)
+}
+
+/// Reads a Claude Code session file in one pass. Only rows that can matter
+/// are parsed: files reach 100 MB and most of it is tool output. An error
+/// says why the file cannot be read as a session.
+pub(super) fn read_claude(path: &Path) -> Result<ClaudeFile, (SkipKind, String)> {
+    let file = fs::File::open(path).map_err(|e| (SkipKind::Unreadable, format!("file cannot be opened ({e})")))?;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let (mut lines, mut parsed) = (0usize, 0usize);
+    let (mut cwd, mut relocated) = (None::<String>, None::<String>);
+    let (mut custom, mut ai, mut first) = (String::new(), String::new(), String::new());
+    let mut prompts = 0;
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => return Err((SkipKind::Unreadable, format!("file cannot be read ({e})"))),
+        }
+        let text = String::from_utf8_lossy(&line);
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        lines += 1;
+        // The first row that parses says whether this is a session file;
+        // after it, a row is parsed only for what it may hold. A tool result
+        // is never a prompt (`"type":"tool_result"` unescaped is structure,
+        // never text inside a string).
+        let wanted = parsed == 0
+            || (text.contains("\"type\":\"user\"") && !text.contains("\"type\":\"tool_result\""))
+            || (cwd.is_none() && text.contains("\"cwd\":"))
+            || text.contains("\"relocatedCwd\":")
+            || text.contains("-title\"");
+        if !wanted {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(text) else { continue };
+        if !v.is_object() {
+            continue;
+        }
+        parsed += 1;
+        if cwd.is_none() {
+            cwd = v["cwd"].as_str().filter(|c| !c.is_empty()).map(str::to_string);
+        }
+        match v["type"].as_str() {
+            Some("relocated") => {
+                if let Some(c) = v["relocatedCwd"].as_str().filter(|c| !c.is_empty()) {
+                    relocated = Some(c.to_string());
+                }
+            }
+            Some("custom-title") => {
+                if let Some(t) = v["customTitle"].as_str().filter(|t| !t.trim().is_empty()) {
+                    custom = first_line_of(t);
+                }
+            }
+            Some("ai-title") => {
+                if let Some(t) = v["aiTitle"].as_str().filter(|t| !t.trim().is_empty()) {
+                    ai = first_line_of(t);
+                }
+            }
+            Some("user") => {
+                let tool_result = v
+                    .pointer("/message/content")
+                    .and_then(Value::as_array)
+                    .is_some_and(|c| c.iter().any(|b| b["type"].as_str() == Some("tool_result")));
+                if !tool_result && !is_synthetic(&v) {
+                    if let Some(t) = row_text(&v) {
+                        prompts += 1;
+                        if first.is_empty() {
+                            first = first_line_of(&t);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if lines > 0 && parsed == 0 {
+        return Err((SkipKind::Unrecognised, "not a session file (no JSON rows)".to_string()));
+    }
+    let title = [custom, ai, first].into_iter().find(|t| !t.is_empty()).unwrap_or_default();
+    Ok(ClaudeFile { cwd: relocated.or(cwd), prompts, title })
+}
+
+fn scan_claude(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> Vec<Found> {
     let copies = copies_of(registry, "claude");
+    let projects = roots.claude.join("projects");
     let mut out = Vec::new();
-    let Ok(dirs) = fs::read_dir(h.claude.join("projects")) else { return out };
+    let Ok(dirs) = fs::read_dir(&projects) else {
+        report.note("claude", format!("no {}", projects.display()));
+        return out;
+    };
+    let (mut files, mut empty) = (0, 0);
     for dir in dirs.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-        let Ok(files) = fs::read_dir(&dir) else { continue };
-        for path in files.flatten().map(|e| e.path()) {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            report.skip("claude", SkipKind::Unreadable, "a project folder cannot be read");
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
-            let Some(id) = path.file_stem().and_then(|s| s.to_str()).filter(|s| is_session_id(s)) else { continue };
+            // Sub-agent streams of older versions sit beside the sessions.
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()).filter(|s| is_session_id(s) && !s.starts_with("agent-"))
+            else {
+                continue;
+            };
             if copies.contains(id) {
                 continue;
             }
-            // The folder comes from the rows (the directory name is lossy).
-            let mut cwd: Option<String> = None;
-            let mut prompts = 0;
-            matching_rows(&path, &["\"type\":\"user\"", "\"cwd\":"], |v| {
-                if cwd.is_none() {
-                    cwd = v["cwd"].as_str().map(str::to_string);
+            files += 1;
+            let info = match read_claude(&path) {
+                Ok(info) => info,
+                Err((kind, reason)) => {
+                    report.skip("claude", kind, reason);
+                    continue;
                 }
-                let tool_result = v.pointer("/message/content").and_then(Value::as_array).is_some_and(|c| {
-                    c.iter().any(|b| b["type"].as_str() == Some("tool_result"))
-                });
-                if v["type"].as_str() == Some("user") && !tool_result && !is_synthetic(&v) && row_text(&v).is_some() {
-                    prompts += 1;
-                }
-            });
-            let Some(cwd) = cwd.filter(|_| prompts > 0) else { continue };
-            // native_import finds the file again by folder; one it cannot find
-            // (a folder renamed since) is not offered.
-            if claude_copy_path(&h, &cwd, id) != path {
+            };
+            if info.prompts == 0 {
+                empty += 1;
                 continue;
             }
+            let Some(cwd) = info.cwd else {
+                report.skip("claude", SkipKind::NoFolder, "no working folder recorded");
+                continue;
+            };
             out.push(Found {
                 source: "claude".into(),
                 id: id.into(),
-                title: preview_of(&path),
-                imported: existing_copy(registry, "claude", id, |to| claude_copy_path(&h, &cwd, to).exists()).is_some(),
+                title: info.title,
+                imported: existing_copy(registry, "claude", id, |to| dir.join(format!("{to}.jsonl")).is_file()).is_some(),
                 cwd,
                 updated_at_ms: mtime_ms(&path),
-                messages: prompts,
+                messages: info.prompts,
             });
         }
     }
+    report.note("claude", format!("{files} session files in {} ({empty} without prompts)", projects.display()));
     out
 }
 
@@ -192,8 +363,16 @@ fn codex_prompts(path: &Path) -> usize {
     n
 }
 
-fn scan_codex(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
+fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> Vec<Found> {
     let threads = codex_threads(&roots.codex);
+    // Rollout files that are not part of a thread: no `session_meta` first line.
+    let known: HashSet<&Path> = threads.values().flatten().map(|s| s.path.as_path()).collect();
+    let files = rollout_files(&roots.codex);
+    let headless = files.iter().filter(|p| !known.contains(p.as_path()) && fs::metadata(p).is_ok_and(|m| m.len() > 0)).count();
+    report.skip_n("codex", headless, SkipKind::Unrecognised, "no session header (session_meta)");
+    let compressed = compressed_rollouts(&roots.codex);
+    report.skip_n("codex", compressed, SkipKind::Compressed, "compressed (.jsonl.zst), which this version cannot read");
+    report.note("codex", format!("{} rollout files, {} threads in {}", files.len(), threads.len(), roots.codex.display()));
     if threads.is_empty() {
         return Vec::new();
     }
@@ -207,7 +386,10 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
         {
             continue;
         }
-        let Some(cwd) = segs[0].meta["cwd"].as_str() else { continue };
+        let Some(cwd) = segs[0].meta["cwd"].as_str() else {
+            report.skip("codex", SkipKind::NoFolder, "no working folder recorded");
+            continue;
+        };
         let live: Vec<_> = segs.iter().filter(|s| !s.archived).collect();
         // A fork's own files: its prompts since the fork.
         let prompts = live.iter().map(|s| codex_prompts(&s.path)).sum();
@@ -229,6 +411,24 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
         });
     }
     out
+}
+
+/// Rollouts Codex compressed (`rollout-*.jsonl.zst`, behind a Codex feature
+/// flag that is off by default).
+fn compressed_rollouts(codex: &Path) -> usize {
+    let mut n = 0;
+    let mut stack = vec![codex.join("sessions"), codex.join("archived_sessions")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl.zst")) {
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 // --- converted conversations -------------------------------------------------
@@ -354,7 +554,7 @@ pub(super) fn tidy(turns: Vec<(u64, Turn)>) -> Vec<(u64, Turn)> {
     out
 }
 
-fn first_prompt(turns: &[(u64, Turn)]) -> String {
+pub(super) fn first_prompt(turns: &[(u64, Turn)]) -> String {
     turns
         .iter()
         .find_map(|(_, t)| match t {
@@ -494,278 +694,9 @@ fn import_converted(roots: &Roots, source: &str, id: &str, conv: Conversation) -
     Ok(Imported { id: sid, title, cwd, engine: "lynshen", reused: false })
 }
 
-fn converted_imported(roots: &Roots, registry: &[ImportRecord], source: &str, id: &str, cwd: &str) -> bool {
+pub(super) fn converted_imported(roots: &Roots, registry: &[ImportRecord], source: &str, id: &str, cwd: &str) -> bool {
     let dir = lynshen_session_dir(&roots.lynshen, &folder_key(cwd));
     existing_copy(registry, source, id, |to| dir.join(format!("{to}.json")).exists()).is_some()
-}
-
-// --- opencode / zcode --------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Db {
-    Opencode,
-    Zcode,
-}
-
-impl Db {
-    fn source(self) -> &'static str {
-        match self {
-            Db::Opencode => "opencode",
-            Db::Zcode => "zcode",
-        }
-    }
-
-    fn path(self, roots: &Roots) -> PathBuf {
-        match self {
-            Db::Opencode => roots.opencode_db(),
-            Db::Zcode => roots.zcode_db(),
-        }
-    }
-}
-
-fn open_db(path: &Path) -> Option<Connection> {
-    if !path.is_file() {
-        return None;
-    }
-    let conn =
-        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()?;
-    // The app may be writing; wait for it rather than fail.
-    let _ = conn.busy_timeout(Duration::from_secs(3));
-    Some(conn)
-}
-
-fn columns(conn: &Connection, table: &str) -> HashSet<String> {
-    let Ok(mut stmt) = conn.prepare(&format!("PRAGMA table_info({table})")) else { return HashSet::new() };
-    stmt.query_map([], |row| row.get::<_, String>(1))
-        .map(|rows| rows.flatten().collect())
-        .unwrap_or_default()
-}
-
-/// The app's own title, when it is one: opencode names an untitled session
-/// "New session - <date>", zcode marks a placeholder with `title_source`.
-fn real_title(title: &str, title_source: Option<&str>) -> String {
-    let t = title.trim();
-    if t.is_empty()
-        || title_source == Some("default")
-        || t.starts_with("New session - ")
-        || t.starts_with("Child session - ")
-    {
-        return String::new();
-    }
-    truncate_chars(t, MAX_TITLE_CHARS)
-}
-
-/// Text the user wrote: not the app's own additions (`synthetic`) or parts
-/// it left out (`ignored`).
-fn written(part: &Value) -> Option<&str> {
-    (part["type"].as_str() == Some("text") && part["synthetic"] != json!(true) && part["ignored"] != json!(true))
-        .then(|| part["text"].as_str())
-        .flatten()
-        .filter(|t| !t.trim().is_empty())
-}
-
-struct DbSession {
-    id: String,
-    cwd: String,
-    title: String,
-    updated_ms: u64,
-    prompts: usize,
-}
-
-fn db_sessions(conn: &Connection) -> rusqlite::Result<Vec<DbSession>> {
-    let cols = columns(conn, "session");
-    // Sub-agent sessions resume only through their parent.
-    let mut filter = "s.parent_id IS NULL".to_string();
-    if cols.contains("task_type") {
-        filter.push_str(" AND s.task_type = 'interactive'");
-    }
-    let title_source = if cols.contains("title_source") { "s.title_source" } else { "NULL" };
-    let sql = format!(
-        "SELECT s.id, s.directory, s.title, {title_source}, s.time_updated,
-           (SELECT COUNT(*) FROM message m
-             WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
-               AND NOT EXISTS (SELECT 1 FROM part p WHERE p.message_id = m.id
-                               AND json_extract(p.data, '$.type') = 'compaction'))
-         FROM session s WHERE {filter}"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |row| {
-        let title: String = row.get(2)?;
-        let title_source: Option<String> = row.get(3)?;
-        Ok(DbSession {
-            id: row.get(0)?,
-            cwd: row.get(1)?,
-            title: real_title(&title, title_source.as_deref()),
-            updated_ms: row.get::<_, i64>(4)?.max(0) as u64,
-            prompts: row.get::<_, i64>(5)?.max(0) as usize,
-        })
-    })?;
-    rows.collect()
-}
-
-/// The first thing the user wrote in a session (a title for an untitled one).
-fn db_first_prompt(conn: &Connection, id: &str) -> String {
-    let sql = "SELECT p.data FROM part p JOIN message m ON m.id = p.message_id
-               WHERE m.session_id = ?1 AND json_extract(m.data, '$.role') = 'user'
-                 AND json_extract(p.data, '$.type') = 'text'
-               ORDER BY m.time_created, m.id, p.id LIMIT 20";
-    let Ok(mut stmt) = conn.prepare(sql) else { return String::new() };
-    let Ok(rows) = stmt.query_map(params![id], |row| row.get::<_, String>(0)) else { return String::new() };
-    for data in rows.flatten() {
-        let Ok(part) = serde_json::from_str::<Value>(&data) else { continue };
-        if let Some(line) = written(&part).and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty())) {
-            return truncate_chars(line, MAX_TITLE_CHARS);
-        }
-    }
-    String::new()
-}
-
-fn scan_db(roots: &Roots, db: Db, registry: &[ImportRecord]) -> Vec<Found> {
-    let Some(conn) = open_db(&db.path(roots)) else { return Vec::new() };
-    let Ok(list) = db_sessions(&conn) else { return Vec::new() };
-    list.into_iter()
-        .filter(|s| s.prompts > 0)
-        .map(|s| Found {
-            source: db.source().into(),
-            title: if s.title.is_empty() { db_first_prompt(&conn, &s.id) } else { s.title },
-            imported: converted_imported(roots, registry, db.source(), &s.id, &s.cwd),
-            id: s.id,
-            cwd: s.cwd,
-            updated_at_ms: s.updated_ms,
-            messages: s.prompts,
-        })
-        .collect()
-}
-
-fn text_of(v: &Value) -> String {
-    match v {
-        Value::Null => String::new(),
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
-
-/// How an attached file is mentioned in the prompt it came with.
-fn file_label(part: &Value) -> String {
-    let local = part["source"]["path"]
-        .as_str()
-        .or_else(|| part["url"].as_str().filter(|u| u.starts_with('/')))
-        .or_else(|| part["url"].as_str().and_then(|u| u.strip_prefix("file://")));
-    let name = local.or_else(|| part["filename"].as_str()).unwrap_or("attachment");
-    format!("[file: {name}]")
-}
-
-/// A tool part's call and its result.
-fn db_tool(part: &Value, at: u64) -> [(u64, Turn); 2] {
-    let call_id = part["callID"].as_str().unwrap_or("").to_string();
-    let name = part["tool"].as_str().unwrap_or("tool").to_string();
-    let state = &part["state"];
-    let arguments = match &state["input"] {
-        Value::Null => "{}".to_string(),
-        input => input.to_string(),
-    };
-    let output = match state["status"].as_str() {
-        Some("completed") => text_of(&state["output"]),
-        Some("error") => format!("Error: {}", text_of(&state["error"])),
-        _ => "[the tool did not finish]".to_string(),
-    };
-    [(at, Turn::Call { call_id: call_id.clone(), name: name.clone(), arguments }), (at, Turn::Output { call_id, name, output })]
-}
-
-/// Messages (in order) and their parts as turns.
-pub(super) fn convert_db(messages: &[(String, Value)], parts: &HashMap<String, Vec<Value>>) -> Vec<(u64, Turn)> {
-    let none = Vec::new();
-    let mut turns = Vec::new();
-    for (id, data) in messages {
-        let parts = parts.get(id).unwrap_or(&none);
-        // A compaction: its marker, and the summary standing for the history
-        // before it (opencode: an assistant message with `summary: true`;
-        // zcode: a user message carrying a compaction part).
-        if parts.iter().any(|p| p["type"].as_str() == Some("compaction")) || data["summary"] == json!(true) {
-            continue;
-        }
-        let at = data["time"]["created"].as_u64().unwrap_or(0) / 1000;
-        match data["role"].as_str() {
-            Some("user") => {
-                let mut text = Vec::new();
-                for p in parts {
-                    if let Some(t) = written(p) {
-                        text.push(t.to_string());
-                    } else if p["type"].as_str() == Some("file") {
-                        text.push(file_label(p));
-                    }
-                }
-                turns.push((at, Turn::User(text.join("\n\n"))));
-            }
-            Some("assistant") => {
-                for p in parts {
-                    match p["type"].as_str() {
-                        Some("text") => {
-                            if let Some(t) = written(p) {
-                                turns.push((at, Turn::Assistant(t.to_string())));
-                            }
-                        }
-                        Some("tool") => turns.extend(db_tool(p, at)),
-                        // reasoning, step-start/-finish, patch, snapshot, timeline …
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    turns
-}
-
-fn load_db(roots: &Roots, db: Db, id: &str) -> Result<Conversation, String> {
-    let conn = open_db(&db.path(roots)).ok_or_else(|| format!("{} has no conversations here", db.source()))?;
-    let err = |e: rusqlite::Error| format!("cannot read {}: {e}", db.path(roots).display());
-    let title_source = if columns(&conn, "session").contains("title_source") { "title_source" } else { "NULL" };
-    let head: Option<(String, String, Option<String>, i64)> = conn
-        .query_row(
-            &format!("SELECT directory, title, {title_source}, time_updated FROM session WHERE id = ?1"),
-            params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()
-        .map_err(err)?;
-    let (cwd, title, title_source, updated_ms) =
-        head.ok_or_else(|| format!("{} conversation {id} not found", db.source()))?;
-    // zcode numbers messages and parts; opencode's ids sort by time.
-    let order = |table: &str, by: &str| {
-        if columns(&conn, table).contains("sequence") { format!("{by}sequence, time_created, id") } else { format!("{by}time_created, id") }
-    };
-    let mut messages = Vec::new();
-    {
-        let mut stmt = conn
-            .prepare(&format!("SELECT id, data FROM message WHERE session_id = ?1 ORDER BY {}", order("message", "")))
-            .map_err(err)?;
-        let rows = stmt.query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(err)?;
-        for row in rows {
-            let (mid, data) = row.map_err(err)?;
-            messages.push((mid, serde_json::from_str::<Value>(&data).unwrap_or(Value::Null)));
-        }
-    }
-    let mut parts: HashMap<String, Vec<Value>> = HashMap::new();
-    {
-        let part_order = if columns(&conn, "part").contains("sequence") { "message_id, sequence, id" } else { "message_id, id" };
-        let mut stmt = conn
-            .prepare(&format!("SELECT message_id, data FROM part WHERE session_id = ?1 ORDER BY {part_order}"))
-            .map_err(err)?;
-        let rows = stmt.query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(err)?;
-        for row in rows {
-            let (mid, data) = row.map_err(err)?;
-            if let Ok(v) = serde_json::from_str::<Value>(&data) {
-                parts.entry(mid).or_default().push(v);
-            }
-        }
-    }
-    Ok(Conversation {
-        title: real_title(&title, title_source.as_deref()),
-        cwd,
-        updated_s: updated_ms.max(0) as u64 / 1000,
-        turns: convert_db(&messages, &parts),
-    })
 }
 
 // --- omp ---------------------------------------------------------------------
@@ -777,25 +708,30 @@ struct OmpFile {
     entries: Vec<Value>,
 }
 
+/// Session files in every folder omp may keep sessions in (`<dir>/<folder>/*.jsonl`;
+/// a sub-agent's files sit a level deeper, in its parent's own folder).
 fn omp_files(roots: &Roots) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(dirs) = fs::read_dir(roots.omp_agent().join("sessions")) else { return out };
-    for dir in dirs.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-        let Ok(files) = fs::read_dir(&dir) else { continue };
-        out.extend(
-            files
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
-        );
+    for root in roots.omp_session_dirs() {
+        let Ok(dirs) = fs::read_dir(&root) else { continue };
+        for dir in dirs.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            let Ok(files) = fs::read_dir(&dir) else { continue };
+            out.extend(
+                files
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
+            );
+        }
     }
     out
 }
 
 /// A session file: an optional fixed-width `title` slot, the `session`
-/// header, then the entries.
-fn read_omp(path: &Path) -> Option<OmpFile> {
-    let text = fs::read_to_string(path).ok()?;
+/// header, then the entries. `Ok(None)`: a sub-agent's or a fork's session,
+/// which is part of the conversation it came from.
+fn read_omp(path: &Path) -> Result<Option<OmpFile>, (SkipKind, String)> {
+    let text = fs::read_to_string(path).map_err(|e| (SkipKind::Unreadable, format!("file cannot be read ({e})")))?;
     let mut slot_title = String::new();
     let mut header: Option<Value> = None;
     let mut entries = Vec::new();
@@ -808,18 +744,19 @@ fn read_omp(path: &Path) -> Option<OmpFile> {
             _ => {}
         }
     }
-    let header = header?;
-    // A sub-agent's or a fork's session names the one it came from; the
-    // conversation itself is the parent's.
+    let header = header.ok_or((SkipKind::Unrecognised, "no session header".to_string()))?;
     if header["parentSession"].as_str().is_some_and(|p| !p.is_empty()) {
-        return None;
+        return Ok(None);
     }
     let title = Some(slot_title.trim())
         .filter(|t| !t.is_empty())
         .or_else(|| header["title"].as_str().map(str::trim))
         .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
         .unwrap_or_default();
-    Some(OmpFile { id: header["id"].as_str()?.to_string(), cwd: header["cwd"].as_str()?.to_string(), title, entries })
+    let (Some(id), Some(cwd)) = (header["id"].as_str(), header["cwd"].as_str()) else {
+        return Err((SkipKind::Unrecognised, "session header without an id or folder".to_string()));
+    };
+    Ok(Some(OmpFile { id: id.to_string(), cwd: cwd.to_string(), title, entries }))
 }
 
 /// The active branch: from the last entry back to the root (omp rebuilds
@@ -910,13 +847,22 @@ pub(super) fn convert_omp(entries: &[Value]) -> Vec<(u64, Turn)> {
     turns
 }
 
-fn scan_omp(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
+fn scan_omp(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> Vec<Found> {
     let mut out = Vec::new();
-    for path in omp_files(roots) {
-        let Some(file) = read_omp(&path) else { continue };
+    let mut seen = HashSet::new();
+    let files = omp_files(roots);
+    for path in &files {
+        let file = match read_omp(path) {
+            Ok(Some(file)) => file,
+            Ok(None) => continue,
+            Err((kind, reason)) => {
+                report.skip("omp", kind, reason);
+                continue;
+            }
+        };
         let turns = convert_omp(&file.entries);
         let prompts = turns.iter().filter(|(_, t)| matches!(t, Turn::User(s) if !s.trim().is_empty())).count();
-        if prompts == 0 {
+        if prompts == 0 || !seen.insert(file.id.clone()) {
             continue;
         }
         out.push(Found {
@@ -925,16 +871,20 @@ fn scan_omp(roots: &Roots, registry: &[ImportRecord]) -> Vec<Found> {
             imported: converted_imported(roots, registry, "omp", &file.id, &file.cwd),
             id: file.id,
             cwd: file.cwd,
-            updated_at_ms: mtime_ms(&path),
+            updated_at_ms: mtime_ms(path),
             messages: prompts,
         });
+    }
+    if !files.is_empty() {
+        let dirs: Vec<String> = roots.omp_session_dirs().iter().filter(|d| d.is_dir()).map(|d| d.display().to_string()).collect();
+        report.note("omp", format!("{} session files in {}", files.len(), dirs.join(", ")));
     }
     out
 }
 
 fn load_omp(roots: &Roots, id: &str) -> Result<Conversation, String> {
     for path in omp_files(roots) {
-        let Some(file) = read_omp(&path) else { continue };
+        let Ok(Some(file)) = read_omp(&path) else { continue };
         if file.id != id {
             continue;
         }
@@ -950,8 +900,14 @@ fn load_omp(roots: &Roots, id: &str) -> Result<Conversation, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil;
+    use super::super::testutil::{self, scan_all};
     use super::*;
+    use crate::native_import::claude_copy_path;
+
+
+    fn lines(rows: &[Value]) -> String {
+        rows.iter().map(|r| r.to_string() + "\n").collect()
+    }
 
     fn call(id: &str) -> Turn {
         Turn::Call { call_id: id.into(), name: "bash".into(), arguments: "{}".into() }
@@ -1000,144 +956,6 @@ mod tests {
         }
     }
 
-    fn opencode_db(path: &Path, zcode: bool) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let conn = Connection::open(path).unwrap();
-        let extra = if zcode { ", task_type text not null default 'interactive', title_source text" } else { "" };
-        let seq = if zcode { ", sequence integer" } else { "" };
-        conn.execute_batch(&format!(
-            "CREATE TABLE session (id text primary key, project_id text, parent_id text, directory text not null,
-               title text not null, time_created integer not null, time_updated integer not null{extra});
-             CREATE TABLE message (id text primary key, session_id text not null, time_created integer not null,
-               time_updated integer not null, data text not null{seq});
-             CREATE TABLE part (id text primary key, message_id text not null, session_id text not null,
-               time_created integer not null, time_updated integer not null, data text not null{seq});"
-        ))
-        .unwrap();
-        let session = |id: &str, parent: Option<&str>, title: &str| {
-            conn.execute(
-                "INSERT INTO session (id, project_id, parent_id, directory, title, time_created, time_updated) VALUES (?1, 'p', ?2, '/proj/oc', ?3, 1000, 1790000000000)",
-                params![id, parent, title],
-            )
-            .unwrap();
-        };
-        session("ses_main", None, "New session - 2026-08-18T10:34:46.692Z");
-        session("ses_child", Some("ses_main"), "child");
-        let message = |id: &str, session: &str, at: i64, data: Value| {
-            conn.execute(
-                "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?3, ?4)",
-                params![id, session, at, data.to_string()],
-            )
-            .unwrap();
-        };
-        let part = |id: &str, msg: &str, data: Value| {
-            conn.execute(
-                "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?1, ?2, 'ses_main', 0, 0, ?3)",
-                params![id, msg, data.to_string()],
-            )
-            .unwrap();
-        };
-        message("msg_1", "ses_main", 1_790_000_000_000, json!({"role": "user", "time": {"created": 1_790_000_000_000u64}}));
-        part("prt_1", "msg_1", json!({"type": "text", "text": "fix the bug"}));
-        part("prt_2", "msg_1", json!({"type": "text", "text": "Called the Read tool", "synthetic": true}));
-        part("prt_3", "msg_1", json!({"type": "file", "filename": "a.png", "url": "data:image/png;base64,xx"}));
-        message("msg_2", "ses_main", 1_790_000_001_000, json!({"role": "assistant", "time": {"created": 1_790_000_001_000u64}}));
-        part("prt_4", "msg_2", json!({"type": "step-start"}));
-        part("prt_5", "msg_2", json!({"type": "reasoning", "text": "hmm"}));
-        part("prt_6", "msg_2", json!({"type": "tool", "callID": "call-1", "tool": "bash", "state": {"status": "completed", "input": {"command": "ls"}, "output": "a.txt"}}));
-        part("prt_7", "msg_2", json!({"type": "tool", "callID": "call-2", "tool": "read", "state": {"status": "error", "input": {"filePath": "x"}, "error": "no such file"}}));
-        part("prt_8", "msg_2", json!({"type": "step-finish"}));
-        message("msg_3", "ses_main", 1_790_000_002_000, json!({"role": "assistant", "time": {"created": 1_790_000_002_000u64}}));
-        part("prt_9", "msg_3", json!({"type": "text", "text": "Done."}));
-        // A compaction: the trigger and its summary are left out.
-        message("msg_4", "ses_main", 1_790_000_003_000, json!({"role": "user", "time": {"created": 1_790_000_003_000u64}}));
-        part("prt_10", "msg_4", json!({"type": "compaction", "auto": true}));
-        message("msg_5", "ses_main", 1_790_000_004_000, json!({"role": "assistant", "summary": true, "time": {"created": 1_790_000_004_000u64}}));
-        part("prt_11", "msg_5", json!({"type": "text", "text": "Summary of everything"}));
-        message("msg_6", "ses_main", 1_790_000_005_000, json!({"role": "user", "time": {"created": 1_790_000_005_000u64}}));
-        part("prt_12", "msg_6", json!({"type": "text", "text": "thanks"}));
-        message("msg_c", "ses_child", 1_790_000_000_000, json!({"role": "user"}));
-    }
-
-    #[test]
-    fn opencode_converts_and_reimport_reuses() {
-        let roots = testutil::roots("opencode");
-        opencode_db(&roots.opencode_db(), false);
-        let found = scan(&roots);
-        assert_eq!(found.len(), 1, "the sub-agent session is not offered");
-        let s = &found[0];
-        assert_eq!((s.source.as_str(), s.id.as_str(), s.messages), ("opencode", "ses_main", 2));
-        assert_eq!(s.title, "fix the bug", "the placeholder title gives way to the first prompt");
-        assert!(!s.imported);
-
-        let pick = SessionPick { source: "opencode".into(), id: "ses_main".into(), cwd: String::new() };
-        let done = import(&roots, &pick).unwrap();
-        assert!(!done.reused && done.engine == "lynshen" && done.cwd == "/proj/oc");
-        let dir = lynshen_session_dir(&roots.lynshen, "/proj/oc");
-        let lines: Vec<Value> = fs::read_to_string(dir.join(format!("{}.jsonl", done.id)))
-            .unwrap()
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        let kinds: Vec<Value> = lines.iter().filter(|l| l["type"] == "entry").map(|l| l["entry"]["kind"].clone()).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                json!({"type": "user", "content": "fix the bug\n\n[file: a.png]"}),
-                json!({"type": "response_item", "item": {"type": "function_call", "call_id": "call-1", "name": "bash", "arguments": "{\"command\":\"ls\"}"}}),
-                json!({"type": "tool_output", "call_id": "call-1", "name": "bash", "output": "a.txt", "image": null}),
-                json!({"type": "response_item", "item": {"type": "function_call", "call_id": "call-2", "name": "read", "arguments": "{\"filePath\":\"x\"}"}}),
-                json!({"type": "tool_output", "call_id": "call-2", "name": "read", "output": "Error: no such file", "image": null}),
-                json!({"type": "response_item", "item": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Done."}]}}),
-                json!({"type": "user", "content": "thanks"}),
-            ]
-        );
-        // Entries chain one after another; the state closes the journal.
-        let entries: Vec<&Value> = lines.iter().filter(|l| l["type"] == "entry").map(|l| &l["entry"]).collect();
-        assert_eq!(entries[0]["parent_id"], Value::Null);
-        assert!(entries.windows(2).all(|w| w[1]["parent_id"] == w[0]["id"]));
-        assert_eq!(entries[0]["created_at"], 1_790_000_000u64);
-        let state = &lines.last().unwrap()["state"];
-        assert_eq!(lines.last().unwrap()["type"], "state");
-        assert_eq!((state["leaf_id"].as_u64(), state["next_id"].as_u64()), (Some(7), Some(8)));
-        assert_eq!(state["branch_heads"], json!({"root": 7}));
-        let summary: Value = serde_json::from_str(&fs::read_to_string(dir.join(format!("{}.json", done.id))).unwrap()).unwrap();
-        assert_eq!(summary["version"], 3);
-        assert_eq!(summary["entries_count"], 7);
-        assert_eq!(summary["label"], "fix the bug");
-        assert_eq!(summary["journal"], format!("{}.jsonl", done.id));
-        assert_eq!(summary["updated_at"], 1_790_000_000u64);
-        assert!(done.id.starts_with('s') && done.id.len() > 9);
-
-        let again = import(&roots, &pick).unwrap();
-        assert!(again.reused);
-        assert_eq!(again.id, done.id);
-        assert!(scan(&roots)[0].imported);
-        assert!(import(&roots, &SessionPick { source: "opencode".into(), id: "nope".into(), cwd: String::new() }).is_err());
-    }
-
-    #[test]
-    fn zcode_keeps_interactive_sessions_in_sequence() {
-        let roots = testutil::roots("zcode");
-        let path = roots.zcode_db();
-        opencode_db(&path, true);
-        let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(
-            "UPDATE session SET title = 'Named', title_source = 'generated' WHERE id = 'ses_main';
-             INSERT INTO session (id, parent_id, directory, title, time_created, time_updated, task_type)
-               VALUES ('sess_sub', NULL, '/proj/oc', 'sub', 0, 0, 'subagent_child');
-             UPDATE message SET sequence = CAST(substr(id, 5) AS integer);
-             UPDATE message SET sequence = 0 WHERE id = 'msg_6';",
-        )
-        .unwrap();
-        drop(conn);
-        let found = scan(&roots);
-        assert_eq!(found.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["ses_main"]);
-        assert_eq!(found[0].title, "Named");
-        let conv = load_db(&roots, Db::Zcode, "ses_main").unwrap();
-        assert_eq!(conv.turns.first().map(|(_, t)| t.clone()), Some(Turn::User("thanks".into())), "zcode's sequence wins over time");
-    }
-
     #[test]
     fn omp_follows_the_active_branch() {
         let roots = testutil::roots("omp");
@@ -1165,7 +983,8 @@ mod tests {
             &roots.omp_agent().join("sessions/-work/2026_sub.jsonl"),
             &format!("{}\n", json!({"type": "session", "id": "sub", "cwd": cwd, "parentSession": "019c625b"})),
         );
-        let found = scan(&roots);
+        let (found, report) = scan_all(&roots);
+        assert!(report.skipped.is_empty(), "{report:?}");
         assert_eq!(found.len(), 1);
         assert_eq!((found[0].title.as_str(), found[0].messages), ("Port the parser", 2));
         let conv = load_omp(&roots, "019c625b-b900-7000-8000-000000000001").unwrap();
@@ -1202,15 +1021,166 @@ mod tests {
         ];
         let text: Vec<String> = rows.iter().map(|r| r.to_string()).collect();
         testutil::write(&path, &text.join("\n"));
-        let found = scan(&roots);
+        let (found, _) = scan_all(&roots);
         assert_eq!(found.len(), 1);
         assert_eq!((found[0].cwd.as_str(), found[0].messages, found[0].title.as_str()), (cwd, 2, "hello there"));
         let done = import(&roots, &SessionPick { source: "claude".into(), id: id.into(), cwd: cwd.into() }).unwrap();
         assert!(!done.reused && done.engine == "claude");
-        let found = scan(&roots);
+        let (found, _) = scan_all(&roots);
         assert_eq!(found.len(), 1, "the copy is not offered");
         assert!(found[0].imported);
         assert!(import(&roots, &SessionPick { source: "claude".into(), id: id.into(), cwd: cwd.into() }).unwrap().reused);
+    }
+
+    /// A Claude Code 2.x session as it is written: a queued prompt, a file
+    /// history snapshot, prompts and tool rounds, a sub-agent's sidechain
+    /// rows, a compaction (its boundary and summary), slash-command echoes,
+    /// and the titles appended at the end.
+    fn claude_rows(cwd: &str, id: &str) -> Vec<Value> {
+        vec![
+            json!({"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-10-01T10:00:00.000Z", "sessionId": id, "content": "hello"}),
+            json!({"type": "file-history-snapshot", "messageId": "m0", "snapshot": {"trackedFileBackups": {}}, "isSnapshotUpdate": false}),
+            json!({"parentUuid": null, "isSidechain": false, "userType": "external", "cwd": cwd, "sessionId": id, "version": "2.1.296", "gitBranch": "main", "type": "user", "message": {"role": "user", "content": "hello there"}, "uuid": "u1", "timestamp": "2026-10-01T10:00:01.000Z"}),
+            json!({"parentUuid": "u1", "isSidechain": false, "cwd": cwd, "sessionId": id, "type": "assistant", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "hm", "signature": "sig"}, {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}]}, "uuid": "a1"}),
+            json!({"parentUuid": "a1", "isSidechain": false, "cwd": cwd, "sessionId": id, "type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "a.txt"}]}, "uuid": "u2", "toolUseResult": {"stdout": "a.txt"}}),
+            json!({"parentUuid": "u2", "isSidechain": true, "cwd": cwd, "sessionId": id, "type": "user", "message": {"role": "user", "content": "sub-agent task"}, "uuid": "s1"}),
+            json!({"parentUuid": null, "logicalParentUuid": "u2", "cwd": cwd, "sessionId": id, "type": "system", "subtype": "compact_boundary", "content": "Conversation compacted", "compactMetadata": {"trigger": "auto"}, "uuid": "c1"}),
+            json!({"parentUuid": "c1", "cwd": cwd, "sessionId": id, "type": "user", "isCompactSummary": true, "isVisibleInTranscriptOnly": true, "message": {"role": "user", "content": "This session is being continued from a previous conversation"}, "uuid": "u3"}),
+            json!({"parentUuid": "u3", "cwd": cwd, "sessionId": id, "type": "user", "isMeta": true, "message": {"role": "user", "content": "<local-command-caveat>Caveat</local-command-caveat>"}, "uuid": "u4"}),
+            json!({"parentUuid": "u4", "cwd": cwd, "sessionId": id, "type": "user", "message": {"role": "user", "content": "<command-name>/model</command-name>"}, "uuid": "u5"}),
+            json!({"parentUuid": "u5", "cwd": cwd, "sessionId": id, "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "and again"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "xx"}}]}, "uuid": "u6"}),
+            json!({"type": "summary", "summary": "Listing files", "leafUuid": "u6"}),
+            json!({"type": "last-prompt", "lastPrompt": "and again", "sessionId": id}),
+            json!({"type": "ai-title", "aiTitle": "List the files", "sessionId": id}),
+        ]
+    }
+
+    #[test]
+    fn claude_files_are_read_in_one_pass() {
+        let roots = testutil::roots("claude-read");
+        let path = roots.home.join("s.jsonl");
+        testutil::write(&path, &lines(&claude_rows("/proj/a", "x")));
+        let got = read_claude(&path).unwrap();
+        assert_eq!(got, ClaudeFile { cwd: Some("/proj/a".into()), prompts: 2, title: "List the files".into() });
+        // The name the user gave it wins, and a relocated session belongs to
+        // its new folder.
+        let mut rows = claude_rows("/proj/a", "x");
+        rows.push(json!({"type": "custom-title", "customTitle": "My name\nsecond line", "sessionId": "x"}));
+        rows.push(json!({"type": "relocated", "relocatedCwd": "/proj/b", "sessionId": "x"}));
+        testutil::write(&path, &lines(&rows));
+        let got = read_claude(&path).unwrap();
+        assert_eq!((got.cwd.as_deref(), got.title.as_str()), (Some("/proj/b"), "My name"));
+        // A line cut short by a crash is skipped; the rest still counts.
+        testutil::write(&path, &(lines(&claude_rows("/proj/a", "x")) + "{\"type\":\"user\",\"mess"));
+        assert_eq!(read_claude(&path).unwrap().prompts, 2);
+        // Not a session file.
+        testutil::write(&path, "garbage\nmore garbage\n");
+        let (kind, reason) = read_claude(&path).unwrap_err();
+        assert!(kind == SkipKind::Unrecognised && reason.contains("not a session file"), "{kind:?} {reason}");
+        let (kind, reason) = read_claude(&roots.home.join("missing.jsonl")).unwrap_err();
+        assert!(kind == SkipKind::Unreadable && reason.starts_with("file "), "{kind:?} {reason}");
+    }
+
+    #[test]
+    fn claude_sessions_on_windows_and_unreadable_files_are_reported() {
+        // A Windows home: USERPROFILE, a Git Bash HOME elsewhere, sessions
+        // under `%USERPROFILE%\.claude\projects\C--Users-demo-proj`.
+        let base = testutil::fake_home("claude-win");
+        let profile = base.join("Users").join("demo");
+        let (p, h) = (profile.clone(), base.join("msys-home"));
+        let env = move |k: &str| match k {
+            "USERPROFILE" => Some(p.clone().into_os_string()),
+            "HOME" => Some(h.clone().into_os_string()),
+            _ => None,
+        };
+        let roots = Roots::from_env(&env, true, base.join(".lynshen"));
+        let cwd = r"C:\Users\demo\proj";
+        let id = "aaaaaaaa-1111-4111-8111-111111111111";
+        let dir = profile.join(".claude").join("projects").join("C--Users-demo-proj");
+        testutil::write(&dir.join(format!("{id}.jsonl")), &lines(&claude_rows(cwd, id)));
+        testutil::write(&dir.join("bbbbbbbb-2222-4222-8222-222222222222.jsonl"), "not json\n");
+        testutil::write(&dir.join("cccccccc-3333-4333-8333-333333333333.jsonl"), "");
+        testutil::write(&dir.join("dddddddd-4444-4444-8444-444444444444.jsonl"), &lines(&[json!({"type": "user", "message": {"role": "user", "content": "no folder"}})]));
+        testutil::write(&dir.join("agent-1234abcd.jsonl"), &lines(&claude_rows(cwd, id)));
+        let (found, report) = scan_all(&roots);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].id.as_str(), found[0].cwd.as_str(), found[0].messages), (id, cwd, 2));
+        let mut skipped: Vec<(&str, usize, &str)> =
+            report.skipped.iter().map(|s| (s.source.as_str(), s.count, s.reason.as_str())).collect();
+        skipped.sort();
+        assert_eq!(skipped, [("claude", 1, "no working folder recorded"), ("claude", 1, "not a session file (no JSON rows)")]);
+        assert!(report.log.iter().any(|l| l.starts_with("claude: 4 session files")), "{:?}", report.log);
+        let done = import(&roots, &SessionPick { source: "claude".into(), id: id.into(), cwd: cwd.into() }).unwrap();
+        assert!(dir.join(format!("{}.jsonl", done.id)).is_file());
+        assert!(scan_all(&roots).0[0].imported);
+    }
+
+    #[test]
+    fn claude_config_dir_is_where_sessions_are_looked_for() {
+        let base = testutil::fake_home("claude-config-dir");
+        let (home, alt) = (base.join("home"), base.join("claude-alt"));
+        let (h, a) = (home.clone(), alt.clone());
+        let env = move |k: &str| match k {
+            "HOME" => Some(h.clone().into_os_string()),
+            "CLAUDE_CONFIG_DIR" => Some(a.clone().into_os_string()),
+            _ => None,
+        };
+        let roots = Roots::from_env(&env, false, base.join(".lynshen"));
+        let id = "eeeeeeee-5555-4555-8555-555555555555";
+        testutil::write(&alt.join("projects/-proj-x").join(format!("{id}.jsonl")), &lines(&claude_rows("/proj/x", id)));
+        testutil::write(&home.join(".claude/projects/-proj-y/ffffffff-6666-4666-8666-666666666666.jsonl"), &lines(&claude_rows("/proj/y", "y")));
+        let (found, _) = scan_all(&roots);
+        assert_eq!(found.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), [id]);
+    }
+
+    #[test]
+    fn codex_files_without_a_header_are_reported() {
+        let roots = testutil::roots("codex-bad");
+        let day = roots.codex.join("sessions/2026/10/01");
+        let meta = json!({"timestamp": "2026-10-01T10:00:00Z", "type": "session_meta", "payload": {"id": "0199a000-0000-7000-8000-000000000001", "cwd": "/proj/cx", "originator": "codex_cli_rs", "timestamp": "2026-10-01T10:00:00Z"}});
+        let prompt = json!({"timestamp": "2026-10-01T10:00:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "fix it"}});
+        testutil::write(&day.join("rollout-2026-10-01T10-00-00-0199a000-0000-7000-8000-000000000001.jsonl"), &lines(&[meta, prompt]));
+        testutil::write(&day.join("rollout-2026-10-01T11-00-00-0199a000-0000-7000-8000-000000000002.jsonl"), "{\"type\":\"response_item\"}\n");
+        testutil::write(&day.join("rollout-2026-10-01T12-00-00-0199a000-0000-7000-8000-000000000003.jsonl"), "");
+        testutil::write(&day.join("rollout-2026-10-01T13-00-00-0199a000-0000-7000-8000-000000000004.jsonl.zst"), "zz");
+        let (found, report) = scan_all(&roots);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].title.as_str(), found[0].messages), ("fix it", 1));
+        let skipped: Vec<(usize, &str)> = report.skipped.iter().map(|s| (s.count, s.reason.as_str())).collect();
+        assert_eq!(
+            skipped,
+            [(1, "no session header (session_meta)"), (1, "compressed (.jsonl.zst), which this version cannot read")]
+        );
+    }
+
+    #[test]
+    fn omp_sessions_in_every_folder_and_bad_files() {
+        let base = testutil::fake_home("omp-dirs");
+        let home = base.join("home");
+        let (h, d) = (home.clone(), base.join("pi-sessions"));
+        let env = move |k: &str| match k {
+            "HOME" => Some(h.clone().into_os_string()),
+            "PI_CODING_AGENT_SESSION_DIR" => Some(d.clone().into_os_string()),
+            _ => None,
+        };
+        let roots = Roots::from_env(&env, false, base.join(".lynshen"));
+        let session = |id: &str| {
+            lines(&[
+                json!({"type": "session", "version": 3, "id": id, "cwd": "/proj/omp"}),
+                json!({"type": "message", "id": "a1", "parentId": null, "message": {"role": "user", "content": "go"}}),
+            ])
+        };
+        testutil::write(&base.join("pi-sessions/-proj-omp/2026_one.jsonl"), &session("one"));
+        testutil::write(&home.join(".omp/agent/sessions/-proj-omp/2026_two.jsonl"), &session("two"));
+        testutil::write(&home.join(".omp/agent/sessions/-proj-omp/2026_bad.jsonl"), "{\"type\":\"message\"}\n");
+        let (found, report) = scan_all(&roots);
+        let mut ids: Vec<&str> = found.iter().map(|f| f.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["one", "two"]);
+        assert_eq!(
+            report.skipped,
+            vec![Skipped { source: "omp".into(), count: 1, kind: SkipKind::Unrecognised, reason: "no session header".into() }]
+        );
     }
 
     #[test]

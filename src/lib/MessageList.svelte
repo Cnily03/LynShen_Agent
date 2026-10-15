@@ -5,6 +5,7 @@
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwiseIcon';
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
+	import FileTextIcon from 'phosphor-svelte/lib/FileTextIcon';
 	import { fade } from 'svelte/transition';
 	import Markdown from '$lib/Markdown.svelte';
 	import ReasoningBody from '$lib/ReasoningBody.svelte';
@@ -74,6 +75,7 @@
 		agents,
 		onOpenAgent,
 		onAgentChanges,
+		onChanges,
 		onMergeAgent,
 		onStopAgent,
 		onPickAttempt,
@@ -154,6 +156,9 @@
 		onOpenSession?: (session: string) => void;
 		/** Ordinal of the user message in view: at or above the upper third. */
 		mark?: number;
+		/** Opens the Changes panel: a turn's change pill (absent: the files
+		 *  it changed show as text). */
+		onChanges?: () => void;
 	} = $props();
 
 	// ── Virtual list (dynamic-height windowing) ─────────────────────────────
@@ -576,7 +581,7 @@
 	{#each windowRows as m, k (m)}
 		{@const i = range.first + k}
 		{#if shown(m)}
-			<div class="mwrap" class:animate={!virtual} class:hit={i === findActive} bind:this={rowEls[i]} use:measure={m}>
+			<div class="mwrap" class:animate={!virtual} class:turn={m.kind === 'user' && i > 0} class:hit={i === findActive} bind:this={rowEls[i]} use:measure={m}>
 				{#if m.kind === 'user'}
 			{@const delivery = parseDelivery(m.text)}
 			{@const drop = userOrdinal.size - (userOrdinal.get(m) ?? 0)}
@@ -629,7 +634,14 @@
 							{#if m.interrupted}<span title={t('chat.interruptedTitle')}>{t('chat.interrupted')}</span>{/if}
 							{#if m.turn}
 								{#each turnParts(m.turn, prefs.turnStats) as part, j (j)}
-									<span class="stat" class:mono={part.mono} title={part.title}>{part.text}</span>
+									{#if part.change}
+										<!-- The files the turn changed: a change pill that opens the Changes panel. -->
+										<svelte:element this={onChanges ? 'button' : 'span'} class="change" class:open={!!onChanges} title={onChanges ? t('chat.stat.openChanges') : part.title} onclick={onChanges} role={onChanges ? undefined : 'note'}
+											><FileTextIcon size={14} /><span>{t('chat.stat.filesCount', { n: part.change.files })}</span><span class="add">+{part.change.added}</span><span class="del">−{part.change.removed}</span></svelte:element
+										>
+									{:else}
+										<span class="stat" class:mono={part.mono} title={part.title}>{part.text}</span>
+									{/if}
 								{/each}
 							{:else if m.elapsed}
 								<span class="mono">{fmtDur(m.elapsed)}</span>
@@ -819,7 +831,14 @@
 	}
 	.mwrap.hit {
 		background: var(--accent-soft);
+		background-clip: content-box;
 		box-shadow: 0 0 0 6px var(--accent-soft);
+	}
+	/* Spacing (design.md, "Workbench canvas"): 16px between the blocks of a
+	   turn (the list's gap), 32px above the user message that starts a new
+	   one. Padding, not margin: the windowing measures it with the row. */
+	.mwrap.turn {
+		padding-top: 16px;
 	}
 	.row {
 		display: flex;
@@ -881,12 +900,13 @@
 		font-variant-numeric: tabular-nums;
 		line-height: 1;
 	}
+	/* The user's message: a right-aligned bubble, at most 85% of the column. */
 	.ucol {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-end;
 		gap: 6px;
-		max-width: 78%;
+		max-width: 85%;
 		min-width: 0;
 	}
 	.bubble.pending {
@@ -965,8 +985,9 @@
 	.bubble {
 		background: var(--surface2);
 		border-radius: var(--r-xl);
-		padding: 11px 14px;
-		line-height: 1.6;
+		padding: 10px 14px;
+		font-size: var(--fs-md);
+		line-height: 24px;
 		white-space: pre-wrap;
 		word-break: break-word;
 		max-width: 100%;
@@ -1014,14 +1035,16 @@
 		font-size: var(--fs-sm);
 		white-space: nowrap;
 	}
+	/* The assistant's text sits bare on the canvas. */
 	.answer {
-		line-height: 1.65;
+		font-size: var(--fs-md);
+		line-height: 24px;
 		word-break: break-word;
 	}
 	.stream {
 		white-space: pre-wrap;
 		word-break: break-word;
-		line-height: 1.65;
+		line-height: 24px;
 	}
 	/* A reply reads as one document: a drag selects across its Markdown
 	   blocks, the tail still streaming and the replies around it, and the
@@ -1080,17 +1103,57 @@
 			transform: none;
 		}
 	}
+	/* The turn's summary line: duration, tokens, cost, in mono. */
 	.foot {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 4px 12px;
-		margin-top: 8px;
-		font-size: var(--fs-2xs);
+		margin-top: 6px;
+		font-size: var(--fs-xs);
+		line-height: 16px;
 		color: var(--dim2);
 	}
 	.mono {
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+	}
+	/* A change pill: the files the turn changed, +added −removed. An
+	   outlined --r-md chip, not a full pill. */
+	.change {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 24px;
+		padding: 0 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-md);
+		background: none;
+		color: var(--text);
+		font: inherit;
+		font-size: var(--fs-xs);
+		white-space: nowrap;
+	}
+	.change :global(svg) {
+		color: var(--dim);
+	}
+	.change .add,
+	.change .del {
+		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+	}
+	.change .add {
+		color: var(--ok);
+	}
+	.change .del {
+		color: var(--err);
+	}
+	button.change {
+		cursor: pointer;
+		transition: background var(--t-fast) var(--ease-base);
+	}
+	button.change:hover {
+		background: var(--surface2);
 	}
 	.reason-row {
 		display: flex;
@@ -1108,7 +1171,7 @@
 		background: none;
 		color: var(--dim);
 		font-size: var(--fs-xs);
-		font-weight: 600;
+		line-height: 16px;
 		cursor: pointer;
 	}
 	.reason-head {
@@ -1132,23 +1195,29 @@
 	.tgroup.open .rchev {
 		transform: rotate(90deg);
 	}
+	/* A run of tool calls: one summary line (--fs-xs --dim, no card). */
 	.tgroup {
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
 		max-width: 100%;
-		min-height: 26px;
+		min-height: 24px;
+		margin-left: -6px;
 		text-align: left;
-		padding: 2px 0;
+		padding: 2px 6px;
 		border: none;
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
-		font-size: var(--fs-sm);
-		font-weight: 500;
+		font-size: var(--fs-xs);
+		line-height: 16px;
 		cursor: pointer;
-		transition: color var(--t-fast) var(--ease-out);
+		transition:
+			color var(--t-fast) var(--ease-base),
+			background var(--t-fast) var(--ease-base);
 	}
 	.tgroup:hover {
+		background: var(--surface2);
 		color: var(--text);
 	}
 	.tg-count,
@@ -1162,10 +1231,10 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-		padding-left: 8px;
-		border-left: 1px solid var(--border);
 		color: var(--dim2);
-		font-weight: 400;
+	}
+	.tg-latest::before {
+		content: '·';
 	}
 	.tg-latest :global(svg) {
 		flex-shrink: 0;
@@ -1186,16 +1255,14 @@
 		flex-shrink: 0;
 	}
 	.tg-fail {
-		font-size: var(--fs-2xs);
-		font-weight: 400;
 		color: var(--err);
 	}
-	/* The group's calls hang indented under its header. */
+	/* The group's calls hang indented under its header, 4px apart. */
 	.tg-list {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		margin: 6px 0 0 20px;
+		gap: 4px;
+		margin: 4px 0 0 20px;
 	}
 	/* One line, anchored at its end: overflowing text leaves on the left,
 	   where it fades out. */
@@ -1235,7 +1302,7 @@
 		color: var(--dim);
 		font-style: italic;
 		font-size: var(--fs-sm);
-		line-height: 1.6;
+		line-height: 20px;
 		word-break: break-word;
 	}
 	.foot .stat {

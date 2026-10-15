@@ -240,8 +240,19 @@ export interface ImportMcp {
 	/** The `mcp_servers` entry to add. */
 	entry: McpServerEntry;
 }
+/** Conversations of one tool the scan found but could not read, for one
+ *  reason (`count` 0: a whole store, such as a database, did not open). */
+/** Why conversations were left out; `reason` is the engine's English detail for the log. */
+export type ImportSkipKind = 'unreadable' | 'unrecognised' | 'no_folder' | 'compressed';
+export interface ImportSkipped {
+	source: ImportSource;
+	count: number;
+	kind: ImportSkipKind;
+	reason: string;
+}
 export interface ImportScan {
 	sessions: ImportSession[];
+	skipped: ImportSkipped[];
 	skills: ImportSkill[];
 	mcp: ImportMcp[];
 }
@@ -707,6 +718,10 @@ export const claimTrial = () => gatewayCall<unknown>('monoize_trial_claim');
 /** The account's desktop plan in force and this key's funding choice (GET
  *  /api/desktop/oauth/plan; src/lib/trial.ts reads it). 404: an older gateway. */
 export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan');
+/** The models this key can use, with names, health, prices and plan
+ *  coverage (GET /api/desktop/models/catalog; src/lib/models/gatewayCatalog.ts
+ *  reads it). 404: an older gateway, which has only the plain model list. */
+export const fetchModelCatalog = () => gatewayCall<unknown>('monoize_model_catalog');
 /** Sets who pays this key's requests in the plan's groups (PUT
  *  /api/desktop/oauth/plan); answers the same body. */
 export const setPlanFunding = (funding: 'plan' | 'balance') => gatewayCall<unknown>('monoize_set_plan_funding', { funding });

@@ -14,9 +14,11 @@
 //!   open sessions pick them up.
 
 mod mcp;
+mod opencode;
 mod sessions;
 mod skills;
 
+use crate::claude_history::{process_env, user_home, Env};
 use crate::native_import::{self, Homes};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -27,33 +29,92 @@ pub struct Roots {
     pub home: PathBuf,
     /// `~/.lynshen`: sessions, skills, config.json and the import registry.
     pub lynshen: PathBuf,
+    /// Claude Code's config folder: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
     pub claude: PathBuf,
+    /// Claude Code's `.claude.json`: in `$CLAUDE_CONFIG_DIR` when that is
+    /// set, else in the home folder.
+    pub claude_json: PathBuf,
     pub codex: PathBuf,
-    /// `$XDG_DATA_HOME` or `~/.local/share` (opencode's database).
+    /// `$XDG_DATA_HOME` or `~/.local/share` (opencode's database), on every
+    /// OS: opencode uses these paths on Windows too.
     pub data_home: PathBuf,
     /// `$XDG_CONFIG_HOME` or `~/.config` (opencode's config and skills).
     pub config_home: PathBuf,
+    /// `$OPENCODE_DB`: the database opencode was told to use instead.
+    pub opencode_db: Option<PathBuf>,
+    /// zcode's session database.
+    pub zcode_db: PathBuf,
+    /// omp's agent folder (skills, MCP servers, sessions).
+    pub omp_agent: PathBuf,
+    /// Other folders omp may keep sessions in: profiles, `$PI_CODING_AGENT_SESSION_DIR`, the XDG data folder.
+    pub omp_sessions: Vec<PathBuf>,
+}
+
+/// `~/x` with the home folder (zcode and omp expand it in their settings).
+fn expand_home(path: &str, home: &Path) -> PathBuf {
+    match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        Some(rest) => home.join(rest),
+        None if path == "~" => home.to_path_buf(),
+        None => PathBuf::from(path),
+    }
 }
 
 impl Roots {
     fn real() -> Roots {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        let xdg = |var: &str, fallback: &str| {
-            std::env::var_os(var)
-                .map(PathBuf::from)
-                .filter(|p| p.is_absolute())
-                .unwrap_or_else(|| home.join(fallback))
+        Roots::from_env(&process_env, cfg!(windows), crate::lynshen_dir())
+    }
+
+    /// The folders the other tools use, found as they find them, from the
+    /// environment `env` (Windows: `windows`).
+    fn from_env(env: Env, windows: bool, lynshen: PathBuf) -> Roots {
+        let home = user_home(env, windows);
+        let under = |parts: &[&str]| parts.iter().fold(home.clone(), |path, part| path.join(part));
+        let xdg = |var: &str, fallback: &[&str]| {
+            env(var).map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| under(fallback))
         };
-        let native = native_import::homes();
+        let data_home = xdg("XDG_DATA_HOME", &[".local", "share"]);
+        let config_dir = env("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+        let opencode_db = env("OPENCODE_DB")
+            .filter(|v| v.to_str() != Some(":memory:"))
+            .map(|v| data_home.join("opencode").join(PathBuf::from(v)));
+        // zcode: `$ZCODE_SESSION_DB_PATH` (or its old name), else
+        // `storage.sessionDbPath` in its config, else the default.
+        let zcode_config = crate::read_json(&under(&[".zcode", "cli", "config.json"]));
+        let zcode_db = env("ZCODE_SESSION_DB_PATH")
+            .or_else(|| env("ZCODE_SESSION_DB"))
+            .map(|v| expand_home(&v.to_string_lossy(), &home))
+            .or_else(|| zcode_config["storage"]["sessionDbPath"].as_str().map(|p| expand_home(p, &home)))
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| under(&[".zcode", "cli", "db", "db.sqlite"]));
+        // omp: `~/.omp` (renamed by `$PI_CONFIG_DIR`), its agent folder
+        // (`$PI_CODING_AGENT_DIR`), profiles under `profiles/<name>/agent`,
+        // a session folder of its own (`$PI_CODING_AGENT_SESSION_DIR`), and
+        // on Linux and macOS `$XDG_DATA_HOME/omp/sessions` once that exists.
+        let omp_home = home.join(env("PI_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".omp")));
+        let omp_agent = env("PI_CODING_AGENT_DIR")
+            .map(|v| expand_home(&v.to_string_lossy(), &home))
+            .unwrap_or_else(|| omp_home.join("agent"));
+        let mut omp_sessions: Vec<PathBuf> = env("PI_CODING_AGENT_SESSION_DIR")
+            .map(|v| expand_home(&v.to_string_lossy(), &home))
+            .into_iter()
+            .collect();
+        for profile in std::fs::read_dir(omp_home.join("profiles")).into_iter().flatten().flatten() {
+            omp_sessions.push(profile.path().join("agent").join("sessions"));
+        }
+        if !windows && data_home.join("omp").is_dir() {
+            omp_sessions.push(data_home.join("omp").join("sessions"));
+        }
         Roots {
-            lynshen: crate::lynshen_dir(),
-            claude: native.claude,
-            codex: native.codex,
-            data_home: xdg("XDG_DATA_HOME", ".local/share"),
-            config_home: xdg("XDG_CONFIG_HOME", ".config"),
+            lynshen,
+            claude: config_dir.clone().unwrap_or_else(|| under(&[".claude"])),
+            claude_json: config_dir.unwrap_or_else(|| home.clone()).join(".claude.json"),
+            codex: native_import::codex_home(env, windows),
+            config_home: xdg("XDG_CONFIG_HOME", &[".config"]),
+            data_home,
+            opencode_db,
+            zcode_db,
+            omp_agent,
+            omp_sessions,
             home,
         }
     }
@@ -66,12 +127,8 @@ impl Roots {
         self.lynshen.join("native-imports.json")
     }
 
-    fn opencode_db(&self) -> PathBuf {
-        self.data_home.join("opencode").join("opencode.db")
-    }
-
     fn zcode_db(&self) -> PathBuf {
-        self.home.join(".zcode").join("cli").join("db").join("db.sqlite")
+        self.zcode_db.clone()
     }
 
     fn zcode_plugins(&self) -> PathBuf {
@@ -79,7 +136,18 @@ impl Roots {
     }
 
     fn omp_agent(&self) -> PathBuf {
-        self.home.join(".omp").join("agent")
+        self.omp_agent.clone()
+    }
+
+    /// Every folder omp may keep sessions in, without repeats.
+    fn omp_session_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.omp_agent.join("sessions")];
+        for dir in &self.omp_sessions {
+            if !dirs.contains(dir) {
+                dirs.push(dir.clone());
+            }
+        }
+        dirs
     }
 }
 
@@ -156,12 +224,61 @@ fn plugins(roots: &Roots) -> Vec<Plugin> {
 #[derive(Serialize, Debug)]
 pub struct Scan {
     pub sessions: Vec<sessions::Found>,
+    /// Conversations that were found but could not be read, and why.
+    pub skipped: Vec<sessions::Skipped>,
     pub skills: Vec<skills::Found>,
     pub mcp: Vec<mcp::Found>,
 }
 
-fn scan(roots: &Roots) -> Scan {
-    Scan { sessions: sessions::scan(roots), skills: skills::scan(roots), mcp: mcp::scan(roots) }
+fn scan(roots: &Roots) -> (Scan, sessions::Report) {
+    let mut report = sessions::Report::default();
+    let sessions = sessions::scan(roots, &mut report);
+    let scan = Scan { sessions, skipped: report.skipped.clone(), skills: skills::scan(roots), mcp: mcp::scan(roots) };
+    (scan, report)
+}
+
+/// `text` with the home folder written `~` and the user's name left out, for
+/// the log a bug report carries.
+fn redact(text: &str, home: &Path) -> String {
+    let home_text = home.to_string_lossy();
+    let mut out = if home_text.len() > 1 { text.replace(home_text.as_ref(), "~") } else { text.to_string() };
+    // The name may also appear in other paths (another drive, `/Users/x`).
+    let user = home.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if user.chars().count() >= 3 {
+        out = out.replace(&user, "<user>");
+    }
+    out
+}
+
+/// What a scan found per tool, what it skipped and where it looked, as lines
+/// for the app's log (paths redacted).
+fn scan_log(roots: &Roots, scan: &Scan, report: &sessions::Report, took: std::time::Duration) -> Vec<String> {
+    let mut lines = vec![format!(
+        "import scan ({} ms): {} conversations, {} skills, {} MCP servers",
+        took.as_millis(),
+        scan.sessions.len(),
+        scan.skills.len(),
+        scan.mcp.len()
+    )];
+    for source in ["claude", "codex", "opencode", "zcode", "omp"] {
+        let listed = scan.sessions.iter().filter(|s| s.source == source).count();
+        let skipped: Vec<String> = scan
+            .skipped
+            .iter()
+            .filter(|s| s.source == source)
+            .map(|s| if s.count > 0 { format!("{} {}", s.count, s.reason) } else { s.reason.clone() })
+            .collect();
+        let notes: Vec<&str> = report.log.iter().filter_map(|l| l.strip_prefix(&format!("{source}: "))).collect();
+        let mut line = format!("import scan {source}: {listed} listed");
+        if !skipped.is_empty() {
+            line.push_str(&format!("; skipped: {}", skipped.join(", ")));
+        }
+        if !notes.is_empty() {
+            line.push_str(&format!("; {}", notes.join("; ")));
+        }
+        lines.push(redact(&line, &roots.home));
+    }
+    lines
 }
 
 #[derive(Deserialize, Debug)]
@@ -280,7 +397,13 @@ fn apply(roots: &Roots, selection: Selection) -> Vec<Outcome> {
 /// over: conversations (all folders), skills and MCP servers.
 #[tauri::command(async)]
 pub fn import_scan() -> Scan {
-    scan(&Roots::real())
+    let roots = Roots::real();
+    let started = std::time::Instant::now();
+    let (found, report) = scan(&roots);
+    for line in scan_log(&roots, &found, &report, started.elapsed()) {
+        crate::desktop_log(&line);
+    }
+    found
 }
 
 /// Imports the picked conversations and skills (MCP servers go through the
@@ -296,19 +419,32 @@ pub(crate) mod testutil {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    /// A fresh fake home for one test.
+    /// A fresh fake home for one test, its folders found as on this OS with
+    /// nothing else set.
     pub fn roots(name: &str) -> Roots {
-        let home = std::env::temp_dir().join(format!("lynshen-agent-import-{}-{name}", std::process::id()));
+        let home = fake_home(name);
+        let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let env = move |k: &str| (k == key).then(|| home.clone().into_os_string());
+        Roots::from_env(&env, cfg!(windows), fake_home_path(name).join(".lynshen"))
+    }
+
+    fn fake_home_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("lynshen-agent-import-{}-{name}", std::process::id()))
+    }
+
+    /// Everything a scan lists, and what it reported.
+    pub fn scan_all(roots: &Roots) -> (Vec<super::sessions::Found>, super::sessions::Report) {
+        let mut report = super::sessions::Report::default();
+        let found = super::sessions::scan(roots, &mut report);
+        (found, report)
+    }
+
+    /// An empty folder for a fake home.
+    pub fn fake_home(name: &str) -> PathBuf {
+        let home = fake_home_path(name);
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
-        Roots {
-            lynshen: home.join(".lynshen"),
-            claude: home.join(".claude"),
-            codex: home.join(".codex"),
-            data_home: home.join(".local/share"),
-            config_home: home.join(".config"),
-            home,
-        }
+        home
     }
 
     pub fn write(path: &Path, text: &str) -> PathBuf {
@@ -321,6 +457,81 @@ pub(crate) mod testutil {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+
+    fn env_of(pairs: Vec<(&'static str, PathBuf)>) -> impl Fn(&str) -> Option<OsString> {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone().into_os_string())
+    }
+
+    #[test]
+    fn windows_folders_come_from_the_profile() {
+        let base = testutil::fake_home("discover-win");
+        let profile = base.join("Users").join("demo");
+        let env = env_of(vec![("USERPROFILE", profile.clone()), ("HOME", base.join("msys"))]);
+        let roots = Roots::from_env(&env, true, base.join(".lynshen"));
+        assert_eq!(roots.home, profile, "a Git Bash HOME is not where the tools keep their files");
+        assert_eq!(roots.claude, profile.join(".claude"));
+        assert_eq!(roots.claude_json, profile.join(".claude.json"));
+        assert_eq!(roots.codex, profile.join(".codex"));
+        assert_eq!(roots.data_home, profile.join(".local").join("share"));
+        assert_eq!(roots.zcode_db, profile.join(".zcode").join("cli").join("db").join("db.sqlite"));
+        assert_eq!(roots.omp_session_dirs(), vec![profile.join(".omp").join("agent").join("sessions")]);
+        assert_eq!(roots.opencode_db, None);
+    }
+
+    #[test]
+    fn overrides_in_the_environment_are_followed() {
+        let base = testutil::fake_home("discover-env");
+        let home = base.join("home");
+        let xdg = base.join("xdg");
+        std::fs::create_dir_all(xdg.join("omp")).unwrap();
+        std::fs::create_dir_all(home.join(".omp").join("profiles").join("work")).unwrap();
+        let env = env_of(vec![
+            ("HOME", home.clone()),
+            ("CLAUDE_CONFIG_DIR", base.join("claude-alt")),
+            ("CODEX_HOME", base.join("codex-alt")),
+            ("XDG_DATA_HOME", xdg.clone()),
+            ("XDG_CONFIG_HOME", PathBuf::from("relative/is/ignored")),
+            ("OPENCODE_DB", PathBuf::from("work.db")),
+            ("ZCODE_SESSION_DB", base.join("z.sqlite")),
+            ("PI_CODING_AGENT_SESSION_DIR", base.join("omp-sessions")),
+        ]);
+        let roots = Roots::from_env(&env, false, base.join(".lynshen"));
+        assert_eq!(roots.claude, base.join("claude-alt"));
+        assert_eq!(roots.claude_json, base.join("claude-alt").join(".claude.json"));
+        assert_eq!(roots.codex, base.join("codex-alt"));
+        assert_eq!(roots.data_home, xdg);
+        assert_eq!(roots.config_home, home.join(".config"));
+        assert_eq!(roots.opencode_db, Some(xdg.join("opencode").join("work.db")));
+        assert_eq!(roots.zcode_db, base.join("z.sqlite"));
+        assert_eq!(
+            roots.omp_session_dirs(),
+            vec![
+                home.join(".omp").join("agent").join("sessions"),
+                base.join("omp-sessions"),
+                home.join(".omp").join("profiles").join("work").join("agent").join("sessions"),
+                xdg.join("omp").join("sessions"),
+            ]
+        );
+        // An absolute OPENCODE_DB is used as it is; an in-memory one is no file.
+        let abs = env_of(vec![("HOME", home.clone()), ("OPENCODE_DB", base.join("o.db"))]);
+        assert_eq!(Roots::from_env(&abs, false, base.clone()).opencode_db, Some(base.join("o.db")));
+        let mem = env_of(vec![("HOME", home.clone()), ("OPENCODE_DB", PathBuf::from(":memory:"))]);
+        assert_eq!(Roots::from_env(&mem, false, base.clone()).opencode_db, None);
+        // zcode's own setting, `~` expanded.
+        testutil::write(&home.join(".zcode/cli/config.json"), r#"{"storage": {"sessionDbPath": "~/zdb/s.sqlite"}}"#);
+        let plain = env_of(vec![("HOME", home.clone())]);
+        assert_eq!(Roots::from_env(&plain, false, base.clone()).zcode_db, home.join("zdb").join("s.sqlite"));
+    }
+
+    #[test]
+    fn logged_paths_leave_the_user_out() {
+        let home = Path::new("/Users/someone");
+        assert_eq!(
+            redact("claude: 3 in /Users/someone/.claude/projects; D:/Data/someone/x", home),
+            "claude: 3 in ~/.claude/projects; D:/Data/<user>/x"
+        );
+    }
 
     /// Scans this machine's real agents (read-only) and converts a few of the
     /// opencode / zcode / omp conversations into a temporary LynShen home.
@@ -330,8 +541,10 @@ mod tests {
     fn real_machine_scan_and_convert() {
         let real = Roots::real();
         let started = std::time::Instant::now();
-        let found = scan(&real);
-        println!("scan took {:?}", started.elapsed());
+        let (found, report) = scan(&real);
+        for line in scan_log(&real, &found, &report, started.elapsed()) {
+            println!("{line}");
+        }
         // For a look at the page with this machine's data (tests/browser).
         if let Some(path) = std::env::var_os("IMPORT_SCAN_JSON") {
             std::fs::write(path, serde_json::to_string(&found).unwrap()).unwrap();

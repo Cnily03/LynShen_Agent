@@ -140,7 +140,7 @@
 	}
 	h1 {
 		margin: 0 0 16px;
-		font-size: var(--fs-xl, 20px);
+		font-size: var(--fs-xl);
 		font-weight: 600;
 		line-height: 1.35;
 	}

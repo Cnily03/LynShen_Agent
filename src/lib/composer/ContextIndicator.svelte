@@ -111,7 +111,7 @@
 		onmouseenter={ask}
 		onfocus={ask}
 	>
-		<ContextRing {pct} size={16} />
+		<ContextRing {pct} size={14} /><span class="pctl">{fmtPct(pct)}</span>
 	</button>
 	<div class="ctx-card" id="{uid}-card" role="tooltip">
 		<div class="row head">
@@ -213,16 +213,21 @@
 		display: inline-flex;
 	}
 	/* The ring is the hover target; the card also shows on keyboard focus. */
+	/* In the composer's footer: the ring and the share used, in mono. */
 	.ring-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 30px;
-		height: 30px;
-		padding: 0;
+		gap: 6px;
+		height: 28px;
+		padding: 0 8px;
 		border: none;
 		border-radius: var(--r-sm);
 		background: none;
+		color: var(--dim);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		font-variant-numeric: tabular-nums;
 		cursor: default;
 		transition: background var(--t-fast) var(--ease-out);
 	}

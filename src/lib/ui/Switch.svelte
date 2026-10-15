@@ -18,8 +18,8 @@
 
 <style>
 	.sw {
-		width: 42px;
-		height: 24px;
+		width: 36px;
+		height: 20px;
 		border-radius: var(--r-full);
 		border: none;
 		background: var(--surface2);
@@ -36,16 +36,16 @@
 	}
 	.knob {
 		position: absolute;
-		top: 3px;
-		left: 3px;
-		width: 18px;
-		height: 18px;
+		top: 2px;
+		left: 2px;
+		width: 16px;
+		height: 16px;
 		border-radius: 50%;
 		background: var(--on-accent);
 		transition: transform var(--t-med) var(--ease-spring);
 	}
 	.sw.on .knob {
-		transform: translateX(18px);
+		transform: translateX(16px);
 	}
 	.sw:disabled {
 		opacity: 0.45;

@@ -1,7 +1,7 @@
 ---
 name: aogiri-desktop-design
 description: Presentation rules for the Aogiri desktop app window (Tauri + Svelte; called LynShen Desktop up to 0.5) — the window frame and title bar, the navigator and its collapsed rail, the workbench canvas with the conversation and tool panels, pages that cover the canvas, full-panel pages, the first-run page, popovers and dialogs. For a dense developer tool used for hours at a time, in Chinese and English, in light and dark themes.
-version: 2026-10-14
+version: 2026-10-15
 ---
 
 # Aogiri desktop design.md
@@ -14,7 +14,7 @@ Does not apply to: the phone remote page (`src/routes/remote`), the web chat (`s
 
 Conflict order: user facts and requirements → accessibility and keyboard use → the reader's current task (the conversation) → the conventions below → brand expression → decoration.
 
-- The owner chose the visual direction on 2026-10-14 (§2). This ends the earlier freeze on new type pairings, palettes and surface styles. Values that the app does not have yet are in the §5 token proposal with the status "to be implemented". Components use the token names, never those values as literals; a prototype outside the app takes the values from §5. [SHOULD] — Decision 2026-10-14: `app.css` changes in a later task.
+- The owner chose the visual direction on 2026-10-14 (§2). This ends the earlier freeze on new type pairings, palettes and surface styles. The §5 token table holds its values; since desktop 0.8.0 they are in `src/lib/app.css` and the constants it names. Components use the token names, never those values as literals; a prototype outside the app takes the values from §5. [SHOULD] — Decision 2026-10-14; implemented 2026-10-15.
 
 ## 2. Brand and Readers
 
@@ -44,7 +44,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - Left: a lead area as wide as the navigator (it follows the navigator's width and its collapse animation), or as wide as its own contents when they are wider: on macOS the traffic lights take an 84px inset, so with the navigator collapsed the lead is wider than the rail and the title starts right of the canvas edge. The lead holds the navigator toggle (`SidebarSimpleIcon`). [SHOULD]
 - Middle, starting at the canvas's left edge: the title of the object in front (`--fs-sm`/500, `--text`, ellipsized), then its context (`--fs-xs`, `--dim2`), for example the conversation title and then the project name. Full-panel pages show their page name with no context. [SHOULD]
 - Right: the front object's actions and the "+" menu that opens a panel beside the focused tile. Title bar buttons are 28px squares, `--r-sm`, 16px icons, `--dim`, with a `--surface2` fill and `--text` on hover. [SHOULD]
-- On macOS the native traffic lights are centred vertically on the title bar, on the same centre line as the navigator toggle. [MUST] — Source: owner bug report (PR #26); the value is `trafficLightPosition` in `src-tauri/tauri.macos.conf.json` (y 21.5 for the 48px bar with PR #26; tao makes the title bar container the close button's height + y, so the buttons' centre moves 1:1 with y, and the 38px bar needs about y 16.5, not verified on a build).
+- On macOS the native traffic lights are centred vertically on the title bar, on the same centre line as the navigator toggle. [MUST] — Source: owner bug report (PR #26); the value is `trafficLightPosition` in `src-tauri/tauri.macos.conf.json`: y 16.5 for the 38px bar (y 21.5 centred the 48px bar; tao makes the title bar container the close button's height + y, so the buttons' centre moves 1:1 with y). Not yet verified on a macOS build.
 - On Windows and Linux three drawn window controls end the bar: 46px wide, full bar height, `--dim`; the close control turns `--err` with `--on-accent` on hover. macOS keeps its native traffic lights. [SHOULD]
 - The first-run page hides the navigator toggle. [SHOULD]
 
@@ -66,7 +66,8 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - A tool call is one line: a 16px icon and `--fs-xs` `--dim` text, no card. Opened, its output sits in a `--surface` block (`--r-md`, mono `--fs-xs`). A failed call opens by itself. [SHOULD]
 - A code block in a message has a `--surface` fill, a 1px `--hairline` edge and `--r-md`; its text is mono at 13px (0.87em of the body) with a 20px line height. A 28px header line shows the language at the left and the copy action at the right (`--fs-xs`, `--dim`). [SHOULD]
 - Composer: a box (`--panel`, 1px `--border`, `--r-2xl`, `--shadow-float`) holding the text (`--fs-md`, 24px line height, 12 × 14px padding) and, at its right end, the voice and send buttons (28px, round; send uses `--accent`). While it has focus, its border turns `--border-strong`, with no glow and no larger shadow. Under the box, one slim footer row, edges aligned with it: add, mode and branch at the left; model, effort and context at the right. Footer controls are text dropdowns (28px, `--fs-xs`, `--dim`, `--surface2` fill on hover) with no borders; the branch is mono `--fs-2xs` `--dim2`. Suggestion, slash and question trays open inside the box above the text. [SHOULD] — Decision 2026-10-14: Claude's 14px composer, Codex's 28px buttons and row under the box, VS Code's border-only chat input.
-- A conversation with no messages centres the composer vertically in the column, with the empty-conversation greeting (§4 Type) one line above it. After the first message the composer sits at the bottom. [SHOULD] — Decision 2026-10-14: Codex and Claude open a new conversation this way. To be implemented: today a `--dim` tip line sits in the middle and the composer at the bottom.
+- A conversation with no messages centres the composer vertically in the column, with the empty-conversation greeting (§4 Type) one line above it. After the first message the composer sits at the bottom. [SHOULD] — Decision 2026-10-14: Codex and Claude open a new conversation this way.
+- The files a turn changed show under its reply as one change pill: an outlined chip (24px, 1px `--border`, `--r-md`, `--fs-xs`) with a 14px file icon, the file count, and `+added` in `--ok` and `−removed` in `--err` in mono. It opens the Changes panel. It is not a full pill. [SHOULD] — Decision 2026-10-15: the approved prototype (v3) draws the change as an outlined `--r-md` button; the reply footer had the same figures as plain text.
 - Composer modes: the footer's mode label opens the mode menu upward. It is a `.pop` with a head line (title, and the cycle key, ⇧Tab on macOS, in mono `--dim2`), then one two-line `.pop-row.two` per mode: label with an optional "推荐" tag (`--fs-2xs`, `--dim` on `--surface2`, `--r-full`), a `.pop-desc` line that wraps inside the row, a check column for the current mode, and the mode's digit in mono `--dim2`. A risky mode's label is `--warn` in the menu and in the footer. The menu stays inside the window and scrolls its rows when the space above the label is short. [SHOULD]
 - Tool panels (git, terminal, files, plan, changes, browser, …) open beside the conversation, in a leaf to its right with 42% of the area. Later tools stack as tabs in that leaf. A tool must not replace the conversation in its leaf while the chat would keep at least 560px after the split. Below that width the tool stacks as a tab in the chat leaf. The exception is the user's preference to open tool windows as tabs next to the conversation. [MUST]
 - A canvas with one leaf and one tab hides the tab bar. With two or more tabs the bar shows: 32px high, `--sidebar`, with the `--divider` line under it. Tabs are square, `--fs-sm`, at most 240px wide, divided by 1px `--divider` lines. The active tab has the `--bg` fill, `--text` and no line under it, so it joins its content; the other tabs show `--dim`. [SHOULD] — Decision 2026-10-14: VS Code Modern tabs.
@@ -133,10 +134,11 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - A menu opens from its anchor (`drop-in` downward, `pop-in` upward, `--t-pop`) and stays inside the window: it flips to the side with room and scrolls its own rows when neither side holds it. A click outside, Escape or a selection closes it. [SHOULD]
 
 ### Status, attention and emphasis
-Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made". To be implemented in: the session list's waiting mark, the approval card's head icon, tag and inner block fills, the plan card's status tag, the progress tray.
+Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made". Implemented (0.8.0) in the session list's status marks (`SessionMark`, `Sidebar`), the approval card, and the plan and subagents cards (`ProgressCards`), which replace the progress tray.
 - An item that waits for the reader (an approval, a question) shows a 6px `--warn` dot before its title. The reason is `--dim` text on the line below. A list of such items has a plain `--fs-xs` 600 `--dim2` heading with its count. The heading has no fill, border, glow or colored text. [SHOULD]
+- In the navigator a row keeps a 6px slot before its title for that dot, so titles line up; a failed conversation shows an `--err` dot there and an unread reply a `--text` dot. A conversation at work shows the `.spin` mark after its title, in `--dim`. [SHOULD] — Decision 2026-10-15: the dot replaces the breathing "待确认" pill and the colored failure icon.
 - Status, risk and scope inside a card are plain `--dim` text, joined with " · ". A status color appears only as one 6px dot, or as the text color of an error. [SHOULD]
-- While a turn has a to-do list or runs subagents, the chat leaf shows a column of cards at its top right. The plan card shows the label, the count and the current step ("计划 3/7 · 跑单元测试"), then the checklist. The subagents card shows one row per agent: role, a 6px state dot, the current action and the elapsed time; a click opens that agent's conversation. Each card collapses to its title line. The cards sit beside the transcript column when the chat leaf leaves at least 280px to its right; otherwise each card shows only its title line at the top right, and a click opens it as a solid popover (`.pop`) over the transcript, closed by Escape or a click outside. Nothing about plans or subagents sits on the composer's top edge, and no tray opens upward from it. The cards have no ring, segmented bar or colored beads. A bar shows only byte or time progress. [SHOULD] — Decision 2026-10-14 (owner, stated several times): plan and subagents are cards on the right. Today `ProgressTray` opens upward as a tray above the composer.
+- While a turn has a to-do list or runs subagents, the chat leaf shows a column of cards at its top right. The plan card shows the label, the count and the current step ("计划 3/7 · 跑单元测试"), then the checklist. The subagents card shows one row per agent: role, a 6px state dot, the current action and the elapsed time; a click opens that agent's conversation. Each card collapses to its title line. The cards sit beside the transcript column when the chat leaf leaves at least 280px to its right; a centred column that leaves less moves left, and narrows down to 640px, to make that room, and the composer and the approval card move with it. Otherwise each card shows only its title line at the top right, on a strip above the transcript, and a click opens it as a solid popover (`.pop`) over the transcript, closed by Escape or a click outside. A step that fails or waits for the reader opens the plan card. What the reader collapsed is kept per conversation. On the phone page each title line is a chip under the header, and a tap opens the card as a sheet from the bottom. Nothing about plans or subagents sits on the composer's top edge, and no tray opens upward from it. The cards have no ring, segmented bar or colored beads. A bar shows only byte or time progress. [SHOULD] — Decision 2026-10-14 (owner, stated several times): plan and subagents are cards on the right. Implemented in 0.8.0; the tray above the composer is gone.
 - In the transcript, only the item that needs the reader's action is raised (`--panel` + `--shadow-float`). Earlier turns, summaries and finished cards sit flat on `--bg`. Blocks inside a raised item use a `--surface` fill, never a second shadow or border. [SHOULD]
 - A view region has one primary button. Secondary actions are `secondary` or `ghost` buttons, or a menu. [SHOULD]
 
@@ -151,16 +153,19 @@ Decision 2026-10-14 for this section. The owner's feedback was that a prototype 
 
 | Role | Name | Source | Use | Status |
 |---|---|---|---|---|
-| Tokens | `--bg` `--sidebar` `--rail` `--panel` `--surface` `--surface2` `--hairline` `--border` `--border-strong` `--text` `--dim` `--dim2` `--accent*` `--on-accent` `--brand*` `--ok` `--info` `--warn` `--err` `--font-sans` `--font-mono` `--fs-*` `--r-*` `--t-*` `--ease-*` `--shadow-*` `--scrim` | `src/lib/app.css` | All styling | Implemented |
+| Tokens | `--bg` `--sidebar` `--rail` `--divider` `--panel` `--surface` `--surface2` `--hairline` `--border` `--border-strong` `--text` `--dim` `--dim2` `--accent*` `--on-accent` `--brand*` `--ok` `--info` `--warn` `--err` `--font-sans` `--font-mono` `--font-display` `--fs-*` `--r-*` `--t-*` `--ease-*` `--shadow-*` `--scrim` | `src/lib/app.css` | All styling | Implemented |
+| Display face | Noto Serif SC 500 (`@font-face` in `app.css`), a subset of the display lines and printable ASCII; SIL OFL 1.1 | `src/lib/fonts/noto-serif-sc-display.woff2`, `src/lib/fonts/OFL.txt`, `scripts/subset-display-font.py` | The two display moments | Implemented |
 | Glass, frost, background | `--float-tint` `--chrome-tint` `--glass-filter` `--glass-rim` `--glass-strong` `--vibrancy-chrome` `--vibrancy-tint` `--canvas-veil`; root attributes `data-glass` `data-vibrancy` `data-canvas-bg` | `src/lib/app.css`, `src/lib/prefs.svelte.ts` | Set by preferences; components read them, never set them | Implemented |
 | Window frame | `.app` (`--rail`), `.body`, `.panel`, `.canvas` (`--bg`), `.stage` | `src/routes/+page.svelte` | The one frame | Implemented |
-| Title bar | `TitleBar` `leftWidth` `sidebarOpen` `onToggleSidebar` `showToggle` `title` `subtitle` `addOptions` `actions` | `src/lib/shell/TitleBar.svelte` | The window's only title bar | Implemented |
-| Navigator | `Sidebar` `width` `collapsed`; `SIDEBAR_RAIL_WIDTH` (62) | `src/lib/Sidebar.svelte`, `src/lib/shell/sidebarState.ts` | Expanded panel or the icon rail | Implemented |
+| Title bar | `TitleBar` `leftWidth` `sidebarOpen` `onToggleSidebar` `showToggle` `heading` `title` `subtitle` `addOptions` `actions` | `src/lib/shell/TitleBar.svelte` | The window's only title bar; `heading` makes the title the view's `h1` (a conversation in front) | Implemented |
+| Navigator | `Sidebar` `width` `collapsed`; `SIDEBAR_RAIL_WIDTH` (48), `SIDEBAR_DEFAULT_WIDTH` (272) | `src/lib/Sidebar.svelte`, `src/lib/shell/sidebarState.ts` | Expanded panel or the icon rail | Implemented |
+| Status mark | `SessionMark` (`status`, `compact`); `sessionStatus(chat)` (`input` carries `what`, the request in one line) | `src/lib/SessionMark.svelte`, `src/lib/sessionStatus.ts` | Navigator rows, home rows, tabs | Implemented |
 | Account row and card | `SidebarFooter` (`collapsed`), `AccountCard` (`side: top｜right`) | `src/lib/workbench/` | Bottom of the navigator | Implemented |
 | Button | `Button` `variant: primary｜secondary｜ghost｜danger｜success`, `size: sm｜md｜icon`, `full` | `src/lib/ui/Button.svelte` | One `primary` per view region | Implemented |
 | Icon button | `IconButton` `size: xs｜sm｜md`, `label` | `src/lib/ui/IconButton.svelte` | Icon-only actions; pass a `label` | Implemented |
 | Segmented | `Segmented` `value` `options` `onChange` | `src/lib/ui/Segmented.svelte` | 2–4 exclusive options in a settings row | Implemented |
 | Switch, Checkbox, Select, TextField | same names | `src/lib/ui/` | Settings rows and forms | Implemented |
+| Model pickers | `ModelPicker` (`variant: field｜inline`, `extras`), `QuickSwitcher`, `ModelBrowser` (in a `Modal`), `ModelLine`; `gatewayCatalog` | `src/lib/models/`, `src/lib/composer/ModelMenu.svelte` | Every model choice: the composer's model menu, the settings model rows, the home start box, the first run. Not `Select` | Implemented |
 | Chip, Collapse | `Chip` (`selected`), `Collapse` (`open`) | `src/lib/ui/` | Toggle chips in pickers; animated disclosure | Implemented |
 | Notice | `Notice` `tone: error｜warn｜info`, `mono` | `src/lib/ui/Notice.svelte` | Inline messages inside panels and forms | Implemented |
 | Modal | `Modal` `placement: center｜top`, `width`, `footer` | `src/lib/ui/Modal.svelte` | Dialogs (frosted sheet on `--glass-strong`) | Implemented |
@@ -170,37 +175,38 @@ Decision 2026-10-14 for this section. The owner's feedback was that a prototype 
 | Toast, confirm | `toast.info｜success｜warn｜error`, `confirm()` | `src/lib/ui/toast.svelte.ts`, `confirm.svelte.ts` | Transient feedback, destructive confirmation | Implemented |
 | Settings layout | `SettingsSection` (`title` `description` `action`), `SettingsRow` (`stacked`) | `src/lib/settings/` | Every settings page | Implemented |
 | Canvas | `Mosaic` (`hideSoloBar`); `openElsewhere`, `openChatTab`, `TOOL_SIDE_RATIO` (0.42), `TOOL_SPLIT_MIN_CHAT` (560); `splitLeaf` | `src/lib/workbench/Mosaic.svelte`, `canvas.ts`, `tiles.ts` | All tile placement | Implemented |
-| Chat column | `--chat-w`, `--chat-pad`; `chatColumnWidth`, `chatColumnPad`, `CHAT_PAD` (32), `CHAT_PAD_RAIL` (56) | `src/lib/chatWidth.ts`, `src/lib/ChatPane.svelte` | Transcript, composer, approval card and trays | Implemented |
+| Chat column | `--chat-w`, `--chat-pad`, and `--col-l` `--col-r` while the cards sit beside the column; `chatColumnWidth`, `chatColumnPad`, `CHAT_PAD` (32), `CHAT_PAD_RAIL` (56) | `src/lib/chatWidth.ts`, `src/lib/ChatPane.svelte` | Transcript, composer, approval card and trays | Implemented |
 | Turn rail | `TurnRail` `marks` `current` `onJump` | `src/lib/TurnRail.svelte` | Left gutter of the chat pane | Implemented |
+| Change pill | `.change` in the reply footer; `TurnPart.change` (`turnParts`); `MessageList` `onChanges`, `ChatPane` `onOpenChanges` | `src/lib/MessageList.svelte`, `src/lib/turnStats.ts` | The files a turn changed | Implemented |
 | Top strips | owner line `.owner`, `TaskStrip`, `FindBar` | `src/lib/ChatPane.svelte`, `src/lib/TaskStrip.svelte`, `src/lib/shell/FindBar.svelte` | Above the transcript | Implemented |
 | Composer | `Composer`, `ModeMenu` (`items` `current` `onSelect` `onCycle`; `ModeItem.tone: 'warn'`), `ComposerTray` | `src/lib/Composer.svelte`, `src/lib/composer/` | The chat input | Implemented |
 | Approval card | `ApprovalCard` | `src/lib/ApprovalCard.svelte` | A request that waits for the reader | Implemented |
-| Plan and subagents cards | top-right card column of the chat leaf (plan card, subagents card) | `src/lib/agents/ProgressTray.svelte` (today, tray), `src/lib/PlanPanel.svelte` | A turn with to-dos or subagents | To be implemented |
+| Plan and subagents cards | `ProgressCards` (`beside`), `ProgressSheet` (phone page); bodies `PlanBody`, `AgentsBody`, `CardTitle`; `cardsLayout`, `CARD_LANE` (280) | `src/lib/agents/`, `src/lib/agents/progressCards.ts`; `PlanPanel` reuses `PlanBody` | A turn with to-dos or subagents | Implemented |
 | File preview | `FilePreview` (`path` `root`); panel `preview:<path>` (`previewPanel`) | `src/lib/preview/` | A file opened from a message | Implemented |
 | Session title | `shownTitle(title)` | `src/lib/chat.svelte.ts` | Show any session title (translates the placeholder) | Implemented |
 
-### Token proposal (Decision 2026-10-14)
+### Token table (Decision 2026-10-14, implemented 2026-10-15 for desktop 0.8.0)
 
-Target values for the direction in §2. `src/lib/app.css` and the constants below still hold the "today" values; a later task changes them and then updates this table. Values are light / dark where they differ.
+The values of the direction in §2. Values are light / dark where they differ; "Before" is what 0.7.x had. `src/lib/themeTokens.test.ts` holds the scale, the radii, the frame tone, the shadows and the contrast numbers below; `src/lib/displayFont.test.ts` holds the display face.
 
-| Token or constant | Today | Target | Role | Status |
+| Token or constant | Before | Value | Role | Status |
 |---|---|---|---|---|
-| `--font-sans` | `'Inter Variable'` first | `-apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Inter Variable', Inter, 'Noto Sans SC', system-ui, sans-serif` | All interface and conversation text | To be implemented |
-| `--font-display` (new) | — | `'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif`, used at weight 500 | The two display moments only | To be implemented |
-| `--fs-2xs` `--fs-xs` `--fs-sm` `--fs-md` `--fs-lg` `--fs-xl` `--fs-2xl` | 12 · 13 · 15 · 16 · 18 · 24 · 36px | 11 · 12 · 13 · 15 · 18 · 22 · 28px | Type roles (§4 Type) | To be implemented |
-| `--r-xs` `--r-sm` `--r-md` `--r-lg` `--r-xl` `--r-2xl` | 5 · 8 · 10 · 14 · 20 · 26px | 2 · 4 · 6 · 8 · 12 · 14px; `--r-full` unchanged | Radius families (§4 Surfaces) | To be implemented |
-| `--rail` | #e5e3de / #141414 | #f0efeb (L* 94.4) / #141414 | Frame tone | To be implemented |
-| `--sidebar` | #eeece8 / #202020 | equal to `--rail` | Frame tone | To be implemented |
-| `--divider` (new) | — | #e0ded9 / #2a2a2a | Region boundaries, lines between tabs | To be implemented |
-| `--shadow-float`, `--shadow-float-strong` | 1px ring + 22–36px drop | both `0 2px 8px rgba(28, 25, 23, 0.05)` / `none`; focus shows as `--border-strong` | Composer, approval card | To be implemented |
-| `--shadow-pop` | 28–32px drop + 1px ring | `0 0 0 1px var(--divider), 0 8px 24px rgba(28, 25, 23, 0.12), 0 2px 6px rgba(28, 25, 23, 0.08)` / `0 0 0 1px var(--divider), 0 8px 24px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.2)` | Menus, popovers, tooltips, the peeking navigator | To be implemented |
-| `--shadow-canvas` | defined, used by no component | removed | No inset canvas (D3) | To be implemented |
-| Title bar height | 48px (`.bar`, `src/lib/shell/TitleBar.svelte`) | 38px | §3 Title bar | To be implemented |
-| `trafficLightPosition.y` | 26 (21.5 with PR #26), `src-tauri/tauri.macos.conf.json` | centred on the 38px bar, about 16.5 | §3 Title bar | To be implemented; check on a macOS build |
-| `SIDEBAR_RAIL_WIDTH` | 62 | 48 | Collapsed rail | To be implemented |
-| Navigator default width | 292 (`src/routes/+page.svelte`) | 272 | Expanded navigator | To be implemented |
+| `--font-sans` | `'Inter Variable'` first | `-apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Inter Variable', Inter, 'Noto Sans SC', system-ui, sans-serif` | All interface and conversation text | Implemented: `src/lib/app.css` |
+| `--font-display` | — | `'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif`, used at weight 500 | The two display moments only | Implemented: `src/lib/app.css`, face in `src/lib/fonts/` |
+| `--fs-2xs` `--fs-xs` `--fs-sm` `--fs-md` `--fs-lg` `--fs-xl` `--fs-2xl` | 12 · 13 · 15 · 16 · 18 · 24 · 36px | 11 · 12 · 13 · 15 · 18 · 22 · 28px | Type roles (§4 Type) | Implemented: `src/lib/app.css` |
+| `--r-xs` `--r-sm` `--r-md` `--r-lg` `--r-xl` `--r-2xl` | 5 · 8 · 10 · 14 · 20 · 26px | 2 · 4 · 6 · 8 · 12 · 14px; `--r-full` unchanged | Radius families (§4 Surfaces) | Implemented: `src/lib/app.css` |
+| `--rail` | #e5e3de / #141414 | #f0efeb (L* 94.4) / #141414 | Frame tone | Implemented: `src/lib/app.css` |
+| `--sidebar` | #eeece8 / #202020 | equal to `--rail` | Frame tone | Implemented: `src/lib/app.css` |
+| `--divider` | — | #e0ded9 / #2a2a2a | Region boundaries, lines between tabs | Implemented: `src/lib/app.css` |
+| `--shadow-float`, `--shadow-float-strong` | 1px ring + 22–36px drop | both `0 2px 8px rgba(28, 25, 23, 0.05)` / `none`; focus shows as `--border-strong` | Composer, approval card | Implemented: `src/lib/app.css` |
+| `--shadow-pop` | 28–32px drop + 1px ring | `0 0 0 1px var(--divider), 0 8px 24px rgba(28, 25, 23, 0.12), 0 2px 6px rgba(28, 25, 23, 0.08)` / `0 0 0 1px var(--divider), 0 8px 24px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.2)` | Menus, popovers, tooltips, the peeking navigator | Implemented: `src/lib/app.css` |
+| `--shadow-canvas` | defined, used by no component | removed | No inset canvas (D3) | Implemented (removed) |
+| Title bar height | 48px | 38px | §3 Title bar | Implemented: `.titlebar`, `src/lib/shell/TitleBar.svelte` |
+| `trafficLightPosition.y` | 26 (21.5 with PR #26) | 16.5, centred on the 38px bar | §3 Title bar | Implemented: `src-tauri/tauri.macos.conf.json`; not yet checked on a macOS build |
+| `SIDEBAR_RAIL_WIDTH` | 62 | 48 | Collapsed rail | Implemented: `src/lib/shell/sidebarState.ts` |
+| Navigator default width | 292 | 272 | Expanded navigator | Implemented: `SIDEBAR_DEFAULT_WIDTH`, `src/lib/shell/sidebarState.ts` |
 
-Unchanged: `--bg` (#f6f5f2 / #1a1a1a), `--panel`, `--surface`, `--surface2`, `--hairline`, `--border`, `--border-strong`, the text, accent, brand and status colors, `--shadow-modal`, `--t-*`, `--ease-*`. With the target frame tone, `--text` / `--dim` / `--dim2` measure 15.3 / 8.2 / 5.3:1 (light) and 15.6 / 8.0 / 5.2:1 (dark), so the contrast rule holds.
+Unchanged: `--bg` (#f6f5f2 / #1a1a1a), `--panel`, `--surface`, `--surface2`, `--hairline`, `--border`, `--border-strong`, the text, accent, brand and status colors, `--shadow-modal`, `--t-*`, `--ease-*`. With the frame tone, `--text` / `--dim` / `--dim2` measure 15.3 / 8.2 / 5.3:1 (light) and 15.6 / 8.0 / 5.2:1 (dark), so the contrast rule holds; the light `--bg` is L* 96.5 and `--panel` L* 98.3.
 
 Menu row, as `PopMenu` renders it (hand-built menus use the same nesting):
 
@@ -226,7 +232,7 @@ Extension boundary:
 - The app's name is "Aogiri" (梧桐). The account, the engine and the gateway keep the name "LynShen". [MUST]
 - Titles are nouns ("终端", "提交历史"). Buttons are verbs ("拉取", "重新打开授权页面"). Errors: what failed, then what to do ("在设置中重新登录 LynShen 后再试。"). [SHOULD]
 - Durations `48.3s`, tokens `18.4k` with ↑ input / ↓ output, line changes `+42 −7`, in mono. Placeholder for a missing value: `—`. [SHOULD]
-- A shortcut shows in three places only: as `.pop-hint` text at the right of a menu row (a mode menu's digits in mono `--dim2`), after the label in a tooltip ("收起侧栏 · ⌘B", `withShortcut`), and as bordered `kbd` chips on the shortcuts page and dialog. Use `shortcutLabel` (Ctrl on Windows and Linux). Buttons, nav items, list rows and input placeholders do not show shortcuts. [SHOULD] — Decision 2026-10-14, same feedback as "Status, attention and emphasis". To be implemented in: the empty conversation's hint line and the suggestion placeholder. Open: the approval card's buttons show digit keys.
+- A shortcut shows in three places only: as `.pop-hint` text at the right of a menu row (a mode menu's digits in mono `--dim2`), after the label in a tooltip ("收起侧栏 · ⌘B", `withShortcut`), and as bordered `kbd` chips on the shortcuts page and dialog. Use `shortcutLabel` (Ctrl on Windows and Linux). Buttons, nav items, list rows and input placeholders do not show shortcuts. [SHOULD] — Decision 2026-10-14, same feedback as "Status, attention and emphasis". Open: the approval card's buttons show digit keys.
 - An input placeholder names the action in a few words ("回复", "输入 / 使用命令"). It does not list options or shortcuts. [SHOULD]
 - A prototype or a page with sample data shows one `--dim2` line "原型 · 示例数据" outside the window frame. It shows no design annotations, rule numbers or imitation OS chrome. [SHOULD] — Decision 2026-10-14.
 
@@ -260,18 +266,19 @@ Extension boundary:
 ## 8. Implementation and Integration
 
 - Style entry: `src/lib/app.css`, imported once in `src/routes/+layout.svelte`. Component styles are scoped `<style>` blocks.
-- Fonts: `@fontsource-variable/inter` and `@fontsource-variable/geist-mono`, imported at the top of `app.css`. The system UI faces in `--font-sans` need no loading. Display font, to be implemented: `@fontsource/noto-serif-sc` at weight 500 (SIL OFL), imported in `app.css`; Fontsource splits it by unicode-range, so the app loads only the ranges that the display lines use.
+- Fonts: `@fontsource-variable/inter` and `@fontsource-variable/geist-mono`, imported at the top of `app.css`. The system UI faces in `--font-sans` need no loading. The display face is a 15 KB subset of Noto Serif SC 500 (SIL OFL 1.1, licence in `src/lib/fonts/OFL.txt`) declared by the one `@font-face` in `app.css`: the glyphs of the display lines and printable ASCII. A new or changed display line needs `scripts/subset-display-font.py` run again; `src/lib/displayFont.test.ts` fails until it is.
+- The phone remote page and the web chat are outside this file's scope and keep the type scale and radii they were made with: `app.css` restores them under `:root:has(.remote, .web, .signin)`.
 - Theme: `initTheme()` / `setTheme()` in `src/lib/theme.svelte.ts` set `data-theme` (`light｜dark`, resolved from `system｜light｜dark`) on `<html>`. Platform and preference attributes on `<html>`: `data-os`, `data-vibrancy`, `data-glass`, `data-canvas-bg` (`src/lib/prefs.svelte.ts`).
 - Icons: `phosphor-svelte`, defaults set by `IconContext` in `+layout.svelte` (regular weight, `aria-hidden`).
-- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`).
+- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`, `&collapsed`, `&home`, `&settings[=<section>]`, `&approval`, `&states`, `&cards`, `&tool`, `&textOnly`, `&models[=old]`; `?remote&cards` for the phone page).
 
 ## Glossary
 
 | Concept | Name in code |
 |---|---|
 | Window frame | `.app` in `src/routes/+page.svelte` |
-| Frame tone / region divider | `--rail` = `--sidebar` / `--divider` (to be implemented) |
-| Display type | `--font-display` (to be implemented) |
+| Frame tone / region divider | `--rail` = `--sidebar` / `--divider` |
+| Display type | `--font-display` |
 | Title bar | `TitleBar` |
 | Navigator (expanded) / icon rail (collapsed) | `Sidebar` (`collapsed`), `SIDEBAR_RAIL_WIDTH` |
 | Account row / account card | `SidebarFooter`, `AccountCard` |
@@ -283,7 +290,8 @@ Extension boundary:
 | Top strips | `.owner`, `TaskStrip`, `FindBar` |
 | Composer / mode menu | `Composer`, `ModeMenu` |
 | Approval card | `ApprovalCard` |
-| Plan card / subagents card | `ProgressTray` (today), `PlanPanel` |
+| Plan card / subagents card | `ProgressCards`, `ProgressSheet` (phone page), `PlanPanel` |
+| Model quick switcher / model browser | `QuickSwitcher`, `ModelBrowser`, `ModelPicker` |
 | Plan proposal | `PlanCard`, `ProposalPane` |
 | File preview | `FilePreview` |
 | Page over the canvas | `HomePage`, `ProjectPage` |

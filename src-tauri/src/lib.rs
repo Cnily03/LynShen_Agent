@@ -3890,6 +3890,7 @@ pub fn run() {
             monoize_auth::desktop_installation_id,
             monoize_auth::monoize_trial_claim,
             monoize_auth::monoize_desktop_plan,
+            monoize_auth::monoize_model_catalog,
             monoize_auth::monoize_set_plan_funding,
             transcribe_audio,
             generate_text,

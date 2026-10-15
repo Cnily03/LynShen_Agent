@@ -78,6 +78,7 @@
 	import { t, setLocale, getLocale, LOCALES, LOCALE_LABELS } from '$lib/i18n';
 	import { ASR_PROVIDERS, asrProvider, resolveAsrSettings, type AsrSettings } from '$lib/audio';
 	import { PROVIDER_CATALOG, providerFormPrefill, type CatalogProvider } from '$lib/providers/catalog';
+	import { modelEfforts, type ProviderModel } from './providerFields';
 	import Vendor from '$lib/Vendor.svelte';
 	import OverviewPanel from '$lib/OverviewPanel.svelte';
 	import { cloudSync } from '$lib/cloudSync.svelte';
@@ -87,6 +88,9 @@
 	import TextField from '$lib/ui/TextField.svelte';
 	import { RETRY_ATTEMPTS_MAX, retryAttemptsSetting } from '$lib/retryView';
 	import Select from '$lib/ui/Select.svelte';
+	import ModelPicker from '$lib/models/ModelPicker.svelte';
+	import { itemsFromOptions } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 	import Switch from '$lib/ui/Switch.svelte';
 	import Checkbox from '$lib/ui/Checkbox.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
@@ -254,13 +258,7 @@
 	}
 
 	// ---------- engine config + providers ----------
-	interface ModelCfg {
-		name: string;
-		display_name?: string | null;
-		context_window?: number;
-		max_output_tokens?: number;
-		reasoning_efforts?: string[];
-	}
+	type ModelCfg = ProviderModel;
 	interface Provider {
 		id: string;
 		name?: string;
@@ -286,17 +284,18 @@
 
 	// inline editor state
 	// A provider id (its card open), or a step of the add dialog: '__catalog__'
-	// (pick), '__key__' (key for a built-in, `keyTarget`), '__new__' (form).
+	// (pick), '__key__' (key for a built-in, `keyTarget`), '__new__' (form),
+	// or '__edit__' (the form for `editTarget`, a provider the user added).
 	let editing = $state<string | null>(null);
 	let keyTarget = $state<Provider | null>(null);
 	let keyInput = $state('');
 	let form = $state<{ id: string; base_url: string; format: string; key: string; models: ModelCfg[] }>({ id: '', base_url: '', format: 'responses', key: '', models: [] });
 	let selectedCatalog = $state<CatalogProvider | null>(null);
-	let mName = $state('');
-	let mCtx = $state<number | undefined>();
+	let editTarget = $state<Provider | null>(null);
+	let providerForm = $state<{ submit: () => void } | undefined>();
 
 	const models = $derived<ModelCfg[]>(Array.isArray(cfg.models) ? cfg.models : []);
-	const efforts = $derived(models.find((m) => m.name === cfg.model)?.reasoning_efforts ?? []);
+	const efforts = $derived(modelEfforts(models.find((m) => m.name === cfg.model)));
 	const fmt = (n?: number) => (!n ? '' : n >= 1_000_000 ? `${(n / 1e6).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
 	const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -329,15 +328,26 @@
 		...PROVIDER_CATALOG.providers.filter((entry) => !allProviders.some((provider) => provider.id === entry.id))
 	]);
 	const providerOpts = $derived(allProviders.filter(usable).map((p) => ({ value: p.id, label: p.name ?? cap(p.id) })));
-	const modelOpts = $derived(models.map((m) => ({ value: m.name, label: m.display_name || m.name, ...m })));
-	// Empty = the main model (the engine's `Config::title`).
-	const titleModelOpts = $derived([{ value: '', label: t('settings.behavior.followMainModel') }, ...modelOpts]);
+	// The default provider's models (config.json `models`), for the compaction,
+	// title and image pickers (src/lib/models: the same pickers as the composer).
+	const providerItems = $derived(
+		itemsFromOptions(
+			models.map((m) => ({ provider: cfg.provider ?? '', name: m.name, display_name: m.display_name, context_window: m.context_window, reasoning_efforts: m.reasoning_efforts, input_modalities: (m as { input_modalities?: string[] }).input_modalities })),
+			'',
+			gatewayCatalog.lookup
+		)
+	);
+	/** Models that chat (not image makers), marked against `value`; the one
+	 *  set stays listed even when it would not be. Empty for the title model
+	 *  = the main model (the engine's `Config::title`). */
+	const chatItems = (value: string) =>
+		providerItems.filter((i) => !i.drawsImages || i.value === value).map((i) => ({ ...i, active: i.value === value }));
 	// Empty = the engine picks the first model named like an image model.
-	const imageModelOpts = $derived([
-		{ value: '', label: t('settings.behavior.imageModelAuto') },
-		...modelOpts.filter((m) => /image/i.test(m.value)),
-		...modelOpts.filter((m) => !/image/i.test(m.value))
-	]);
+	const imageItems = $derived(
+		providerItems
+			.filter((i) => i.drawsImages || i.value === (cfg.image_model ?? ''))
+			.map((i) => ({ ...i, active: i.value === (cfg.image_model ?? '') }))
+	);
 	const effortOpts = $derived(efforts.map((e) => ({ value: e, label: cap(e) })));
 	// All providers' models in one list (provider-qualified), so the default-model
 	// picker isn't limited to whichever provider is currently the default.
@@ -350,11 +360,13 @@
 			.flatMap((p) =>
 			p.models.map((m) => ({
 				value: `${p.id}::${m.name}`,
-				label: m.display_name || m.name,
 				provider: p.id,
-				group: p.id === 'lynshen' || p.id === 'monoize' ? t('settings.behavior.groupLynShen') : p.name || p.id,
+				providerName: p.id === 'lynshen' || p.id === 'monoize' ? t('settings.behavior.groupLynShen') : p.name || p.id,
+				name: m.name,
+				display_name: m.display_name,
 				context_window: m.context_window,
-				authed: usable(p)
+				reasoning_efforts: m.reasoning_efforts,
+				input_modalities: (m as { input_modalities?: string[] }).input_modalities
 			}))
 		)
 	);
@@ -363,6 +375,9 @@
 	$effect(() => {
 		modelKey = `${cfg.provider ?? ''}::${cfg.model ?? ''}`;
 	});
+	const defaultItems = $derived(
+		itemsFromOptions(allModelOpts, modelKey, gatewayCatalog.lookup).filter((i) => !i.drawsImages || i.active)
+	);
 	function applyModel(key: string) {
 		const i = key.indexOf('::');
 		if (i < 0) return;
@@ -390,7 +405,7 @@
 
 	// Keep reasoning effort valid for the selected model.
 	function normalizeEffort() {
-		const efs = models.find((m) => m.name === cfg.model)?.reasoning_efforts ?? [];
+		const efs = modelEfforts(models.find((m) => m.name === cfg.model));
 		if (efs.length && !efs.includes(cfg.reasoning_effort)) cfg.reasoning_effort = efs.includes('high') ? 'high' : efs[Math.floor(efs.length / 2)];
 	}
 	$effect(normalizeEffort);
@@ -519,8 +534,13 @@
 		editing = '__new__';
 		selectedCatalog = null;
 		form = { id: '', base_url: '', format: 'responses', key: '', models: [] };
-		mName = '';
-		mCtx = undefined;
+	}
+	/** The form for a provider the user added (custom or from the catalog). */
+	function openEdit(p: Provider) {
+		editTarget = p;
+		selectedCatalog = null;
+		form = { id: p.id, base_url: p.base_url, format: p.format, key: '', models: p.models.map((m) => ({ ...m })) };
+		editing = '__edit__';
 	}
 	function selectCatalogProvider(provider: CatalogProvider) {
 		// A built-in provider only needs its key.
@@ -534,8 +554,6 @@
 		selectedCatalog = provider;
 		form = providerFormPrefill(provider);
 		editing = '__new__';
-		mName = '';
-		mCtx = undefined;
 	}
 	function persistCustom() {
 		localStorage.setItem(CUSTOM_KEY, JSON.stringify(custom));
@@ -556,35 +574,37 @@
 		loadBalances();
 		onAuthChange?.();
 	}
-	function addFormModel() {
-		if (!mName.trim()) return;
-		form.models = [...form.models, { name: mName.trim(), context_window: Number(mCtx) || 128000, max_output_tokens: 8192, reasoning_efforts: [] }];
-		mName = '';
-		mCtx = undefined;
-	}
-	async function createProvider() {
-		const id = form.id.trim();
-		if (!id || !form.base_url.trim() || form.models.length === 0 || (selectedCatalog && !form.key.trim())) return;
-		custom = [
-			...custom.filter((c) => c.id !== id),
-			{
-				id,
-				name: selectedCatalog?.name,
-				base_url: form.base_url.trim(),
-				format: form.format,
-				models: form.models,
-				builtin: false,
-				source: selectedCatalog ? 'catalog' : 'custom'
-			}
-		];
+	// The form has checked the fields (providerFields.validateProvider).
+	async function saveProvider(f: typeof form) {
+		const id = f.id.trim();
+		const previous = editTarget && editTarget.id === id ? editTarget : null;
+		const entry: Provider = {
+			id,
+			name: previous ? previous.name : selectedCatalog?.name,
+			base_url: f.base_url.trim(),
+			format: f.format,
+			models: f.models,
+			builtin: false,
+			source: previous ? previous.source : selectedCatalog ? 'catalog' : 'custom'
+		};
+		custom = [...custom.filter((c) => c.id !== id), entry];
 		persistCustom();
-		if (form.key.trim()) {
-			await setAuthKey(id, form.key.trim());
-			keyed = await readAuthProviders();
-			onAuthChange?.();
+		// The default provider's copy in config.json is what the engine runs.
+		if (cfg.provider === id) {
+			cfg.base_url = entry.base_url;
+			cfg.protocol = entry.format;
+			cfg.models = entry.models;
+			if (!entry.models.some((m) => m.name === cfg.model)) cfg.model = entry.models[0]?.name ?? '';
+			normalizeEffort();
 		}
+		if (f.key.trim()) {
+			await setAuthKey(id, f.key.trim());
+			keyed = await readAuthProviders();
+		}
+		onAuthChange?.();
 		editing = null;
 		selectedCatalog = null;
+		editTarget = null;
 	}
 	function deleteProvider(id: string) {
 		custom = custom.filter((c) => c.id !== id);
@@ -834,12 +854,12 @@
 	<nav class="nav" style:width="{navWidth}px" aria-label={t('settings.title')}>
 		<div class="nav-head">
 			<button class="back" title={t('settings.page.back')} aria-label={t('settings.page.back')} onclick={onClose}>
-				<ArrowLeftIcon size={18} />
+				<ArrowLeftIcon size={16} />
 			</button>
 			<h2>{t('settings.title')}</h2>
 		</div>
 		<label class="search">
-			<MagnifyingGlassIcon size={16} />
+			<MagnifyingGlassIcon size={14} />
 			<input bind:value={query} placeholder={t('settings.page.search')} spellcheck="false" onkeydown={onSearchKey} />
 		</label>
 		<div class="nav-list">
@@ -847,7 +867,7 @@
 				{#each hits as r (r.id)}
 					{@const Icon = ICONS[r.section]}
 					<button class="item hit" class:on={current === r.section} onclick={() => goTo(r)}>
-						<Icon size={18} />
+						<Icon size={16} />
 						<span class="hit-txt">
 							<span class="label">{t(r.titleKey)}</span>
 							<span class="where">{t(`settings.section.${r.section}`)}</span>
@@ -862,7 +882,7 @@
 					{#each g.sections as key (key)}
 						{@const Icon = ICONS[key]}
 						<button class="item" class:on={current === key} aria-current={current === key ? 'page' : undefined} onclick={() => (section = key)}>
-							<Icon size={18} weight={current === key ? 'fill' : 'regular'} />
+							<Icon size={16} weight={current === key ? 'fill' : 'regular'} />
 							<span class="label">{t(`settings.section.${key}`)}</span>
 						</button>
 					{/each}
@@ -1132,6 +1152,7 @@
 								onLogout={logout}
 								onSaveKey={saveKey}
 								onSetDefault={selectProvider}
+								onEdit={openEdit}
 								onDelete={deleteProvider}
 								onRefreshModels={refreshMonoizeModels}
 								onOpenMonoizeLogin={() => {
@@ -1143,8 +1164,42 @@
 						{/each}
 						<button class="addrow" id="set-provider-add" onclick={openCreate}><PlusIcon size={16} /> {t('settings.custom.add')}</button>
 					</SettingsSection>
-					{#if editing === '__catalog__' || editing === '__key__' || editing === '__new__'}
-						<Modal title={t('settings.custom.add')} width={540} padded={false} onClose={() => (editing = null)}>
+					{#snippet formFooter()}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => {
+								if (editing === '__edit__') {
+									editing = null;
+									editTarget = null;
+								} else editing = '__catalog__';
+							}}>{editing === '__edit__' ? t('common.cancel') : t('settings.page.back')}</Button
+						>
+						<Button variant="primary" size="sm" onclick={() => providerForm?.submit()}
+							>{editing === '__edit__'
+								? t('settings.custom.save')
+								: selectedCatalog
+									? t('settings.catalog.addProvider')
+									: t('settings.custom.create')}</Button
+						>
+					{/snippet}
+					{#if editing === '__catalog__' || editing === '__key__' || editing === '__new__' || editing === '__edit__'}
+						<Modal
+							title={editing === '__edit__' && editTarget
+								? t('settings.custom.editTitle', { provider: editTarget.name ?? cap(editTarget.id) })
+								: editing === '__new__'
+									? selectedCatalog
+										? t('settings.catalog.connect', { provider: selectedCatalog.name })
+										: t('settings.custom.title')
+									: t('settings.custom.add')}
+							width={editing === '__new__' || editing === '__edit__' ? 600 : 540}
+							padded={false}
+							footer={editing === '__new__' || editing === '__edit__' ? formFooter : undefined}
+							onClose={() => {
+								editing = null;
+								editTarget = null;
+							}}
+						>
 							{#if editing === '__catalog__'}
 								<ProviderCatalogPicker
 									providers={addable}
@@ -1167,19 +1222,16 @@
 										<Button variant="primary" size="sm" disabled={!keyInput.trim()} onclick={() => keyTarget && saveKey(keyTarget.id)}>{t('settings.catalog.addProvider')}</Button>
 									</div>
 								</div>
-							{:else if editing === '__new__'}
+							{:else if editing === '__new__' || editing === '__edit__'}
 								<CustomProviderForm
+									bind:this={providerForm}
 									bind:form
-									bind:mName
-									bind:mCtx
 									formats={FORMATS}
-									{fmt}
-									title={selectedCatalog ? t('settings.catalog.connect', { provider: selectedCatalog.name }) : undefined}
-									submitLabel={selectedCatalog ? t('settings.catalog.addProvider') : undefined}
-									createDisabled={!!selectedCatalog && !form.key.trim()}
-									onAddModel={addFormModel}
-									onCreate={createProvider}
-									onCancel={() => (editing = '__catalog__')}
+									mode={editing === '__edit__' ? 'edit' : 'create'}
+									taken={allProviders.map((p) => p.id)}
+									keyRequired={editing === '__new__' && !!selectedCatalog}
+									keyed={!!editTarget && keyed.includes(editTarget.id)}
+									onSubmit={saveProvider}
 								/>
 							{/if}
 						</Modal>
@@ -1187,16 +1239,17 @@
 				{:else if current === 'models'}
 					<SettingsSection title={t('settings.page.defaults')}>
 						<SettingsRow id="default-model" title={t('settings.behavior.defaultModel')} description={allModelOpts.length ? undefined : t('settings.behavior.noModels')}>
-							<div class="w-lg">
-								<Select bind:value={modelKey} onChange={applyModel} options={allModelOpts} placeholder={t('settings.behavior.selectModel')}>
-									{#snippet item(o)}
-										<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>
-										<span class="mono ell">{o.label}</span>
-										<span class="optprov">{o.provider as string}</span>
-										{#if o.context_window}<span class="pill">{fmt(o.context_window as number)}</span>{/if}
-										{#if !o.authed}<span class="optlock">{t('settings.behavior.notConfigured')}</span>{/if}
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={defaultItems}
+									value={modelKey}
+									label={t('settings.behavior.defaultModel')}
+									placeholder={t('settings.behavior.selectModel')}
+									onChange={(key) => {
+										modelKey = key;
+										applyModel(key);
+									}}
+								/>
 							</div>
 						</SettingsRow>
 						{#if effortOpts.length}
@@ -1210,13 +1263,15 @@
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.compaction')}>
 						<SettingsRow id="compact-model" title={t('settings.behavior.compactModel')}>
-							<div class="w-lg">
-								<Select bind:value={cfg.compact_model} options={modelOpts} placeholder={t('settings.behavior.selectModel')}>
-									{#snippet item(o)}
-										<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>
-										<span class="mono ell">{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={chatItems(cfg.compact_model ?? '')}
+									value={cfg.compact_model ?? ''}
+									label={t('settings.behavior.compactModel')}
+									remember={false}
+									placeholder={t('settings.behavior.selectModel')}
+									onChange={(v) => (cfg.compact_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 						<SettingsRow id="compaction-threshold" title={t('settings.behavior.compactionThreshold')} description={t('settings.behavior.compactionThresholdSub')}>
@@ -1226,25 +1281,29 @@
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.titles')}>
 						<SettingsRow id="title-model" title={t('settings.behavior.titleModel')} description={t('settings.behavior.titleModelHint')}>
-							<div class="w-lg">
-								<Select value={cfg.title_model ?? ''} options={titleModelOpts} onChange={(v) => (cfg.title_model = v)}>
-									{#snippet item(o)}
-										{#if o.value}<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>{/if}
-										<span class="ell" class:mono={!!o.value}>{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={chatItems(cfg.title_model ?? '')}
+									value={cfg.title_model ?? ''}
+									extras={[{ value: '', label: t('settings.behavior.followMainModel'), active: false }]}
+									label={t('settings.behavior.titleModel')}
+									remember={false}
+									onChange={(v) => (cfg.title_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.images')}>
 						<SettingsRow id="image-model" title={t('settings.behavior.imageModel')} description={t('settings.behavior.imageModelHint')}>
-							<div class="w-lg">
-								<Select value={cfg.image_model ?? ''} options={imageModelOpts} onChange={(v) => (cfg.image_model = v)}>
-									{#snippet item(o)}
-										{#if o.value}<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>{/if}
-										<span class="ell" class:mono={!!o.value}>{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={imageItems}
+									value={cfg.image_model ?? ''}
+									extras={[{ value: '', label: t('settings.behavior.imageModelAuto'), active: false }]}
+									label={t('settings.behavior.imageModel')}
+									remember={false}
+									onChange={(v) => (cfg.image_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 					</SettingsSection>
@@ -1421,11 +1480,14 @@
 	}
 
 	/* ---------- nav column (the session list's place and fill) ---------- */
+	/* The full-panel page's navigation (design.md, "Full-panel page"): the
+	   frame tone at the navigator's width, a --divider at its edge. */
 	.nav {
 		flex-shrink: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+		border-right: 1px solid var(--divider);
 		background: var(--sidebar);
 	}
 	:global(:root[data-vibrancy='on']) .nav {
@@ -1444,23 +1506,25 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		height: 40px;
-		margin: 14px 12px 8px;
+		height: 48px;
+		margin: 0 8px;
 	}
 	.nav-head h2 {
 		margin: 0;
 		font-size: var(--fs-lg);
 		font-weight: 600;
+		line-height: 24px;
 		color: var(--text);
 	}
 	.back {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		cursor: pointer;
@@ -1475,14 +1539,18 @@
 	.search {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		height: 36px;
-		margin: 0 12px 10px;
-		padding: 0 12px;
-		border-radius: var(--r-md);
-		background: var(--surface2);
+		gap: 6px;
+		height: 28px;
+		margin: 0 8px 8px;
+		padding: 0 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
+		background: var(--bg);
 		color: var(--dim2);
 		cursor: text;
+	}
+	.search:focus-within {
+		border-color: var(--border-strong);
 	}
 	.search input {
 		flex: 1;
@@ -1506,30 +1574,34 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-		padding: 0 12px 16px;
+		padding: 0 8px 16px;
 	}
 	/* Between groups of sections: space and a faint rule, no heading. */
 	.sep {
 		height: 1px;
-		margin: 8px 12px;
+		margin: 6px 8px;
 		background: var(--hairline);
 	}
 	.item {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		width: 100%;
-		min-height: 34px;
-		padding: 0 12px;
+		min-height: 28px;
+		padding: 0 8px;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		font: inherit;
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		text-align: left;
 		cursor: pointer;
-		transition: background var(--t-fast) var(--ease-out);
+		transition: background var(--t-fast) var(--ease-base);
+	}
+	.item:focus-visible {
+		outline-offset: -2px;
 	}
 	.item > :global(svg) {
 		flex-shrink: 0;
@@ -1550,8 +1622,8 @@
 		text-overflow: ellipsis;
 	}
 	.item.hit {
-		padding-top: 7px;
-		padding-bottom: 7px;
+		padding-top: 5px;
+		padding-bottom: 5px;
 	}
 	.hit-txt {
 		display: flex;
@@ -1627,7 +1699,7 @@
 	/* Left-aligned next to the nav, like the Claude and ChatGPT settings. */
 	.col {
 		max-width: calc(680px + 2 * 48px);
-		padding: 30px 48px 80px;
+		padding: 28px 48px 80px;
 		animation: rise var(--t-med) var(--ease-out);
 	}
 	h1 {
@@ -1681,6 +1753,11 @@
 	}
 	.w-lg {
 		width: 300px;
+	}
+	/* Model pickers: room for a full model name (a longer one wraps). */
+	.w-model {
+		width: 340px;
+		max-width: 100%;
 	}
 	.w-num {
 		width: 96px;
@@ -1817,29 +1894,10 @@
 		height: 22px;
 		border-radius: var(--r-sm);
 	}
-	.mono {
-		font-family: var(--font-mono);
-		font-size: var(--fs-sm);
-	}
 	.ell {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.pill {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--accent-bright);
-		background: var(--accent-soft);
-		border-radius: var(--r-full);
-		padding: 2px 8px;
-		flex-shrink: 0;
-		margin-left: auto;
-	}
-	.optprov {
-		font-size: var(--fs-2xs);
-		color: var(--dim2);
-		flex-shrink: 0;
 	}
 	/* Settings → 账户 while the account is read: the page's first line, quiet. */
 	.acct-wait {
@@ -1852,13 +1910,5 @@
 		background: var(--panel);
 		color: var(--dim);
 		font-size: var(--fs-sm);
-	}
-	.optlock {
-		font-size: var(--fs-2xs);
-		color: var(--dim);
-		border: 1px solid var(--border);
-		border-radius: var(--r-xs);
-		padding: 0 5px;
-		flex-shrink: 0;
 	}
 </style>

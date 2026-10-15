@@ -475,28 +475,29 @@
 		min-width: 0;
 		min-height: 0;
 	}
-	/* Splitter: a 2px visible line, but the ::before pseudo-element widens the
-	   pointer target to ~10px on the drag axis without shifting layout. */
+	/* Splitter: the 1px --divider between two leaves (design.md, "Window
+	   frame"); the ::before pseudo-element widens the pointer target to ~9px
+	   on the drag axis without shifting layout. */
 	.gutter {
 		position: relative;
 		z-index: 3;
 		flex-shrink: 0;
-		background: var(--hairline);
-		transition: background var(--t-fast) var(--ease-out);
+		background: var(--divider);
+		transition: background var(--t-fast) var(--ease-base);
 	}
 	.gutter::before {
 		content: '';
 		position: absolute;
 	}
 	.gutter.row {
-		width: 2px;
+		width: 1px;
 		cursor: col-resize;
 	}
 	.gutter.row::before {
 		inset: 0 -4px;
 	}
 	.gutter.col {
-		height: 2px;
+		height: 1px;
 		cursor: row-resize;
 	}
 	.gutter.col::before {
@@ -504,7 +505,7 @@
 	}
 	.gutter:hover,
 	.gutter:active {
-		background: color-mix(in oklab, var(--accent) 55%, var(--hairline));
+		background: color-mix(in oklab, var(--accent) 55%, var(--divider));
 	}
 	.leaf {
 		position: relative;
@@ -528,23 +529,27 @@
 	.leaf.droptarget {
 		box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 65%, transparent);
 	}
-	/* Focused leaf: the tab bar's hairline warms up — engine actions (model,
-	   approvals, palette commands) target this pane's chat session. */
+	/* The tab bar (design.md, "Window frame"): 32px of the frame tone with
+	   the --divider under it. Tabs are square, divided by 1px lines; the open
+	   one takes the canvas fill and covers the line, so it joins its content. */
 	.lbar {
 		position: relative;
 		display: flex;
-		align-items: center;
+		align-items: stretch;
 		gap: 4px;
-		padding: 6px 8px;
-		border-bottom: 1px solid var(--hairline);
+		height: 32px;
+		padding: 0 4px 0 0;
+		/* The line under the bar, painted below the tabs: the open tab's fill
+		   hides it. */
+		box-shadow: inset 0 -1px 0 var(--divider);
+		background: var(--sidebar);
 		flex-shrink: 0;
 		/* dblclick maximizes — don't let it select panel text instead */
 		user-select: none;
 	}
 	.ltabs {
 		display: flex;
-		align-items: center;
-		gap: 2px;
+		align-items: stretch;
 		flex: 1;
 		min-width: 0;
 		overflow-x: auto;
@@ -552,17 +557,16 @@
 	.ltabs::-webkit-scrollbar {
 		height: 0;
 	}
-	/* Tabs read like the sidebar's rows: no outline, a soft fill marks the
-	   open one, the rest are dim text until hovered. */
 	.ltab {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		min-height: 30px;
+		height: 32px;
 		max-width: 240px;
 		padding: 0 6px 0 12px;
-		border-radius: var(--r-md);
+		border-right: 1px solid var(--divider);
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		color: var(--dim);
 		cursor: pointer;
 		user-select: none;
@@ -573,12 +577,19 @@
 			color var(--t-fast) var(--ease-out);
 	}
 	.ltab:hover {
-		background: var(--surface);
 		color: var(--text);
 	}
 	.ltab.on {
-		background: var(--surface2);
+		background: var(--bg);
 		color: var(--text);
+	}
+	/* Keyboard focus is drawn inside the tab, not over its neighbours. */
+	.ltab:focus-visible {
+		outline-offset: -2px;
+		border-radius: 0;
+	}
+	.lactions {
+		align-self: center;
 	}
 	.ltab.lifted {
 		opacity: 0.45;
@@ -586,8 +597,8 @@
 	/* Where a tab dragged along a bar would go. */
 	.insert {
 		position: absolute;
-		top: 8px;
-		bottom: 8px;
+		top: 6px;
+		bottom: 6px;
 		z-index: 2;
 		width: 2px;
 		margin-left: -1px;
@@ -617,8 +628,7 @@
 	}
 	.lclose:hover {
 		color: var(--text);
-		/* the open tab is already --surface2 */
-		background: color-mix(in oklab, var(--text) 10%, transparent);
+		background: var(--surface2);
 	}
 	.lactions {
 		display: flex;
