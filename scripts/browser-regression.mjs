@@ -712,14 +712,17 @@ try {
     assert.equal(l.decor, 0, 'the cards draw a ring, a bar or beads');
     assert.ok(l.h1 <= 1, 'more than one h1');
   }
-  // The checklist: done steps checked, the current one bold; each subagent
+  // The checklist: done steps checked, the current one at 500 (the others
+  // 400; 600 is for titles, design.md "Type"); each subagent
   // a 6px dot, its role, attempt, action and time; the team's tokens and board.
   const steps = cards.locator('.card.plan .step');
   await expect(steps).toHaveCount(7);
   await expect(cards.locator('.card.plan .step.done svg')).toHaveCount(3);
   const current = cards.locator('.card.plan .step.current');
   await expect(current).toHaveText(/跑单元测试/);
-  assert.ok(Number(await current.locator('.text').evaluate((el) => getComputedStyle(el).fontWeight)) >= 600, 'the current step is not bold');
+  const weightOf = (step) => step.locator('.text').evaluate((el) => Number(getComputedStyle(el).fontWeight));
+  assert.equal(await weightOf(current), 500, 'the current step does not stand out at 500');
+  assert.equal(await weightOf(steps.nth(4)), 400, 'a pending step is not at 400');
   await expect(current.locator('.owner')).toHaveText('worker-2');
   const worker = cards.locator('.agent', {has: cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'})});
   await expect(worker).toContainText('编写 · #2');
