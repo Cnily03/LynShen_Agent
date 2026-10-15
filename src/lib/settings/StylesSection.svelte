@@ -82,8 +82,9 @@
 	}
 
 	const reveal = (path: string) => revealItemInDir(path).catch((e) => toast.error(String(e)));
-	const sourceText = (s: ReplyStyle) =>
-		[t(`settings.styles.source.${s.source}`), s.truncated ? t('settings.styles.truncated') : ''].filter(Boolean).join(' · ');
+	// Description, where it comes from, and whether it was cut: one line.
+	const rowMeta = (s: ReplyStyle) =>
+		[styleDescription(s, t), t(`settings.styles.source.${s.source}`), s.truncated ? t('settings.styles.truncated') : ''].filter(Boolean).join(' · ');
 </script>
 
 {#if replyStyles.unsupported}
@@ -122,9 +123,7 @@
 				<div class="srow">
 					<div class="stext">
 						<div class="sname">{styleName(s, t)}</div>
-						<div class="sdesc" title={styleDescription(s, t)}>
-							{#if styleDescription(s, t)}{styleDescription(s, t)} · {/if}<span class="src">{sourceText(s)}</span>
-						</div>
+						<div class="sdesc" title={styleDescription(s, t)}>{rowMeta(s)}</div>
 					</div>
 					<div class="sacts">
 						{#if editable(s)}
@@ -160,16 +159,19 @@
 	</SettingsSection>
 {/if}
 
-{#if dialog}
-	{@const shown = dialog}
-	<StyleDialog
-		style={shown.style}
-		draft={shown.draft}
-		onSave={(draft) => save(draft, shown.style)}
-		onCopy={(s) => (dialog = { draft: copyDraft(s, t) })}
-		onClose={() => (dialog = null)}
-	/>
-{/if}
+<!-- Keyed: 复制为自定义 in a read-only dialog opens a new one on the copy. -->
+{#key dialog}
+	{#if dialog}
+		{@const shown = dialog}
+		<StyleDialog
+			style={shown.style}
+			draft={shown.draft}
+			onSave={(draft) => save(draft, shown.style)}
+			onCopy={(s) => (dialog = { draft: copyDraft(s, t) })}
+			onClose={() => (dialog = null)}
+		/>
+	{/if}
+{/key}
 
 <style>
 	.selw {
@@ -214,9 +216,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.src {
-		color: var(--dim);
 	}
 	/* Row actions on hover or keyboard focus (design.md). */
 	.sacts {
