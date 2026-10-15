@@ -12,7 +12,7 @@
 	import { comboLabel } from '$lib/shortcuts';
 	import { PIN_COMBO } from './keys';
 	import type { PickItem } from './catalog';
-	import { factsOf, tipOf, type FactsOptions } from './facts';
+	import { factsOf, shortFactsOf, tipOf, type FactsOptions } from './facts';
 
 	let {
 		item,
@@ -20,6 +20,7 @@
 		selected = false,
 		pinned = false,
 		folded = false,
+		compact = false,
 		wrapFacts = false,
 		facts,
 		onPick,
@@ -35,6 +36,8 @@
 		pinned?: boolean;
 		/** An older version shown under its family. */
 		folded?: boolean;
+		/** One line: the name and a short fact at the right (the quick switcher). */
+		compact?: boolean;
 		/** The browser has room: the facts wrap instead of being cut. */
 		wrapFacts?: boolean;
 		facts: FactsOptions;
@@ -45,13 +48,15 @@
 		onHover?: () => void;
 	} = $props();
 
-	const parts = $derived(factsOf(item, facts));
+	const parts = $derived(compact ? shortFactsOf(item, facts) : factsOf(item, facts));
 	const pinKey = comboLabel(PIN_COMBO);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events (the search field drives the keys) -->
 <div
-	class="pop-row two mline"
+	class="pop-row mline"
+	class:two={!compact}
+	class:compact
 	class:sel={selected}
 	class:folded
 	class:down={item.health === 'down'}
@@ -61,15 +66,16 @@
 	aria-selected={item.active}
 	title={tipOf(item)}
 	onclick={() => onPick(item)}
-	onmouseenter={onHover}
+	onmousemove={onHover}
 >
 	<span class="pop-ico"><Vendor model={item.id} size={16} /></span>
 	<span class="pop-txt">
 		<span class="pop-label name"
 			>{#if item.health === 'down' || item.health === 'degraded'}<span class="dot" class:err={item.health === 'down'} aria-hidden="true"></span>{/if}{item.name}</span
 		>
-		{#if parts.length}<span class="pop-desc facts" class:wrap={wrapFacts}>{parts.join(' · ')}</span>{/if}
+		{#if parts.length && !compact}<span class="pop-desc facts" class:wrap={wrapFacts}>{parts.join(' · ')}</span>{/if}
 	</span>
+	{#if parts.length && compact}<span class="aside">{parts.join(' · ')}</span>{/if}
 	{#if onRoutes && item.routes !== undefined}
 		<button
 			class="act routes"
@@ -110,6 +116,25 @@
 	}
 	.mline .pop-ico {
 		margin-top: 1px;
+	}
+	.mline.compact {
+		align-items: center;
+		min-height: 32px;
+		padding-top: 5px;
+		padding-bottom: 5px;
+	}
+	.mline.compact .pop-ico,
+	.mline.compact .pop-check {
+		margin-top: 0;
+	}
+	.aside {
+		flex-shrink: 0;
+		max-width: 40%;
+		overflow: hidden;
+		color: var(--dim2);
+		font-size: var(--fs-xs);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.mline.folded {
 		padding-left: 42px;

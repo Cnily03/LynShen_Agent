@@ -18,7 +18,7 @@
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import SquaresFourIcon from 'phosphor-svelte/lib/SquaresFourIcon';
 	import { t } from '$lib/i18n';
-	import { nextRow } from '$lib/ui/menuFit';
+	import { nextRow, scrollToShow } from '$lib/ui/menuFit';
 	import type { PickItem } from './catalog';
 	import type { FactsOptions } from './facts';
 	import ModelLine from './ModelLine.svelte';
@@ -82,6 +82,14 @@
 		});
 	}
 	const idOf = (i: number) => `${uid}-${i}`;
+	// Keep the keyboard's row in view where the list scrolls (a short window).
+	let listEl = $state<HTMLDivElement>();
+	$effect(() => {
+		const el = document.getElementById(idOf(sel));
+		if (!el || !listEl) return;
+		const top = el.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
+		listEl.scrollTop = scrollToShow(listEl.scrollTop, listEl.clientHeight, top, el.offsetHeight, 4);
+	});
 
 	let input = $state<HTMLInputElement>();
 	let typed = $state('');
@@ -167,11 +175,11 @@
 			onkeydown={onKey}
 		/>
 	</label>
-	<div class="list" role="listbox" id={`${uid}-list`} aria-label={t('models.choose')}>
+	<div class="list" role="listbox" id={`${uid}-list`} aria-label={t('models.choose')} bind:this={listEl}>
 		{#each stops as stop, i (stop.kind === 'model' ? stop.item.key : stop.kind === 'extra' ? `x:${stop.extra.value}` : 'all')}
 			{#if stop.kind === 'extra'}
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected={stop.extra.active} onclick={() => act(stop)} onmouseenter={() => select(i)}>
+				<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected={stop.extra.active} onclick={() => act(stop)} onmousemove={() => i !== sel && select(i)}>
 					<span class="pop-txt"><span class="pop-label">{stop.extra.label}</span></span>
 					<span class="pop-check" class:off={!stop.extra.active}><CheckIcon size={16} /></span>
 				</div>
@@ -183,16 +191,17 @@
 					id={idOf(i)}
 					selected={i === sel}
 					pinned={modelPicks.isFavorite(stop.item.key)}
+					compact
 					{facts}
 					onPick={() => act(stop)}
 					onPin={(item) => pin(item.key)}
 					{onRoutes}
-					onHover={() => select(i)}
+					onHover={() => i !== sel && select(i)}
 				/>
 			{:else}
 				<div class="sep" role="presentation"></div>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<div class="pop-row all" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected="false" onclick={() => browse()} onmouseenter={() => select(i)}>
+				<div class="pop-row all" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected="false" onclick={() => browse()} onmousemove={() => i !== sel && select(i)}>
 					<span class="pop-ico"><SquaresFourIcon size={16} /></span>
 					<span class="pop-txt"><span class="pop-label">{t('models.all')}</span></span>
 					<span class="pop-hint">{t('models.allCount', { n: count })}</span>

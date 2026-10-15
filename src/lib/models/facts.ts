@@ -34,6 +34,17 @@ export function factsOf(item: PickItem, o: FactsOptions): string[] {
 	return parts;
 }
 
+/** The quick switcher's one fact at the right of the name: the state when it
+ *  is not good, else 套餐内, else the price, else the window. */
+export function shortFactsOf(item: PickItem, o: FactsOptions): string[] {
+	if (item.health === 'down') return [t('models.health.down')];
+	if (item.health === 'degraded') return [t('models.health.degraded')];
+	if (item.inPlan) return [t('models.inPlan')];
+	const price = priceText(item.price, o.currency, o.cnyPerUsd);
+	if (price) return [price];
+	return item.context ? [fmtContext(item.context)] : [];
+}
+
 /** The row's tooltip: the id sent, and what the price means. */
 export function tipOf(item: PickItem): string {
 	const lines = [item.id];

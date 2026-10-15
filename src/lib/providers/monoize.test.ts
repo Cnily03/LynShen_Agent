@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { monoizeEntries, pickedMonoizeModels } from './monoize';
+import { catalogIndex, parseCatalog } from '$lib/models/gatewayCatalog';
+import { SAMPLE_CATALOG, SAMPLE_PLAIN_IDS } from '$lib/models/catalogSample';
 
 describe('monoizeEntries', () => {
 	it('keeps every model its reasoning efforts, matching the catalog regardless of case', () => {
@@ -131,5 +133,34 @@ describe('saved gateway picks', () => {
 		]);
 		// Nothing changed since: nothing to write.
 		expect(pickedMonoizeModels(models, { ...cfg, lynshen_models: patch.lynshen_models }).lynshen_models).toBeUndefined();
+	});
+});
+
+describe('with the gateway catalog', () => {
+	const described = parseCatalog(SAMPLE_CATALOG)!;
+	const index = catalogIndex(described);
+	const lookup = (id: string) => index.get(id.toLowerCase());
+	const live = monoizeEntries(
+		SAMPLE_PLAIN_IDS.map((id) => ({ id, groups: ['默认'] })),
+		[],
+		lookup
+	);
+
+	it('names the models and takes their efforts and windows', () => {
+		expect(live.find((m) => m.name === 'claude-opus-4-8')).toMatchObject({ display_name: 'Claude Opus 4.8', context_window: 200000 });
+		expect(live.find((m) => m.name === 'kimi-k3')).toMatchObject({ display_name: 'Kimi K3', reasoning_efforts: ['low', 'medium', 'high'] });
+		// The admin has not described it: its id stays its name.
+		expect(live.find((m) => m.name === 'mystery-x-2')?.display_name).toBe('mystery-x-2');
+	});
+
+	it('starts a new user on the plan’s recommendation, not the first model', () => {
+		const patch = pickedMonoizeModels(live, { provider: 'monoize' }, described);
+		expect(patch.model).toBe('deepseek-v4.1-flash');
+		// Without the catalog (an older gateway): the curated menu's first, not the list's.
+		expect(pickedMonoizeModels(live, { provider: 'monoize' }).model).toBe('auto');
+		const domestic = monoizeEntries(['mystery-x-2', 'glm-5.3', 'kimi-k3', 'deepseek-v4.1-flash'].map((id) => ({ id })));
+		expect(pickedMonoizeModels(domestic, { provider: 'monoize' }).model).toBe('deepseek-v4.1-flash');
+		// A model in use stays.
+		expect(pickedMonoizeModels(live, { provider: 'monoize', model: 'gpt-6-sol' }, described).model).toBeUndefined();
 	});
 });

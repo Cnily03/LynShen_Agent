@@ -1,5 +1,8 @@
 import { fetchMonoizeModels, readConfig, writeConfig, type MonoizeModel, type MonoizeRoute } from '$lib/protocol';
 import { newlyOffered } from '$lib/lynshenModels';
+import { DEFAULT_MODELS } from '$lib/defaultModels';
+import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
+import { catalogIndex, defaultModel, type CatalogModel as GatewayModel, type GatewayCatalog } from '$lib/models/gatewayCatalog';
 import { PROVIDER_CATALOG, gatewayCatalogModel } from './catalog';
 
 /** A gateway model as the picker and config.json hold it. */
@@ -40,23 +43,34 @@ const OLD_GUESS = 128_000;
  * guess older versions wrote for every unknown model, which capped 1M models
  * at 128K: it counts as unknown.
  */
-export function monoizeEntries(list: MonoizeModel[], known: { name: string }[] = []): MonoizeModelEntry[] {
+export function monoizeEntries(
+	list: MonoizeModel[],
+	known: { name: string }[] = [],
+	/** The gateway's model catalog, where it has one: names, efforts, windows. */
+	described: (id: string) => GatewayModel | undefined = () => undefined
+): MonoizeModelEntry[] {
 	const stored = new Map(known.map((m) => [m.name, m]));
 	return list
 		.filter((m) => !m.routing_status || m.routing_status === 'ready')
 		.map((m) => {
 			const previous = stored.get(m.id) as Partial<MonoizeModelEntry> | undefined;
 			const catalog = catalogModel(m.id);
-			const efforts = previous?.reasoning_efforts?.length ? previous.reasoning_efforts : catalog?.reasoning_efforts;
+			const live = described(m.id);
+			const efforts = previous?.reasoning_efforts?.length
+				? previous.reasoning_efforts
+				: live?.efforts.length
+					? live.efforts
+					: catalog?.reasoning_efforts;
 			const kept = previous?.context_window === OLD_GUESS ? 0 : previous?.context_window;
-			const window = m.context_window || kept || catalog?.context_window || 0;
-			const output = m.max_output_tokens || previous?.max_output_tokens || catalog?.max_output_tokens;
-			const total = m.context_total || previous?.context_total || 0;
+			const window = m.context_window || kept || live?.context || catalog?.context_window || 0;
+			const output = m.max_output_tokens || previous?.max_output_tokens || live?.maxOutput || catalog?.max_output_tokens;
+			const total = m.context_total || previous?.context_total || live?.contextTotal || 0;
 			return {
 				...catalog,
 				...previous,
 				name: m.id,
-				display_name: m.id === 'auto' ? 'Auto' : m.id,
+				// The catalog's name for people; the id when the admin has not described it.
+				display_name: live?.cataloged ? live.name : m.id === 'auto' ? 'Auto' : m.id,
 				groups: m.groups ?? [],
 				routes: m.providers ?? [],
 				context_window: window,
@@ -71,10 +85,13 @@ export function monoizeEntries(list: MonoizeModel[], known: { name: string }[] =
 export async function refreshMonoizeCatalog() {
 	const template = PROVIDER_CATALOG.providers.find((p) => p.id === 'monoize');
 	if (!template) return;
-	const list = await fetchMonoizeModels();
+	// The plain list routes; the catalog (a newer gateway) names the models
+	// and recommends the plan's default.
+	const [list, described] = await Promise.all([fetchMonoizeModels(), gatewayCatalog.refresh().catch(() => null)]);
+	const index = catalogIndex(described);
 	const custom = JSON.parse(localStorage.getItem('lynshen-custom-providers') || '[]');
 	const existing = custom.find((p: { id: string }) => p.id === 'monoize');
-	const models = monoizeEntries(list, existing?.models ?? []);
+	const models = monoizeEntries(list, existing?.models ?? [], (id) => index.get(id.toLowerCase()));
 	const entry = { ...existing, id: 'monoize', name: template.name, base_url: template.base_url,
 		format: template.protocol, builtin: false, source: 'catalog', models };
 	localStorage.setItem('lynshen-custom-providers', JSON.stringify([...custom.filter((p: { id: string }) => p.id !== 'monoize'), entry]));
@@ -82,7 +99,7 @@ export async function refreshMonoizeCatalog() {
 	// config.json: keep them current there too, not only when Settings is open.
 	const cfg = await readConfig().catch(() => null);
 	if (cfg) {
-		const patch = pickedMonoizeModels(models, cfg);
+		const patch = pickedMonoizeModels(models, cfg, described);
 		if (Object.keys(patch).length) await writeConfig(patch);
 	}
 }
@@ -111,7 +128,9 @@ function monoizeSaved(m: MonoizeModelEntry): Record<string, unknown> {
  *  those picks in their order, or every model when nothing was picked. */
 export function pickedMonoizeModels(
 	models: MonoizeModelEntry[],
-	cfg: Record<string, unknown>
+	cfg: Record<string, unknown>,
+	/** The gateway's catalog: a new user starts on the plan's recommendation. */
+	described: GatewayCatalog | null = null
 ): Record<string, unknown> {
 	const live = new Map(models.map((m) => [m.name, m]));
 	const saved = Array.isArray(cfg.lynshen_models) ? (cfg.lynshen_models as { name?: unknown }[]) : [];
@@ -140,11 +159,18 @@ export function pickedMonoizeModels(
 		const shown = picked.length ? picked.map((m) => live.get(String(m.name))!) : models;
 		patch.models = shown;
 		// An image model cannot chat: one left as the chat model draws images
-		// instead, and the chat takes the first model that can.
+		// instead, and the chat takes a model that can: the plan's
+		// recommendation (the catalog's), else the first one.
 		const chats = shown.filter((m) => !isImageModel(m.name));
 		const current = String(cfg.model ?? '');
 		if (isImageModel(current) && !cfg.image_model) patch.image_model = current;
-		if (chats.length && (isImageModel(current) || !shown.some((m) => m.name === current))) patch.model = chats[0].name;
+		if (chats.length && (isImageModel(current) || !shown.some((m) => m.name === current))) {
+			const pick = defaultModel(described, chats.map((m) => m.name));
+			const names = pick ? [pick.id, pick.requestModel, ...pick.aliases].map((n) => n.toLowerCase()) : [];
+			// An older gateway recommends nothing: the curated menu's order stands in.
+			const curated = DEFAULT_MODELS.map((id) => chats.find((m) => m.name.toLowerCase() === id)).find(Boolean);
+			patch.model = (chats.find((m) => names.includes(m.name.toLowerCase())) ?? curated ?? chats[0]).name;
+		}
 	}
 	return patch;
 }

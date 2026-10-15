@@ -156,6 +156,7 @@ export function searchModels(items: PickItem[], query: string): SearchHit[] {
 		(a, b) =>
 			b.score - a.score ||
 			Number(a.item.health === 'down') - Number(b.item.health === 'down') ||
+			Number(!a.item.inPlan) - Number(!b.item.inPlan) ||
 			(a.item.recommended ?? 1e9) - (b.item.recommended ?? 1e9) ||
 			b.item.version.join('.').localeCompare(a.item.version.join('.'), undefined, { numeric: true }) ||
 			a.item.name.localeCompare(b.item.name)

@@ -11,7 +11,7 @@
 	import Modal from '$lib/ui/Modal.svelte';
 	import Vendor from '$lib/Vendor.svelte';
 	import { getLocale, t } from '$lib/i18n';
-	import { nextRow } from '$lib/ui/menuFit';
+	import { nextRow, scrollToShow } from '$lib/ui/menuFit';
 	import { vendorLabel, type PickItem } from './catalog';
 	import type { FactsOptions } from './facts';
 	import ModelLine from './ModelLine.svelte';
@@ -85,10 +85,19 @@
 		sel = i;
 	}
 	const idOf = (key: string) => `${uid}-${key.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-	// Keep the keyboard's row in view.
+	// Keep the keyboard's row in view (the model in use starts in the middle).
+	// The list scrolls itself: scrollIntoView would move the page behind too.
+	let listEl = $state<HTMLDivElement>();
+	let scrolled = false;
 	$effect(() => {
 		const stop = stops[sel];
-		if (stop) document.getElementById(idOf(stop.key))?.scrollIntoView({ block: 'nearest' });
+		const el = stop ? document.getElementById(idOf(stop.key)) : null;
+		if (!el || !listEl) return;
+		const top = el.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
+		listEl.scrollTop = scrolled
+			? scrollToShow(listEl.scrollTop, listEl.clientHeight, top, el.offsetHeight, 6)
+			: Math.max(0, top - (listEl.clientHeight - el.offsetHeight) / 2);
+		scrolled = true;
 	});
 
 	let input = $state<HTMLInputElement>();
@@ -195,11 +204,11 @@
 			/>
 			{#if !typed}<span class="hint">{t('models.searchHint')}</span>{/if}
 		</label>
-		<div class="list" role="listbox" id={`${uid}-list`} aria-label={title ?? t('models.browserTitle')}>
+		<div class="list" role="listbox" id={`${uid}-list`} aria-label={title ?? t('models.browserTitle')} bind:this={listEl}>
 			{#each shownExtras as extra (extra.value)}
 				{@const i = stopAt.get(`x:${extra.value}`) ?? -1}
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(`x:${extra.value}`)} aria-selected={extra.active} onclick={() => onExtra?.(extra.value)} onmouseenter={() => select(i)}>
+				<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(`x:${extra.value}`)} aria-selected={extra.active} onclick={() => onExtra?.(extra.value)} onmousemove={() => i !== sel && select(i)}>
 					<span class="pop-txt"><span class="pop-label">{extra.label}</span></span>
 					<span class="pop-check" class:off={!extra.active}><CheckIcon size={16} /></span>
 				</div>
@@ -223,12 +232,12 @@
 						{onPick}
 						onPin={(item) => pin(item.key)}
 						{onRoutes}
-						onHover={() => select(i)}
+						onHover={() => i !== sel && select(i)}
 					/>
 				{:else}
 					{@const i = stopAt.get(line.key) ?? -1}
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<div class="pop-row more" class:sel={i === sel} role="option" tabindex="-1" id={idOf(line.key)} aria-selected="false" onclick={() => toggle(line.family.key)} onmouseenter={() => select(i)}>
+					<div class="pop-row more" class:sel={i === sel} role="option" tabindex="-1" id={idOf(line.key)} aria-selected="false" onclick={() => toggle(line.family.key)} onmousemove={() => i !== sel && select(i)}>
 						<span class="pop-txt"><span class="pop-label">{line.open ? t('models.less') : t('models.more', { n: line.family.more.length })}</span></span>
 						<span class="pop-ico caret" class:up={line.open}><CaretDownIcon size={14} /></span>
 					</div>

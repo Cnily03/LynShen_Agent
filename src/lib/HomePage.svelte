@@ -17,12 +17,16 @@
 	import SessionMark from '$lib/SessionMark.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
-	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import Vendor from '$lib/Vendor.svelte';
 	import { readConfig } from '$lib/protocol';
 	import { configModelList } from '$lib/configModels';
 	import { isImageModel } from '$lib/providers/monoize';
-	import { fmtContext } from '$lib/composer/modelRows';
+	import QuickSwitcher from '$lib/models/QuickSwitcher.svelte';
+	import ModelBrowser from '$lib/models/ModelBrowser.svelte';
+	import { itemsFromOptions } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
+	import { factsOptions, onTrial } from '$lib/models/pickerState.svelte';
+	import { pick as pickModel } from '$lib/models/pick';
 
 	let {
 		projects,
@@ -53,8 +57,9 @@
 
 	// The engine's models as config.json lists them (what its model menu
 	// shows), the current one first chosen. Reread each time the page shows.
-	type HomeModel = { name: string; label: string; window: number };
+	type HomeModel = { name: string; label: string; window: number; efforts?: string[] };
 	let models = $state<HomeModel[]>([]);
+	let provider = $state('');
 	let model = $state('');
 	let picked = $state(false);
 	let menuOpen = $state(false);
@@ -67,8 +72,10 @@
 					.map((m) => ({
 						name: String(m.name),
 						label: typeof m.display_name === 'string' && m.display_name ? m.display_name : String(m.name),
-						window: typeof m.context_window === 'number' ? m.context_window : 0
+						window: typeof m.context_window === 'number' ? m.context_window : 0,
+						efforts: Array.isArray(m.reasoning_efforts) ? (m.reasoning_efforts as string[]) : undefined
 					}));
+				provider = typeof cfg.provider === 'string' ? cfg.provider : '';
 				const current = typeof cfg.model === 'string' ? cfg.model : '';
 				if (!picked || !models.some((m) => m.name === model))
 					model = models.some((m) => m.name === current) ? current : (models[0]?.name ?? '');
@@ -76,6 +83,33 @@
 			.catch(() => {});
 	});
 	const shownModel = $derived(models.find((m) => m.name === model));
+	// The same pickers as the composer's (src/lib/models): the quick
+	// switcher, and the full browser from it.
+	const items = $derived(
+		itemsFromOptions(
+			models.map((m) => ({ provider, name: m.name, display_name: m.label, context_window: m.window, reasoning_efforts: m.efforts })),
+			model,
+			gatewayCatalog.lookup
+		)
+	);
+	const shownItem = $derived(items.find((i) => i.value === model));
+	let browsing = $state<string | null>(null);
+	// Escape closes the model list (the browser dialog closes itself).
+	function onWindowKey(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || !menuOpen || browsing !== null) return;
+		e.preventDefault();
+		menuOpen = false;
+		box?.focus();
+	}
+	function chooseModel(item: (typeof items)[number]) {
+		void pickModel(item, (chosen) => {
+			model = chosen.value;
+			picked = true;
+			menuOpen = false;
+			browsing = null;
+			box?.focus();
+		});
+	}
 
 	let text = $state('');
 	let box = $state<HTMLTextAreaElement | null>(null);
@@ -120,6 +154,7 @@
 	const count = (p: Project) => p.sessions.filter((s: Session) => !s.archived).length;
 </script>
 
+<svelte:window onkeydown={onWindowKey} />
 <div class="home-page" out:paneOut|global>
 	<div class="col">
 		<h1>{t('shell.home.greeting')}</h1>
@@ -134,33 +169,39 @@
 			></textarea>
 			{#if modelPicker && shownModel}
 				<div class="model-anchor">
-					<button class="model" class:on={menuOpen} onclick={() => (menuOpen = !menuOpen)} title={t('shell.home.model')} aria-haspopup="menu" aria-expanded={menuOpen}>
+					<button
+						class="model"
+						class:on={menuOpen}
+						onclick={() => {
+							menuOpen = !menuOpen;
+							if (menuOpen) void gatewayCatalog.refreshIfStale();
+						}}
+						title={t('shell.home.model')}
+						aria-haspopup="dialog"
+						aria-expanded={menuOpen}
+					>
 						<Vendor model={shownModel.name} size={14} />
-						<span class="mname">{shownModel.label}</span>
+						<span class="mname">{shownItem?.name ?? shownModel.label}</span>
 						<CaretDownIcon size={12} />
 					</button>
-					{#if menuOpen}
+					{#if menuOpen && browsing === null}
 						<button class="model-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={() => (menuOpen = false)}></button>
-						<div class="pop model-menu" role="menu">
-							{#each models as m (m.name)}
-								<button
-									class="pop-row"
-									role="menuitemradio"
-									aria-checked={m.name === model}
-									onclick={() => {
-										model = m.name;
-										picked = true;
-										menuOpen = false;
-										box?.focus();
-									}}
-								>
-									<span class="pop-ico"><Vendor model={m.name} size={16} /></span>
-									<span class="pop-txt"><span class="pop-label">{m.label}</span></span>
-									{#if m.window}<span class="pop-hint">{fmtContext(m.window)}</span>{/if}
-									{#if m.name === model}<span class="pop-check"><CheckIcon size={16} /></span>{/if}
-								</button>
-							{/each}
+						<div class="pop model-menu" role="dialog" aria-label={t('shell.home.model')}>
+							<QuickSwitcher {items} trial={onTrial()} facts={factsOptions()} onPick={chooseModel} onBrowse={(q) => (browsing = q)} />
 						</div>
+					{/if}
+					{#if menuOpen && browsing !== null}
+						<ModelBrowser
+							{items}
+							trial={onTrial()}
+							facts={factsOptions()}
+							query={browsing}
+							onPick={chooseModel}
+							onClose={() => {
+								menuOpen = false;
+								browsing = null;
+							}}
+						/>
 					{/if}
 				</div>
 			{/if}
@@ -332,10 +373,8 @@
 		left: 0;
 		top: calc(100% + 6px);
 		z-index: 81;
-		width: max-content;
-		min-width: 240px;
-		max-width: min(420px, calc(100vw - 32px));
-		max-height: min(360px, 60vh);
+		width: min(380px, calc(100vw - 32px));
+		max-height: min(440px, 60vh);
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		transform-origin: top left;

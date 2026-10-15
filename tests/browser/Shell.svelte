@@ -15,6 +15,9 @@
 	//                           (previewFiles.ts stands in for the files)
 	//   &trial[=used|404]       signed in; the first-use trial claim as the app
 	//                           runs it, with its grant card (main.ts answers it)
+	//   &models[=old]           a gateway session on the sample models
+	//                           (catalogSample.ts), described by the gateway's
+	//                           catalog, or (=old) by their ids only
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
 	import { onMount, untrack } from 'svelte';
@@ -37,6 +40,7 @@
 	import { prefs } from '../../src/lib/prefs.svelte';
 	import { setLocale } from '../../src/lib/i18n';
 	import { fileName, withFiles, withVideo } from '../../src/lib/attachments';
+	import { SAMPLE_PLAIN_IDS } from '../../src/lib/models/catalogSample';
 
 	const mode = new URL(location.href).searchParams;
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
@@ -93,6 +97,16 @@
 	].join('\n');
 
 	const feed = (ev: Record<string, unknown>) => session.chat.handle(ev as never);
+	// A gateway session: the engine's model and its list (as it reports them).
+	const gatewayModels = mode.has('models');
+	const providersList = gatewayModels
+		? [{ id: 'monoize', name: 'LynShen', base_url: 'https://api.lynshen.org/v1', format: 'responses', models: SAMPLE_PLAIN_IDS.map((name) => ({ name, display_name: name })) }]
+		: [];
+	if (gatewayModels) {
+		feed({ type: 'model_status', provider: 'monoize', model: 'deepseek-v4.1-flash', model_label: 'deepseek-v4.1-flash', reasoning_effort: 'medium', reasoning_efforts: ['low', 'medium', 'high'], state: 'ready', context_window: 384000 });
+		session.chat.silentModelView = 1;
+		feed({ type: 'model_view', active_effort: 'medium', models: SAMPLE_PLAIN_IDS.map((model) => ({ model, active: model === 'deepseek-v4.1-flash', context_window: 0, max_output_tokens: 0, reasoning_efforts: ['low', 'medium', 'high'] })) });
+	}
 	if (mode.has('preview')) {
 		const reply = (text: string) => {
 			feed({ type: 'status', message: 'streaming' });
@@ -199,12 +213,12 @@
 							{#if previewOf(tab.panel)}
 								<FilePreview path={previewOf(tab.panel)!} root={first.path} />
 							{:else}
-								<ChatPane {session} {store} isActive />
+								<ChatPane {session} {store} isActive providers={gatewayModels ? ['monoize'] : []} {providersList} />
 							{/if}
 						{/snippet}
 					</Mosaic>
 				{:else}
-					<ChatPane {session} {store} isActive />
+					<ChatPane {session} {store} isActive providers={gatewayModels ? ['monoize'] : []} {providersList} />
 				{/if}
 			</div>
 		</div>

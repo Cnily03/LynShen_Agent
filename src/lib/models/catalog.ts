@@ -125,9 +125,11 @@ export function derivedInfo(m: StoredModel, opts: { gateway?: boolean } = {}): M
 
 /** The vendor's name in the reader's language. */
 export function vendorLabel(info: Pick<ModelInfo, 'vendor' | 'vendorName'>, locale: 'zh' | 'en'): string {
+	// The gateway's admin names the vendors of its catalog.
+	if (info.vendorName) return info.vendorName;
 	const known = VENDORS[info.vendor];
 	if (known) return locale === 'zh' ? (known.zh ?? known.name) : known.name;
-	return info.vendorName || info.vendor;
+	return info.vendor;
 }
 
 /**

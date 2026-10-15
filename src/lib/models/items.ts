@@ -87,3 +87,11 @@ export function itemsFromOptions(options: ModelOption[], current: string, lookup
 		})
 	);
 }
+
+/** The name the composer's model button shows for the model in use: the
+ *  catalog's on the gateway, else the stored display name, else one read
+ *  from the id (the same names as the pickers). */
+export function displayNameOf(provider: string, id: string, stored: string | undefined, lookup: CatalogLookup): string {
+	const gateway = isGateway(provider);
+	return modelInfo({ id, display_name: stored }, gateway ? lookup(id) : undefined, { gateway }).name;
+}
