@@ -22,7 +22,17 @@
 	import { t } from '$lib/i18n';
 	import { tildePath } from '$lib/skills';
 	import { replyStyles } from '$lib/styles.svelte';
-	import { copyDraft, editable, problemText, styleDescription, styleHome, styleName, type ReplyStyle, type StyleDraft } from '$lib/styles';
+	import {
+		copyDraft,
+		editable,
+		problemText,
+		styleDescription,
+		styleErrorText,
+		styleHome,
+		styleName,
+		type ReplyStyle,
+		type StyleDraft
+	} from '$lib/styles';
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsRow from './SettingsRow.svelte';
 	import StyleDialog from './StyleDialog.svelte';
@@ -52,7 +62,8 @@
 		try {
 			await replyStyles.setDefault(id);
 		} catch (e) {
-			toast.error(t('settings.styles.defaultFailed', { msg: e instanceof Error ? e.message : String(e) }));
+			console.warn('reply styles: the default was not saved', e);
+			toast.error(t('settings.styles.defaultFailed', { msg: styleErrorText(e, t) }));
 		}
 	}
 
@@ -75,7 +86,8 @@
 			await replyStyles.remove(style.id);
 			toast.success(t('settings.styles.removed', { name }));
 		} catch (e) {
-			toast.error(t('settings.styles.removeFailed', { msg: e instanceof Error ? e.message : String(e) }));
+			console.warn('reply styles: style_delete failed', e);
+			toast.error(t('settings.styles.removeFailed', { msg: styleErrorText(e, t) }));
 		} finally {
 			delete pending[style.id];
 		}
@@ -96,7 +108,7 @@
 		<SettingsRow
 			id="reply-style-default"
 			title={t('settings.styles.default')}
-			description={replyStyles.error ? t('settings.styles.loadFailed', { msg: replyStyles.error }) : t('settings.styles.loading')}
+			description={replyStyles.error ? t('settings.styles.loadFailed', { msg: styleErrorText(replyStyles.error, t) }) : t('settings.styles.loading')}
 		/>
 	</SettingsSection>
 {:else}
@@ -148,7 +160,7 @@
 			<div class="problems">
 				<Notice tone="warn">
 					{#each list.problems as p (p.path)}
-						<div>{t('settings.styles.problem', { path: tildePath(p.path, home), msg: problemText(p, t) })}</div>
+						<div>{problemText(p, home, t)}</div>
 					{/each}
 				</Notice>
 			</div>

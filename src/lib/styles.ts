@@ -6,6 +6,8 @@
 // new conversations; a session reports the style it uses (`reply_style`) and
 // takes another with `set_style`. Pure logic, framework-free and unit-tested.
 
+import { tildePath } from './skills';
+
 export type StyleSource = 'builtin' | 'user' | 'project';
 
 export interface ReplyStyle {
@@ -23,11 +25,34 @@ export interface ReplyStyle {
 
 export interface StyleProblem {
 	path: string;
-	/** `reserved` · `bad_name` · `empty` · `unreadable` ('' from an engine
-	 *  that names none). */
-	kind: string;
+	/** Why it does not load: one of STYLE_ERROR_CODES ('' when the engine
+	 *  names none). */
+	code: string;
+	/** The engine's English detail: for logs, not for the page. */
 	message: string;
 }
+
+/** The stable reasons the engine gives (`StyleError` in the engine): loading
+ *  a file, saving, deleting and listing. The page words each one in its
+ *  language (`settings.styles.error.<code>`); the English detail is logged. */
+export const STYLE_ERROR_CODES = [
+	'reserved_id',
+	'invalid_id',
+	'no_instructions',
+	'read_failed',
+	'name_missing',
+	'name_too_long',
+	'description_too_long',
+	'instructions_missing',
+	'instructions_too_long',
+	'write_failed',
+	'not_found',
+	'delete_failed',
+	'config_failed'
+] as const;
+export type StyleErrorCode = (typeof STYLE_ERROR_CODES)[number];
+
+const known = (code: unknown): code is StyleErrorCode => (STYLE_ERROR_CODES as readonly unknown[]).includes(code);
 
 export interface StyleList {
 	/** One per id: the built-ins first, then the others by name. */
@@ -99,7 +124,7 @@ export function parseStyleList(reply: Record<string, unknown>): StyleList {
 		default: str(reply.default) || DEFAULT_STYLE,
 		dirs: records(reply.dirs).map((d) => ({ scope: str(d.scope), path: str(d.path) })),
 		projectTrusted: typeof reply.projectTrusted === 'boolean' ? reply.projectTrusted : null,
-		problems: records(reply.problems).map((p) => ({ path: str(p.path), kind: str(p.kind), message: str(p.message) }))
+		problems: records(reply.problems).map((p) => ({ path: str(p.path), code: str(p.code), message: str(p.message) }))
 	};
 }
 
@@ -140,15 +165,30 @@ export interface StyleDraft {
 
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 
-/** What keeps a style from being saved, as a message key; '' when nothing. */
-export function styleDraftError(draft: StyleDraft): string {
+/** What keeps a style from being saved, with the engine's code for it
+ *  (`styleErrorText` words it); '' when nothing. */
+export function styleDraftError(draft: StyleDraft): StyleErrorCode | '' {
 	const name = draft.name.trim();
-	if (!name) return 'settings.styles.errName';
-	if ([...name].length > STYLE_NAME_MAX) return 'settings.styles.errNameLong';
-	if ([...draft.description.trim()].length > STYLE_DESCRIPTION_MAX) return 'settings.styles.errDescriptionLong';
-	if (!draft.instructions.trim()) return 'settings.styles.errInstructions';
-	if (bytes(draft.instructions.trim()) > STYLE_INSTRUCTIONS_MAX_BYTES) return 'settings.styles.errInstructionsLong';
+	if (!name) return 'name_missing';
+	if ([...name].length > STYLE_NAME_MAX) return 'name_too_long';
+	if ([...draft.description.trim()].length > STYLE_DESCRIPTION_MAX) return 'description_too_long';
+	if (!draft.instructions.trim()) return 'instructions_missing';
+	if (bytes(draft.instructions.trim()) > STYLE_INSTRUCTIONS_MAX_BYTES) return 'instructions_too_long';
 	return '';
+}
+
+/** A code's words in the app's language; one the app does not know (a
+ *  newer engine's, or none) reads as a plain failure. */
+export function codeText(code: string, t: Translate): string {
+	return t(known(code) ? `settings.styles.error.${code}` : 'settings.styles.error.failed');
+}
+
+/** Why a style op failed, in the app's language: the code of the daemon's
+ *  error reply (or a draft check's code). The English detail is not shown;
+ *  callers log it. */
+export function styleErrorText(error: unknown, t: Translate): string {
+	const code = typeof error === 'string' ? error : error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined;
+	return codeText(typeof code === 'string' ? code : '', t);
 }
 
 /** A new draft copied from `style` (a built-in or another file), named as a
@@ -161,12 +201,10 @@ export function copyDraft(style: ReplyStyle, t: Translate): StyleDraft {
 	};
 }
 
-const PROBLEM_KINDS = ['reserved', 'bad_name', 'empty', 'unreadable'];
-
-/** Why a file does not load, in the app's language when the engine named
- *  the kind; its own message otherwise. */
-export function problemText(problem: StyleProblem, t: Translate): string {
-	return PROBLEM_KINDS.includes(problem.kind) ? t(`settings.styles.problemKind.${problem.kind}`) : problem.message;
+/** A file that does not load, with its path and the reason in the app's
+ *  language. */
+export function problemText(problem: StyleProblem, home: string, t: Translate): string {
+	return t('settings.styles.problem', { path: tildePath(problem.path, home), msg: codeText(problem.code, t) });
 }
 
 /** A personal style file the page may edit and delete. */

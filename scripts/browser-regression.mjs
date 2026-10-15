@@ -271,7 +271,10 @@ try {
   const stylePatches = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
   await expect.poll(stylePatches).toContain('{"reply_style":"concise"}');
   await expect(page.locator('.srow', {hasText:'发布说明'})).toContainText('项目');
-  await expect(page.getByText(/two words\.md：文件名不能作为风格 id/)).toBeVisible();
+  // A file that does not load: its path and the reason in the app's
+  // language, never the engine's English detail.
+  await expect(page.getByText('~/.lynshen/styles/two words.md 不会加载：文件名不能作为风格 id', {exact:false})).toBeVisible();
+  await expect(page.getByText('the file name cannot be a style id')).toHaveCount(0);
   const formal = page.locator('.srow', {hasText:'正式汇报'});
   await formal.hover();
   await formal.getByRole('button',{name:'查看'}).click();
@@ -307,6 +310,16 @@ try {
   await page.getByRole('button',{name:'删除',exact:true}).last().click();
   await expect(page.locator('.srow', {hasText:'周报'})).toHaveCount(0);
   assert.ok(await page.evaluate(() => window.__ops.some((o) => o.op === 'style_delete')));
+  // A save the engine refuses: the reason by its code, in the app's language.
+  await page.getByRole('button',{name:'新建风格'}).click();
+  const failing = page.getByRole('dialog', {name:'新建回复风格', exact:true});
+  await failing.getByPlaceholder('例如：代码评审').fill('只读');
+  await failing.locator('textarea').fill('先给结论。');
+  await failing.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(failing.getByText('没有保存：写不了风格文件，检查 ~/.lynshen/styles 能否写入')).toBeVisible();
+  await expect(failing.getByText(/Permission denied/)).toHaveCount(0);
+  await failing.getByRole('button',{name:'取消',exact:true}).click();
+  await expect(failing).toHaveCount(0);
   // Built-ins and project styles are not deleted here.
   await expect(page.locator('.srow', {hasText:'发布说明'}).getByRole('button',{name:'删除'})).toHaveCount(0);
   await expect(page.locator('.srow', {hasText:'简洁'}).getByRole('button',{name:'删除'})).toHaveCount(0);

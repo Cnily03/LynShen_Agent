@@ -11,7 +11,8 @@ class ReplyStyles {
 	lists = $state<Record<string, StyleList>>({});
 	/** The daemon has no style ops. */
 	unsupported = $state(false);
-	error = $state('');
+	/** Why the last list failed (a DaemonError with its code), null when it did not. */
+	error = $state<unknown>(null);
 	loading = $state(false);
 	#pending = new Map<string, Promise<StyleList | null>>();
 
@@ -43,11 +44,14 @@ class ReplyStyles {
 			const list = await listStyles(cwd || undefined);
 			this.lists = { ...this.lists, [cwd]: list };
 			this.unsupported = false;
-			this.error = '';
+			this.error = null;
 			return list;
 		} catch (e) {
 			if (isUnknownOp(e, 'styles_list')) this.unsupported = true;
-			else this.error = e instanceof Error ? e.message : String(e);
+			else {
+				console.warn('reply styles: styles_list failed', e);
+				this.error = e;
+			}
 			return null;
 		}
 	}

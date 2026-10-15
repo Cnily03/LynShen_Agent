@@ -110,7 +110,7 @@ export const daemonState = {
 			{ scope: 'project', path: `${project}/.lynshen/styles` }
 		],
 		projectTrusted: true,
-		problems: [{ path: `${styleDir}/two words.md`, kind: 'bad_name', message: 'the file name cannot be a style id' }]
+		problems: [{ path: `${styleDir}/two words.md`, code: 'invalid_id', message: 'the file name cannot be a style id' }]
 	} as Frame,
 	claude: {
 		backend: 'claude',
@@ -256,6 +256,8 @@ function reply(op: Frame): Frame | null {
 			return { type: 'styles_list', ...s.styles };
 		}
 		case 'style_save': {
+			// A folder it cannot write (the page shows the reason by its code).
+			if (op.name === '只读') return { type: 'error', code: 'write_failed', message: `cannot write ${styleDir}/style.md: Permission denied (os error 13)` };
 			const id = op.style || String(op.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'style';
 			const saved = { id, name: op.name, description: op.description ?? '', instructions: op.instructions, source: 'user', path: `${styleDir}/${id}.md`, truncated: false };
 			const at = s.styles.styles.findIndex((x: Frame) => x.id === id);
@@ -265,7 +267,7 @@ function reply(op: Frame): Frame | null {
 		}
 		case 'style_delete': {
 			const found = s.styles.styles.find((x: Frame) => x.id === op.style && x.source === 'user');
-			if (!found) return { type: 'error', message: `not a personal style: ${op.style}` };
+			if (!found) return { type: 'error', code: 'not_found', message: `no personal style ${op.style}` };
 			s.styles.styles = s.styles.styles.filter((x: Frame) => x !== found);
 			if (s.styles.default === op.style) s.styles.default = 'default';
 			return { type: 'style_deleted', style: op.style };

@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { setLocale, t } from './i18n';
+import { DaemonError } from './daemon';
 import {
 	DEFAULT_STYLE,
+	STYLE_ERROR_CODES,
 	STYLE_INSTRUCTIONS_MAX_BYTES,
+	codeText,
 	copyDraft,
 	currentStyle,
 	editable,
@@ -12,6 +15,7 @@ import {
 	problemText,
 	styleDescription,
 	styleDraftError,
+	styleErrorText,
 	styleHome,
 	styleName,
 	type ReplyStyle
@@ -58,10 +62,7 @@ describe('reply styles', () => {
 		expect(list.styles[1]).toMatchObject({ name: 'review', description: '', source: 'project', truncated: true });
 		expect(list.default).toBe(DEFAULT_STYLE);
 		expect(list.projectTrusted).toBe(false);
-		expect(list.problems).toEqual([{ path: '/Users/me/.lynshen/styles/a b.md', kind: '', message: 'bad name' }]);
-		setLocale('zh');
-		expect(problemText({ path: '/x', kind: 'empty', message: 'no instructions' }, t)).toBe('frontmatter 后面没有指令，不会加载');
-		expect(problemText(list.problems[0], t)).toBe('bad name');
+		expect(list.problems).toEqual([{ path: '/Users/me/.lynshen/styles/a b.md', code: '', message: 'bad name' }]);
 		expect(parseStyleList({}).styles).toEqual([]);
 		expect(styleHome(list)).toBe('/Users/me');
 		expect(styleHome({ dirs: [] })).toBe('');
@@ -81,6 +82,26 @@ describe('reply styles', () => {
 		expect(nameOf(null, 'gone', t)).toBe('gone');
 	});
 
+	it('words every failure by its code, never with the engine’s English detail', () => {
+		setLocale('zh');
+		const problem = { path: '/Users/me/.lynshen/styles/a b.md', code: 'invalid_id', message: 'the file name cannot be a style id' };
+		expect(problemText(problem, '/Users/me', t)).toBe('~/.lynshen/styles/a b.md 不会加载：文件名不能作为风格 id：不能有空格和 / \\ : * ? " < > |，也不能以 . 或 - 开头');
+		// A code this app does not know reads as a plain failure.
+		expect(problemText({ ...problem, code: 'newer_reason' }, '/Users/me', t)).toBe('~/.lynshen/styles/a b.md 不会加载：没有完成，原因写在日志里');
+		expect(styleErrorText(new DaemonError('cannot write /x: Permission denied', 'write_failed'), t)).toBe('写不了风格文件，检查 ~/.lynshen/styles 能否写入');
+		expect(styleErrorText(new DaemonError('not connected to lynshen daemon'), t)).toBe('没有完成，原因写在日志里');
+		expect(styleErrorText(new Error('boom'), t)).toBe('没有完成，原因写在日志里');
+		expect(styleErrorText('name_missing', t)).toBe('填写名称');
+		// Every code has its words in both languages.
+		for (const locale of ['zh', 'en'] as const) {
+			setLocale(locale);
+			for (const code of STYLE_ERROR_CODES) expect(codeText(code, t)).not.toBe(`settings.styles.error.${code}`);
+		}
+		setLocale('en');
+		expect(codeText('not_found', t)).toBe('This style file is gone');
+		setLocale('zh');
+	});
+
 	it('marks a draft’s pick, else the default, else what the engine said', () => {
 		const list = parseStyleList({ styles: [], default: 'concise' });
 		expect(currentStyle(true, undefined, null, list)).toBe('concise');
@@ -94,14 +115,15 @@ describe('reply styles', () => {
 
 	it('checks a draft before it is saved', () => {
 		const ok = { name: '评审', description: '', instructions: '先列问题。' };
+		// The engine's codes for the same checks.
 		expect(styleDraftError(ok)).toBe('');
-		expect(styleDraftError({ ...ok, name: '  ' })).toBe('settings.styles.errName');
-		expect(styleDraftError({ ...ok, name: '长'.repeat(41) })).toBe('settings.styles.errNameLong');
-		expect(styleDraftError({ ...ok, description: 'x'.repeat(201) })).toBe('settings.styles.errDescriptionLong');
-		expect(styleDraftError({ ...ok, instructions: ' ' })).toBe('settings.styles.errInstructions');
+		expect(styleDraftError({ ...ok, name: '  ' })).toBe('name_missing');
+		expect(styleDraftError({ ...ok, name: '长'.repeat(41) })).toBe('name_too_long');
+		expect(styleDraftError({ ...ok, description: 'x'.repeat(201) })).toBe('description_too_long');
+		expect(styleDraftError({ ...ok, instructions: ' ' })).toBe('instructions_missing');
 		// Bytes, not characters: a Chinese character takes three.
 		expect(styleDraftError({ ...ok, instructions: '长'.repeat(Math.floor(STYLE_INSTRUCTIONS_MAX_BYTES / 3)) })).toBe('');
-		expect(styleDraftError({ ...ok, instructions: '长'.repeat(Math.floor(STYLE_INSTRUCTIONS_MAX_BYTES / 3) + 1) })).toBe('settings.styles.errInstructionsLong');
+		expect(styleDraftError({ ...ok, instructions: '长'.repeat(Math.floor(STYLE_INSTRUCTIONS_MAX_BYTES / 3) + 1) })).toBe('instructions_too_long');
 	});
 
 	it('copies a style into a new personal draft', () => {

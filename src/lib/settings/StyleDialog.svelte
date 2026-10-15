@@ -12,9 +12,11 @@
 	import { t } from '$lib/i18n';
 	import {
 		STYLE_INSTRUCTIONS_MAX_BYTES,
+		codeText,
 		editable,
 		styleDescription,
 		styleDraftError,
+		styleErrorText,
 		styleName,
 		type ReplyStyle,
 		type StyleDraft
@@ -47,6 +49,7 @@
 		)
 	);
 	let busy = $state(false);
+	/** Why the save failed, in the app's language. */
 	let error = $state('');
 	let tried = $state(false);
 	let nameEl = $state<HTMLDivElement | null>(null);
@@ -66,7 +69,8 @@
 			await onSave(draft);
 			onClose();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			console.warn('reply styles: style_save failed', e);
+			error = styleErrorText(e, t);
 			busy = false;
 		}
 	}
@@ -106,7 +110,7 @@
 				{t('settings.styles.dialog.instructionsHint', { n: used, max: STYLE_INSTRUCTIONS_MAX_BYTES })}
 			</span>
 		</label>
-		{#if tried && problem}<Notice>{t(problem)}</Notice>{/if}
+		{#if tried && problem}<Notice>{codeText(problem, t)}</Notice>{/if}
 		{#if error}<Notice>{t('settings.styles.saveFailed', { msg: error })}</Notice>{/if}
 	</form>
 	{#snippet footer()}
