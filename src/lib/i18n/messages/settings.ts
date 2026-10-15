@@ -135,7 +135,10 @@ const settings = {
 			failedCount: '{n} 项失败：',
 			where: '导入的会话在对应项目的「历史」里打开，Claude Code 和 Codex 的在历史的同名标签下。',
 			addFolders: '把 {n} 个项目文件夹加到侧栏',
-			foldersAdded: '已加到侧栏'
+			foldersAdded: '已加到侧栏',
+			unreadable: '{n} 个会话无法读取',
+			unreadableStore: '会话无法读取',
+			unreadableLine: '{tool}：{what}（{why}）'
 		},
 		section: {
 			general: '通用',
@@ -991,7 +994,10 @@ const settings = {
 			failedCount: '{n} failed:',
 			where: 'Open imported conversations from the project\'s History; Claude Code and Codex ones are under their own tab there.',
 			addFolders: 'Add {n} project folders to the sidebar',
-			foldersAdded: 'Added to the sidebar'
+			foldersAdded: 'Added to the sidebar',
+			unreadable: '{n} conversations could not be read',
+			unreadableStore: 'Conversations could not be read',
+			unreadableLine: '{tool}: {what} ({why})'
 		},
 		section: {
 			general: 'General',
