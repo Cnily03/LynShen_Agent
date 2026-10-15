@@ -5,6 +5,8 @@
 	// frames (window.__remoteFrame). For the browser regressions and the
 	// screenshots of the phone page.
 	//   ?remote                 a conversation with messages sent with files
+	//   &cards                  and a turn at work with a plan and subagents
+	//                           (their chips under the header, a sheet a tap away)
 	import { onMount } from 'svelte';
 	import RemoteSession from '../../src/lib/RemoteSession.svelte';
 	import Toaster from '../../src/lib/ui/Toaster.svelte';
@@ -54,6 +56,24 @@
 				{ role: 'user', content: withVideo(withFiles('', ['/Users/me/Downloads/error-log-1013.txt']), '录屏 2026-10-13.mov', 12.4, 8) }
 			]
 		});
+		if (!mode.has('cards')) return;
+		frame({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		frame({ type: 'status', message: 'streaming' });
+		frame({
+			type: 'plan',
+			plan: [
+				{ step: '读缓存层的代码', status: 'completed' },
+				{ step: '设计按会话分片的键', status: 'completed' },
+				{ step: '改 SessionCache 和它的调用方', status: 'completed', agent: '/root/worker-1' },
+				{ step: '跑单元测试', status: 'in_progress', agent: '/root/worker-2' },
+				{ step: '审查改动', status: 'pending', agent: '/root/reviewer' },
+				{ step: '更新 design.md 的缓存一节', status: 'pending' },
+				{ step: '提交并推送', status: 'pending' }
+			]
+		});
+		frame({ type: 'subagent_lifecycle', path: '/root/worker-1', label: 'worker-1', role: 'worker', status: 'completed', message: '改好 2 个文件' });
+		frame({ type: 'subagent_lifecycle', path: '/root/worker-2', label: 'worker-2', role: 'worker', status: 'running', message: '运行 pnpm vitest run src/lib/cache' });
+		frame({ type: 'subagent_lifecycle', path: '/root/reviewer', label: 'reviewer', role: 'reviewer', status: 'queued' });
 	});
 </script>
 

@@ -588,6 +588,236 @@ try {
   await shell.setViewportSize({width:1040,height:680});
   await expectColumn(640, '自适应, the smallest window');
   await shell.close();
+  // The plan and subagents cards (design.md, "Status, attention and
+  // emphasis"): a turn at work with a 3/7 plan and four subagents of the
+  // agent team (?shell&cards). At 1440 × 900 (a 1148px chat leaf) the column
+  // moves left to leave 280px at its right and the cards sit there, clear of
+  // the text; nothing about them sits on the composer's top edge.
+  const cardsPage = await browser.newPage({viewport:{width:1440,height:900}});
+  cardsPage.on('pageerror', e => errors.push(e.message));
+  await cardsPage.goto(base + '?shell&cards');
+  await expect(cardsPage.locator('.composer')).toBeVisible({timeout:30000});
+  const cards = cardsPage.getByRole('region', {name:'计划和子智能体'});
+  const planHead = cards.locator('.card.plan .head');
+  const agentsHead = cards.locator('.card.agents .head');
+  await expect(cardsPage.locator('.chatpane.beside')).toHaveCount(1);
+  await expect(planHead).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+  await expect(agentsHead).toHaveText(/子智能体\s*4\s*·\s*2 个运行中/);
+  const besideLayout = () => cardsPage.evaluate(() => {
+    const main = document.querySelector('.chatpane main');
+    const m = main.getBoundingClientRect();
+    const cs = getComputedStyle(main);
+    const left = m.left + parseFloat(cs.paddingLeft);
+    const right = m.left + main.clientWidth - parseFloat(cs.paddingRight);
+    const col = document.querySelector('[aria-label="计划和子智能体"]').getBoundingClientRect();
+    // Where the transcript's visible text ends beside the cards (a code
+    // block or a table scrolls sideways inside its own box: clipped there).
+    const clip = (el) => { let right = Infinity; for (let a = el; a && a !== main; a = a.parentElement) if (getComputedStyle(a).overflowX !== 'visible') right = Math.min(right, a.getBoundingClientRect().right); return right; };
+    let textRight = 0;
+    const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (!n.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const edge = clip(n.parentElement);
+      for (const r of range.getClientRects()) if (r.width && r.left < edge && r.bottom > col.top && r.top < col.bottom) textRight = Math.max(textRight, Math.min(r.right, edge));
+    }
+    const composer = document.querySelector('.composer').getBoundingClientRect();
+    const bottom = document.querySelector('.chatpane .bottom');
+    return {
+      column: [Math.round(left), Math.round(right - left)], composer: [Math.round(composer.left), Math.round(composer.width)],
+      gap: Math.round(col.left - right), textRight: Math.round(textRight), cardsLeft: Math.round(col.left), cardsRight: Math.round(col.right),
+      paneRight: Math.round(m.right), sideways: document.documentElement.scrollWidth - innerWidth,
+      onComposer: bottom.textContent.includes('3/7') || !!bottom.querySelector('.tray, .bar'),
+      h1: document.querySelectorAll('h1').length,
+      decor: document.querySelectorAll('[aria-label="计划和子智能体"] svg circle, [aria-label="计划和子智能体"] .bead, [aria-label="计划和子智能体"] progress').length
+    };
+  });
+  {
+    const l = await besideLayout();
+    assert.deepEqual(l.composer, l.column, 'the composer follows the column the cards moved');
+    assert.ok(l.gap >= 16, `the cards sit ${l.gap}px from the column`);
+    assert.ok(l.textRight <= l.cardsLeft, `transcript text runs under the cards (${l.textRight} > ${l.cardsLeft})`);
+    assert.ok(l.paneRight - l.cardsRight >= 8, 'the cards stay inside the leaf');
+    assert.equal(l.sideways, 0, 'the page scrolls sideways');
+    assert.equal(l.onComposer, false, 'the plan shows on the composer\'s top edge');
+    assert.equal(l.decor, 0, 'the cards draw a ring, a bar or beads');
+    assert.ok(l.h1 <= 1, 'more than one h1');
+  }
+  // The checklist: done steps checked, the current one bold; each subagent
+  // a 6px dot, its role, attempt, action and time; the team's tokens and board.
+  const steps = cards.locator('.card.plan .step');
+  await expect(steps).toHaveCount(7);
+  await expect(cards.locator('.card.plan .step.done svg')).toHaveCount(3);
+  const current = cards.locator('.card.plan .step.current');
+  await expect(current).toHaveText(/跑单元测试/);
+  assert.ok(Number(await current.locator('.text').evaluate((el) => getComputedStyle(el).fontWeight)) >= 600, 'the current step is not bold');
+  await expect(current.locator('.owner')).toHaveText('worker-2');
+  const worker = cards.locator('.agent', {has: cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'})});
+  await expect(worker).toContainText('编写 · #2');
+  await expect(worker).toContainText('运行 pnpm vitest run src/lib/cache');
+  await expect(worker.locator('.l1')).toContainText(/\d+m\d\ds/);
+  assert.deepEqual(await worker.locator('.sdot').evaluate((el) => [getComputedStyle(el).width, getComputedStyle(el).height]), ['6px', '6px']);
+  await expect(cards.locator('.card.agents .meta')).toContainText('182k / 400k tokens');
+  await expect(cards.locator('.card.agents .meta')).toContainText('任务 2/4');
+  // The team panel from the card's title line; a row opens its subagent.
+  await cards.getByRole('button', {name:'打开工作组'}).click();
+  await cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'}).click();
+  assert.deepEqual(await cardsPage.evaluate(() => window.__opened), ['team', 'agent:/root/worker-2:side']);
+  await worker.getByRole('button', {name:'在新标签页打开'}).click({force:true});
+  assert.equal(await cardsPage.evaluate(() => window.__opened.at(-1)), 'agent:/root/worker-2:tab');
+  // Stopping an agent: its row action shows on hover, sends close_agent and
+  // then waits for the agent to stop.
+  const stop = worker.getByRole('button', {name:'停止 worker-2'});
+  assert.equal(await worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity), '0', 'the row actions show before hover');
+  await worker.hover();
+  await expect.poll(() => worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  await stop.click();
+  await expect(worker.getByRole('img', {name:'正在停止'})).toBeVisible();
+  assert.ok(await cardsPage.evaluate(() => '/root/worker-2' in window.__shellChat.stopRequested), 'close_agent was not sent');
+  assert.deepEqual(await cardsPage.evaluate(() => window.__sent.filter((o) => o.op === 'close_agent')), [{op: 'close_agent', target: '/root/worker-2'}]);
+  // A card collapses to its title line, by click or by keyboard (Tab to it,
+  // Enter), and stays so for this session.
+  await planHead.click();
+  await expect(planHead).toHaveAttribute('aria-expanded', 'false');
+  await expect(cards.locator('.card.plan .step')).toHaveCount(0);
+  assert.deepEqual(await cardsPage.evaluate(() => JSON.parse(localStorage.getItem(`lynshen-progress-cards:${window.__shellSession}`) ?? 'null')), {plan: false});
+  await agentsHead.focus();
+  await cardsPage.keyboard.press('Shift+Tab');
+  await expect(planHead).toBeFocused();
+  assert.notEqual(await planHead.evaluate((el) => getComputedStyle(el).outlineStyle), 'none', 'no focus ring on the title line');
+  await cardsPage.keyboard.press('Enter');
+  await expect(planHead).toHaveAttribute('aria-expanded', 'true');
+  await cardsPage.keyboard.press('Enter');
+  await expect(planHead).toHaveAttribute('aria-expanded', 'false');
+  // Row actions show on keyboard focus too.
+  await agentsHead.focus();
+  for (let i = 0; i < 12 && !(await worker.evaluate((el) => el.contains(document.activeElement))); i++) await cardsPage.keyboard.press('Tab');
+  await expect.poll(() => worker.locator('.aacts').evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  // A step that fails expands the collapsed plan card, in the error color.
+  await cardsPage.evaluate(() => window.__shellChat.handle({type: 'subagent_lifecycle', path: '/root/worker-2', status: 'failed', message: '3 个测试失败：cache.test.ts'}));
+  await expect(planHead).toHaveAttribute('aria-expanded', 'true');
+  const failed = cards.locator('.card.plan .step.failed');
+  await expect(failed).toHaveText(/跑单元测试\s*worker-2 失败：3 个测试失败：cache\.test\.ts/);
+  const errColor = await cardsPage.evaluate(() => { const p = document.createElement('p'); p.style.color = 'var(--err)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
+  assert.equal(await failed.locator('.text').evaluate((el) => getComputedStyle(el).color), errColor, 'a failed step is not in --err');
+  await expect(planHead.locator('.what.err')).toHaveText('跑单元测试');
+  await cardsPage.close();
+
+  // Narrower leaves: 1100 × 760, 1040 × 680, and 1440 × 900 with a tool leaf
+  // beside the chat. Each card is its title line at the top right, on a
+  // strip above the transcript; a click opens it as a solid popover over the
+  // transcript, closed by Escape (focus back on its title line) or a click
+  // outside; Tab goes from the title line into it.
+  for (const [w, h, query] of [[1100, 760, '?shell&cards'], [1040, 680, '?shell&cards'], [1440, 900, '?shell&cards&tool']]) {
+    const what = `${w} × ${h}${query.includes('tool') ? ' with a tool leaf' : ''}`;
+    const p = await browser.newPage({viewport:{width:w,height:h}});
+    p.on('pageerror', e => errors.push(e.message));
+    await p.goto(base + query);
+    await expect(p.locator('.composer')).toBeVisible({timeout:30000});
+    const strip = p.getByRole('region', {name:'计划和子智能体'});
+    await expect(p.locator('.chatpane.beside'), what).toHaveCount(0);
+    await expect(strip.locator('.tline'), what).toHaveCount(2);
+    const planLine = strip.locator('.tline').first();
+    await expect(planLine).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+    const geo = () => p.evaluate(() => {
+      const pane = document.querySelector('.chatpane').getBoundingClientRect();
+      const s = document.querySelector('[aria-label="计划和子智能体"]').getBoundingClientRect();
+      const lines = [...document.querySelectorAll('.tline')].map((el) => el.getBoundingClientRect());
+      const main = document.querySelector('.chatpane main').getBoundingClientRect();
+      const pop = document.querySelector('.cardpop')?.getBoundingClientRect();
+      const fill = document.querySelector('.cardpop') ? getComputedStyle(document.querySelector('.cardpop')).backgroundColor : '';
+      const stripFill = getComputedStyle(document.querySelector('.strip')).backgroundColor;
+      return {
+        paneRight: Math.round(pane.right), paneLeft: Math.round(pane.left), stripBottom: Math.round(s.bottom), mainTop: Math.round(main.top),
+        lastRight: Math.round(Math.max(...lines.map((r) => r.right))), firstLeft: Math.round(Math.min(...lines.map((r) => r.left))),
+        pop: pop && [Math.round(pop.left), Math.round(pop.top), Math.round(pop.right), Math.round(pop.bottom)], fill, stripFill,
+        sideways: document.documentElement.scrollWidth - innerWidth, h1: document.querySelectorAll('h1').length
+      };
+    });
+    let g = await geo();
+    assert.ok(g.paneRight - g.lastRight <= 12, `${what}: the title lines are not at the top right`);
+    assert.ok(g.firstLeft > (g.paneLeft + g.paneRight) / 2 - 200, `${what}: the title lines spread left`);
+    assert.ok(g.stripBottom <= g.mainTop, `${what}: the strip covers the transcript`);
+    assert.ok(!/rgba\(.*, 0(\.\d+)?\)$/.test(g.stripFill), `${what}: the strip is not opaque (${g.stripFill})`);
+    assert.equal(g.sideways, 0, `${what}: the page scrolls sideways`);
+    assert.ok(g.h1 <= 1, `${what}: more than one h1`);
+    await planLine.click();
+    const pop = p.getByRole('dialog').filter({has: p.locator('.step')});
+    await expect(pop).toBeVisible();
+    await expect(pop.locator('.step')).toHaveCount(7);
+    g = await geo();
+    assert.match(g.fill, /^rgb\(/, `${what}: the popover is not solid (${g.fill})`);
+    assert.ok(g.pop[0] >= g.paneLeft && g.pop[2] <= g.paneRight && g.pop[3] <= h, `${what}: the popover leaves the chat leaf ${JSON.stringify(g)}`);
+    assert.ok(g.pop[1] >= g.stripBottom, `${what}: the popover covers its title line`);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    // A click outside closes it.
+    await planLine.click();
+    await expect(pop).toBeVisible();
+    await p.locator('.chatpane main').click({position:{x:40, y:200}});
+    await expect(pop).toHaveCount(0);
+    // Keyboard: Enter opens, Tab goes into it, Escape closes it and gives
+    // the focus back to the title line.
+    await planLine.focus();
+    await p.keyboard.press('Enter');
+    await expect(pop).toBeVisible();
+    await expect(planLine).toHaveAttribute('aria-expanded', 'true');
+    await p.keyboard.press('Tab');
+    assert.ok(await pop.evaluate((el) => el.contains(document.activeElement)), `${what}: Tab does not go into the popover`);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    await expect(planLine).toBeFocused();
+    // The subagents popover: a row opens its subagent and closes nothing else;
+    // stopping an agent is its row action.
+    const agentsLine = strip.locator('.tline').last();
+    await agentsLine.click();
+    const apop = p.getByRole('dialog').filter({has: p.locator('.agent')});
+    await expect(apop.locator('.agent')).toHaveCount(4);
+    await expect(apop.getByRole('button', {name:'打开工作组'})).toBeVisible();
+    const row = apop.locator('.agent', {has: p.getByRole('button', {name:'查看 worker-2 在做什么'})});
+    await row.hover();
+    await row.getByRole('button', {name:'停止 worker-2'}).click();
+    await expect(row.getByRole('img', {name:'正在停止'})).toBeVisible();
+    await apop.getByRole('button', {name:'查看 worker-1 在做什么'}).click();
+    assert.equal(await p.evaluate(() => window.__opened.at(-1)), 'agent:/root/worker-1:side');
+    await p.keyboard.press('Escape');
+    await expect(apop).toHaveCount(0);
+    // A step that waits for the reader opens the plan popover by itself;
+    // Escape closes the popover first and leaves the approval waiting.
+    await p.evaluate(() => window.__shellChat.handle({type: 'subagent_lifecycle', path: '/root/worker-2', status: 'running', message: '等待确认'}));
+    await p.evaluate(() => window.__shellChat.handle({type: 'approval_request', call_id: 'c9', name: 'shell', summary: 'pnpm vitest run', subagent_id: '/root/worker-2', scopes: ['session']}));
+    await expect(pop).toBeVisible();
+    await expect(pop.locator('.step.waiting')).toHaveText(/跑单元测试\s*等你确认/);
+    await expect(planLine.locator('.dot.warn')).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await expect(pop).toHaveCount(0);
+    assert.ok(await p.evaluate(() => !!window.__shellChat.pendingApproval), `${what}: Escape over the popover answered the approval`);
+    await p.close();
+  }
+
+  // The phone page: the cards' title lines as chips under the header; a tap
+  // opens one as a sheet from the bottom, closed by Escape or the scrim; a
+  // subagent row opens its conversation.
+  const cardsPhone = await browser.newPage({viewport:{width:390,height:844}});
+  cardsPhone.on('pageerror', e => errors.push(e.message));
+  await cardsPhone.goto(base + '?remote&cards');
+  const chips = cardsPhone.getByRole('region', {name:'计划和子智能体'});
+  await expect(chips.locator('.chip')).toHaveCount(2, {timeout:30000});
+  await expect(chips.locator('.chip').first()).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+  assert.ok(await cardsPhone.evaluate(() => document.querySelector('.chips').getBoundingClientRect().top >= document.querySelector('.session > header').getBoundingClientRect().bottom), 'the chips are not under the header');
+  await chips.locator('.chip').first().click();
+  const sheet = cardsPhone.locator('.sheet[role="dialog"]');
+  await expect(sheet.locator('.step')).toHaveCount(7);
+  await cardsPhone.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await chips.locator('.chip').last().click();
+  await expect(sheet.locator('.agent')).toHaveCount(3);
+  await sheet.getByRole('button', {name:'查看 worker-2 在做什么'}).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(cardsPhone.locator('.trace-sheet')).toBeVisible();
+  assert.equal(await cardsPhone.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'the phone page scrolls sideways');
+  await cardsPhone.close();
   // The window frost is off unless chosen. Preferences stored with the old
   // default (on, without a version) are switched off once: in storage, in
   // what the app is told, and nothing is translucent. (?frost: the system
@@ -1099,5 +1329,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
 } finally { await browser.close(); await server.close(); }

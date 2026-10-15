@@ -15,8 +15,14 @@
 	//                           (previewFiles.ts stands in for the files)
 	//   &trial[=used|404]       signed in; the first-use trial claim as the app
 	//                           runs it, with its grant card (main.ts answers it)
+	//   &cards                  a turn at work with a plan and three subagents of
+	//                           LynShen's agent team (the plan and subagents cards)
+	//   &tool                   a tool leaf (the plan panel) open beside the chat
 	// `window.__prefs` is the preferences store (the regressions change the
-	// conversation width through it).
+	// conversation width through it); `window.__shellChat` the conversation's
+	// chat (to send it more events), `window.__opened` what the chat asked the
+	// page to open (a subagent's page, the team panel, the agent trace) and,
+	// with &cards, `window.__sent` the ops it sent its engine.
 	import { onMount, untrack } from 'svelte';
 	import Mosaic from '../../src/lib/workbench/Mosaic.svelte';
 	import FilePreview from '../../src/lib/preview/FilePreview.svelte';
@@ -33,8 +39,11 @@
 	import { trial } from '../../src/lib/trial.svelte';
 	import { SessionStore } from '../../src/lib/session.svelte';
 	import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
-	import { daemon } from '../../src/lib/protocol';
+	import { daemon, type Op } from '../../src/lib/protocol';
+	import { adapterFor, clearDraft } from '../../src/lib/backends/router';
 	import { prefs } from '../../src/lib/prefs.svelte';
+	import PlanPanel from '../../src/lib/PlanPanel.svelte';
+	import { subagentPages } from '../../src/lib/agents/subagentPages.svelte';
 	import { setLocale } from '../../src/lib/i18n';
 	import { fileName, withFiles, withVideo } from '../../src/lib/attachments';
 
@@ -134,9 +143,72 @@
 		feed({ type: 'status', message: 'ready' });
 	}
 
+	// ?shell&cards: a third turn at work. The plan is 3/7 with the fourth
+	// step running; four subagents of the agent team (roles, an attempt, one
+	// done, one queued), the team's tokens against its budget and its board.
+	if (mode.has('cards') && !mode.has('empty')) {
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'status', message: 'streaming' });
+		feed({ type: 'assistant_delta', delta: '先列计划，再把实现、测试和审查分给工作组。' });
+		feed({
+			type: 'plan',
+			plan: [
+				{ step: '读缓存层的代码', status: 'completed', agent: '/root/explorer' },
+				{ step: '设计按会话分片的键', status: 'completed' },
+				{ step: '改 SessionCache 和它的调用方', status: 'completed', agent: '/root/worker-1', files: ['src/lib/cache.ts', 'src/lib/session.svelte.ts'] },
+				{ step: '跑单元测试', status: 'in_progress', agent: '/root/worker-2' },
+				{ step: '审查改动', status: 'pending', agent: '/root/reviewer' },
+				{ step: '更新 design.md 的缓存一节', status: 'pending' },
+				{ step: '提交并推送', status: 'pending' }
+			]
+		});
+		const agents: Record<string, unknown>[] = [
+			{ path: '/root/explorer', label: 'explorer', role: 'explorer', status: 'completed', message: '找到 3 处读缓存的调用', ago: 412 },
+			{ path: '/root/worker-1', label: 'worker-1', role: 'worker', status: 'completed', message: '改好 2 个文件', ago: 288 },
+			{ path: '/root/worker-2', label: 'worker-2', role: 'worker', status: 'running', message: '运行 pnpm vitest run src/lib/cache', ago: 134, attempt_group: 'tests', attempt: 2 },
+			{ path: '/root/reviewer', label: 'reviewer', role: 'reviewer', status: 'queued', message: '', ago: 12 }
+		];
+		for (const { ago, ...a } of agents) {
+			feed({ type: 'subagent_lifecycle', ...a });
+			// When it started (and, done, how long it ran), for the times the card shows.
+			const life = session.chat.subagents[a.path as string];
+			life.startedAt = Date.now() - (ago as number) * 1000;
+			if (life.endedAt) life.endedAt = life.startedAt + 96_000;
+		}
+		feed({ type: 'team_budget', used: 182_400, limit: 400_000 });
+		feed({
+			type: 'task_board',
+			tasks: [
+				{ id: 't1', title: '读缓存层', status: 'completed' },
+				{ id: 't2', title: '改 SessionCache', status: 'completed' },
+				{ id: 't3', title: '跑单元测试', status: 'claimed', owner: '/root/worker-2' },
+				{ id: 't4', title: '审查改动', status: 'pending', depends_on: ['t3'] }
+			]
+		});
+	}
+	const opened: string[] = [];
+	// What the conversation sends its engine: no engine runs here, so the
+	// session is no draft waiting for one and its adapter keeps the ops.
+	const sent: Op[] = [];
+	if (mode.has('cards')) {
+		clearDraft(session.id);
+		const adapter = adapterFor(session.id);
+		if (adapter) adapter.encodeOp = (op: Op) => (sent.push(op), []);
+	}
+	Object.assign(window, { __shellChat: session.chat, __shellSession: session.id, __opened: opened, __sent: sent });
+	$effect(() => {
+		const request = subagentPages.request;
+		if (request) untrack(() => opened.push(`agent:${request.agentId}:${request.place}`));
+	});
+
 	// The canvas of ?shell&preview: the conversation, and a tab beside it
-	// for each file a chip opens (as +page.svelte places it).
-	let tiles = $state<TileLayout>(singleLeafLayout([chatTab(session.id)]));
+	// for each file a chip opens (as +page.svelte places it). ?shell&tool:
+	// the plan panel open beside it.
+	let tiles = $state<TileLayout>(
+		mode.has('tool')
+			? openElsewhere(singleLeafLayout([chatTab(session.id)]), { id: 'tool-plan', panel: 'plan' }, { place: 'side', chatLeaf: null })
+			: singleLeafLayout([chatTab(session.id)])
+	);
 	$effect(() => {
 		const request = filePreviews.request;
 		if (!request) return;
@@ -162,6 +234,16 @@
 		if (mode.has('trial')) Object.assign(window, { __trial: trial, __trialDone: trial.signedIn() });
 	});
 </script>
+
+{#snippet chat()}
+	<ChatPane
+		{session}
+		{store}
+		isActive
+		onOpenTrace={mode.has('cards') ? () => opened.push('trace') : undefined}
+		onOpenTeam={mode.has('cards') ? () => opened.push('team') : undefined}
+	/>
+{/snippet}
 
 <ConfirmHost />
 <Toaster />
@@ -193,18 +275,25 @@
 				footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
 			/>
 			<div class="canvas" data-testid="canvas">
-				{#if mode.has('preview')}
-					<Mosaic hideSoloBar layout={tiles} onchange={(next) => (tiles = next)} label={(tab) => (previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : session.chat.title || '对话')}>
+				{#if mode.has('preview') || mode.has('tool')}
+					<Mosaic
+						hideSoloBar
+						layout={tiles}
+						onchange={(next) => (tiles = next)}
+						label={(tab) => (previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : tab.panel === 'plan' ? '任务计划' : session.chat.title || '对话')}
+					>
 						{#snippet panel(tab)}
 							{#if previewOf(tab.panel)}
 								<FilePreview path={previewOf(tab.panel)!} root={first.path} />
+							{:else if tab.panel === 'plan'}
+								<PlanPanel plan={session.chat.plan} />
 							{:else}
-								<ChatPane {session} {store} isActive />
+								{@render chat()}
 							{/if}
 						{/snippet}
 					</Mosaic>
 				{:else}
-					<ChatPane {session} {store} isActive />
+					{@render chat()}
 				{/if}
 			</div>
 		</div>
