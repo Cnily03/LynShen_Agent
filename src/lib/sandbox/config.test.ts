@@ -9,7 +9,8 @@ import {
 	removeDirectoryPatch,
 	removeRulePatch,
 	samePath,
-	updateRulePatch
+	updateRulePatch,
+	windowsSandboxPatch
 } from './config';
 
 // The contract's example file, with keys and fields this page does not know.
@@ -47,12 +48,23 @@ describe('readSandboxSettings', () => {
 
 	it("falls back to the engine's defaults and skips malformed entries", () => {
 		const s = readSandboxSettings({ sandbox: 'bogus', sandbox_directories: [{ mode: 'rw' }, 'x'], command_rules: [{ prefix: 'rm', action: 'nuke' }], projects: [] });
-		expect(s).toEqual({ mode: 'workspace-write', network: true, alwaysScope: 'project', directories: [], rules: [] });
+		expect(s).toEqual({ mode: 'workspace-write', network: true, alwaysScope: 'project', windowsSandbox: false, directories: [], rules: [] });
 		expect(readSandboxSettings({ sandbox: 'full-access', sandbox_network: false, always_allow_scope: 'global' })).toMatchObject({
 			mode: 'full-access',
 			network: false,
 			alwaysScope: 'global'
 		});
+	});
+});
+
+describe('Windows sandbox (preview)', () => {
+	it('is on only for restricted-token, and its patch writes that key alone', () => {
+		expect(readSandboxSettings(CFG()).windowsSandbox).toBe(false);
+		expect(readSandboxSettings({ ...CFG(), sandbox_windows: 'off' }).windowsSandbox).toBe(false);
+		expect(readSandboxSettings({ ...CFG(), sandbox_windows: 'on' }).windowsSandbox).toBe(false);
+		expect(readSandboxSettings({ ...CFG(), sandbox_windows: 'restricted-token' }).windowsSandbox).toBe(true);
+		expect(windowsSandboxPatch(true)).toEqual({ sandbox_windows: 'restricted-token' });
+		expect(windowsSandboxPatch(false)).toEqual({ sandbox_windows: 'off' });
 	});
 });
 

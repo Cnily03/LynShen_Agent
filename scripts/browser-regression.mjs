@@ -1155,6 +1155,26 @@ try {
   await page.getByRole('button',{name:'完全访问',exact:true}).click();
   await page.getByRole('button',{name:'改为完全访问'}).click();
   await expect.poll(configPatches).toContain('{"sandbox":"full-access"}');
+  // Windows 沙箱（预览）: Windows only, off by default; on, it writes
+  // sandbox_windows and the notice says commands are isolated now. The
+  // network row says the switch cannot stop the network there.
+  await expect(page.getByRole('switch',{name:'Windows 沙箱（预览）'})).toHaveCount(0);
+  const winPage = await browser.newPage();
+  await winPage.goto(base);
+  // The app sets data-os from the user agent (applyPlatformClass); the
+  // fixture does not. The section reads it when it opens.
+  await winPage.evaluate(() => { document.documentElement.dataset.os = 'windows'; });
+  await winPage.getByRole('button',{name:'权限与沙箱'}).first().click();
+  const winSwitch = winPage.getByRole('switch',{name:'Windows 沙箱（预览）'});
+  await expect(winSwitch).toHaveAttribute('aria-checked','false');
+  await expect(winPage.getByText('要限制命令，打开下面的「Windows 沙箱（预览）」')).toBeVisible();
+  await expect(winPage.getByText('在 Windows 上，这个开关不能阻止命令访问网络')).toBeVisible();
+  await winSwitch.click();
+  const winPatches = () => winPage.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
+  await expect.poll(winPatches).toContain('{"sandbox_windows":"restricted-token"}');
+  await expect(winSwitch).toHaveAttribute('aria-checked','true');
+  await expect(winPage.getByText('Windows 沙箱（预览）已开启')).toBeVisible();
+  await winPage.close();
   // The product is named Aogiri; its engine and the account keep the name LynShen.
   await page.goto(base + '?sidebar');
   await expect(page.locator('.brand .word')).toHaveText('Aogiri');
@@ -1574,5 +1594,5 @@ try {
     await mp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
+  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
 } finally { await browser.close(); await server.close(); }
