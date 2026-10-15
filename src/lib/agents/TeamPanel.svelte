@@ -19,7 +19,7 @@
 
 	let { chat, onOp, onOpenAgent }: { chat: ChatState; onOp: (op: Op) => void; onOpenAgent?: (id: string) => void } = $props();
 
-	// The subagents of the turn (and any still at work), as the progress card lists them.
+	// The subagents of the turn (and any still at work), as the subagents card lists them.
 	const rows = $derived(
 		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, stopping: chat.stopRequested, since: chat.turnStartedAt })
 	);

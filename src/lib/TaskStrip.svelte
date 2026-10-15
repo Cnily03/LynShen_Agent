@@ -23,7 +23,7 @@
 		/** The agent trace: one subagent's, or the run list (null). */
 		onTrace?: (agentId: string | null) => void;
 		/** Lists subagents (and Workflows), also those the engine runs as
-		 *  background tasks; off where the progress tray shows them. */
+		 *  background tasks; off where the subagents card shows them. */
 		agents?: boolean;
 	} = $props();
 
@@ -65,7 +65,7 @@
 	const rows = $derived.by((): Row[] => {
 		const ids = new Set(chat.bgTasks.map((x) => x.id));
 		// A Claude subagent or Workflow is also a background task (same id):
-		// the progress tray has it when this strip does not list agents.
+		// the subagents card has it when this strip does not list agents.
 		const isAgent = (task: { id: string; kind: string }) =>
 			task.id in chat.subagents || task.kind.startsWith('local_agent') || task.kind.startsWith('local_workflow');
 		const fromTasks = chat.bgTasks.filter((task) => agents || !isAgent(task)).map((task) => {

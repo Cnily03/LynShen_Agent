@@ -364,13 +364,6 @@ const chat = {
 		// The plan card and the subagents card at the top right of the chat leaf
 		progress: {
 			region: '计划和子智能体',
-			// The progress tray (until the cards replace it)
-			label: '进度',
-			todo: '待办',
-			count: '{done}/{total}',
-			fold: '收起进度',
-			unfold: '展开进度',
-			stepsDone: '{done}/{total} 步完成',
 			plan: '计划',
 			agents: '子智能体',
 			agentsN: '{n} 个子智能体',
@@ -847,13 +840,6 @@ const chat = {
 		// The plan card and the subagents card at the top right of the chat leaf
 		progress: {
 			region: 'Plan and subagents',
-			// The progress tray (until the cards replace it)
-			label: 'Progress',
-			todo: 'To-dos',
-			count: '{done}/{total}',
-			fold: 'Fold progress',
-			unfold: 'Show progress',
-			stepsDone: '{done}/{total} steps',
 			plan: 'Plan',
 			agents: 'Subagents',
 			agentsN: '{n} subagents',

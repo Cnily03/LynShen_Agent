@@ -55,7 +55,7 @@
 	import { loadComposerText, saveComposerText } from '$lib/composerText';
 	import { t } from '$lib/i18n';
 	import { imageViewer } from '$lib/ui/imageViewer.svelte';
-	import ProgressTray from '$lib/agents/ProgressTray.svelte';
+	import ProgressSheet from '$lib/agents/ProgressSheet.svelte';
 	import StatusStrip from '$lib/composer/StatusStrip.svelte';
 	import ContextIndicator from '$lib/composer/ContextIndicator.svelte';
 	import { planQuota } from '$lib/composer/quota';
@@ -591,7 +591,8 @@
 		return null;
 	}
 	// The subagents of this conversation, as Desktop's chat shows them: every
-	// run (the message list's cards) and the current turn's (the progress tray).
+	// run (the message list's cards) and the current turn's (the plan and
+	// subagents chips under the header).
 	const lastTool = (label: string) => {
 		const m = chat.subagentLastTool[label];
 		return m ? `${toolVerb(m.name)} ${toolTarget(m.name, parseToolOutput(m.output))}`.trim() : '';
@@ -662,6 +663,9 @@
 		{#if onFiles}<button class="back" onclick={onFiles} aria-label={t('shell.remote.files')}><FilesIcon size={18} /></button>{/if}
 		{#if onChanges}<button class="back" onclick={onChanges} aria-label={t('shell.remote.changes')}><GitDiffIcon size={18} /></button>{/if}
 	</header>
+	<!-- The turn's plan and subagents: a title line each, a bottom sheet a
+	     tap away (design.md, "Status, attention and emphasis"). -->
+	<ProgressSheet {chat} rows={turnAgents} onOpen={bcaps.agentTrace ? openAgent : undefined} onStop={(id) => send({ op: 'stop_task', task_id: id })} />
 
 	<TaskStrip
 		{chat}
@@ -750,7 +754,6 @@
 			</div>
 		{/if}
 
-		<ProgressTray {chat} sessionId={sid || 'draft'} rows={turnAgents} onOpen={bcaps.agentTrace ? openAgent : undefined} onStop={(id) => send({ op: 'stop_task', task_id: id })} />
 		<div class="composer-wrap">
 			{#if chat.approvalPending && chat.busy}
 				<div class="queued">
