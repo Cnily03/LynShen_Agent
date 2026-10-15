@@ -184,19 +184,21 @@
 {/if}
 
 <style>
+	/* A settings control, as Select draws one (design.md §4 "Controls"). */
 	.trigger {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		width: 100%;
-		min-height: 38px;
-		padding: 7px 11px;
+		min-height: 32px;
+		padding: 6px 10px;
 		border: 1px solid var(--border);
 		border-radius: var(--r-sm);
 		background: var(--surface2);
 		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		text-align: left;
 		cursor: pointer;
 		transition: border-color var(--t-fast) var(--ease-out);
@@ -205,13 +207,16 @@
 	.trigger.open {
 		border-color: var(--border-strong);
 	}
+	/* The start box's model control: a text dropdown like the composer
+	   footer's (28px, --fs-xs, --dim). */
 	.trigger.inline {
 		display: inline-flex;
 		width: auto;
-		min-height: 30px;
+		min-height: 28px;
 		gap: 6px;
-		padding: 0 10px;
+		padding: 0 8px;
 		border: none;
+		font-size: var(--fs-xs);
 		background: none;
 		color: var(--dim);
 		transition:

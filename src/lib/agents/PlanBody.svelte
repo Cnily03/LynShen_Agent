@@ -118,8 +118,9 @@
 	.text {
 		overflow-wrap: anywhere;
 	}
+	/* 500, not 600: 600 is for page, section and group titles (design.md §4 "Type"). */
 	.step.current .text {
-		font-weight: 600;
+		font-weight: 500;
 	}
 	.step.done .text {
 		color: var(--dim);
