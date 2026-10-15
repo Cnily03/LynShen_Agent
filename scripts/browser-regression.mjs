@@ -51,8 +51,8 @@ try {
   // The home page offers the gateway's models before any conversation exists.
   await page.goto(base + '?home');
   await page.locator('button.model').click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(2);
-  await page.getByRole('menuitemradio',{name:'Claude Opus 5.5'}).click();
+  await expect(page.locator('.model-menu .mline')).toHaveCount(2);
+  await page.locator('.model-menu .mline', {hasText:'Claude Opus 5.5'}).click();
   await page.locator('textarea').fill('你好');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('started')).toHaveText('你好 @ claude-opus-5-5');
@@ -1098,6 +1098,180 @@ try {
       await mp.close();
     }
   }
+
+  // The model pickers (src/lib/models), on the gateway's catalog
+  // (catalogSample.ts, a trial account), at the smallest window in both
+  // themes: the quick switcher under the composer's model button, its keys,
+  // typing into the full browser, search by Chinese words and aliases,
+  // folded versions, an unavailable model, and a long name that wraps.
+  // A model row by its full name.
+  const row = (scope, name) => scope.locator('.mline').filter({has: scope.page().getByText(name, {exact: true})});
+  const cutOff = (loc) => loc.evaluate((el) => el.scrollWidth > el.clientWidth + 1 || getComputedStyle(el).textOverflow === 'ellipsis' && getComputedStyle(el).whiteSpace === 'nowrap');
+  const solid = async (loc, what) => {
+    const fill = await loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+    assert.ok(!/\/\s*0?\.\d+\)$|rgba\(.*,\s*0?\.\d+\)$/.test(fill), `${what} is see-through: ${fill}`);
+  };
+  for (const theme of ['dark', 'light']) {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + `?shell&models&theme=${theme}`);
+    // The button names the model as the catalog does, not by its id.
+    await expect(mp.locator('.fbtn.model')).toHaveText('DeepSeek V4.1 Flash', {timeout:30000});
+    await mp.locator('.fbtn.model').click();
+    await mp.mouse.move(5, 5);
+    const quick = mp.locator('.pop.mm .qs');
+    await solid(mp.locator('.pop.mm'), `${theme}: the model menu`);
+    // The model in use, then the plan's picks (a trial: what it pays for
+    // first); an unavailable model and an image model are not offered.
+    await expect(quick.locator('.head')).toHaveText(['最近使用', '推荐']);
+    await expect(quick.locator('.mline .name')).toHaveText(['DeepSeek V4.1 Flash', 'GLM-5.3', 'Kimi K3', 'Auto', 'Claude Opus 5.5', 'Claude Sonnet 5.5 (1M context, extended thinking)', 'GPT-6 Sol']);
+    await expect(row(quick, 'GLM-5.3').locator('.aside')).toHaveText('套餐内');
+    await expect(row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.aside')).toHaveText('不稳定');
+    await expect(row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.dot')).toHaveCount(1);
+    // The long name wraps inside its row: nothing cut, nothing under the check.
+    const long = row(quick, 'Claude Sonnet 5.5 (1M context, extended thinking)');
+    assert.equal(await cutOff(long.locator('.name')), false, `${theme}: the long name is cut in the quick switcher`);
+    const [nameBox, checkBox] = await Promise.all([long.locator('.name').boundingBox(), long.locator('.pop-check').boundingBox()]);
+    assert.ok(nameBox.x + nameBox.width <= checkBox.x, `${theme}: the long name runs under the check`);
+    // Keys: the search field has the focus; the arrows move, ⌘D pins, Enter picks.
+    await expect(quick.locator('input')).toBeFocused();
+    await expect(quick.locator('.mline.sel .name')).toHaveText('DeepSeek V4.1 Flash');
+    await mp.keyboard.press('ArrowDown');
+    await mp.keyboard.press('ArrowDown');
+    await expect(quick.locator('.mline.sel .name')).toHaveText('Kimi K3');
+    await mp.keyboard.press('ControlOrMeta+d');
+    await expect(quick.locator('.head')).toHaveText(['收藏', '最近使用', '推荐']);
+    await expect(quick.locator('.mline').first().locator('.name')).toHaveText('Kimi K3');
+    await expect(quick.locator('.mline.sel .name')).toHaveText('Kimi K3');
+    await mp.keyboard.press('Enter');
+    await expect(mp.locator('.pop.mm')).toHaveCount(0);
+    await expect(mp.locator('.fbtn.model.pending')).toHaveCount(1);
+    assert.deepEqual(await mp.evaluate(() => JSON.parse(localStorage.getItem('lynshen-model-picks'))), {favorites: ['monoize::kimi-k3'], recent: ['monoize::kimi-k3']});
+    // An input method: nothing moves while it composes (its Enter picks
+    // nothing); the browser opens with the finished text.
+    await mp.locator('.fbtn.model').click();
+    const qi = mp.locator('.pop.mm .qs input');
+    const compose = (loc, text, done) => loc.evaluate((el, [text, done]) => {
+      el.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+      el.value = text;
+      el.dispatchEvent(new InputEvent('input', {isComposing: true, bubbles: true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 229, isComposing: true, bubbles: true}));
+      if (done) {
+        el.value = done;
+        el.dispatchEvent(new InputEvent('input', {isComposing: true, bubbles: true}));
+        el.dispatchEvent(new CompositionEvent('compositionend', {data: done, bubbles: true}));
+      }
+    }, [text, done]);
+    await compose(qi, 'kan', '');
+    await expect(mp.locator('.pop.mm')).toHaveCount(1);
+    await expect(mp.locator('.mb')).toHaveCount(0);
+    await compose(qi, 'kantu', '看图');
+    const ime = mp.locator('.mb');
+    await expect(ime.locator('input')).toHaveValue('看图');
+    await expect(ime.locator('.mline .name')).toContainText(['Kimi K3']);
+    await expect(row(ime, 'GLM-5.3')).toHaveCount(0);
+    await compose(ime.locator('input'), 'guo', '');
+    await expect(ime.locator('.empty')).toHaveCount(0);
+    await expect(row(ime, 'Kimi K3')).toHaveCount(1);
+    await compose(ime.locator('input'), 'guochan', '国产');
+    await expect(row(ime, 'GLM-5.3')).toHaveCount(1);
+    await mp.keyboard.press('Escape');
+    await expect(ime).toHaveCount(0);
+    // Typing opens the full browser with the text.
+    await mp.locator('.fbtn.model').click();
+    await mp.keyboard.type('opus');
+    const dlg = mp.locator('.mb');
+    await expect(dlg.locator('input')).toBeFocused();
+    await expect(dlg.locator('input')).toHaveValue('opus');
+    await mp.mouse.move(5, 5);
+    await expect(dlg.locator('.mline .name')).toHaveText(['Claude Opus 5.5', 'Claude Opus 5', 'Claude Opus 4.8']);
+    await solid(dlg, `${theme}: the model browser`);
+    for (const [query, names] of [
+      ['opus 4.8', ['Claude Opus 4.8']],
+      ['能看图的国产模型', ['Kimi K3']],
+      ['zhipuai', ['GLM-5.3']],
+      ['DeepSeek-V4.1-Flash', ['DeepSeek V4.1 Flash']],
+      ['便宜 国产', ['DeepSeek V4.1 Flash', 'DeepSeek V4 Pro', 'GLM-5.3', 'GLM-5.3 Flash']]
+    ]) {
+      await dlg.locator('input').fill(query);
+      await expect(dlg.locator('.mline .name'), query).toHaveText(names);
+    }
+    await dlg.locator('input').fill('没有这种模型');
+    await expect(dlg.locator('.empty')).toHaveText('没有匹配的模型');
+    // No query: vendor sections (a trial: domestic first), older versions folded.
+    await dlg.locator('input').fill('');
+    await expect(dlg.locator('.vhead .vname')).toHaveText(['DeepSeek', '智谱', 'Kimi', 'LynShen', 'Anthropic', 'OpenAI', 'Google', '其他']);
+    await expect(row(dlg, 'Claude Opus 4.8')).toHaveCount(0);
+    const opus = row(dlg, 'Claude Opus 5.5');
+    await opus.hover();
+    await mp.keyboard.press('ArrowRight');
+    await expect(dlg.locator('.mline.folded .name')).toHaveText(['Claude Opus 5', 'Claude Opus 4.8']);
+    await expect(dlg.locator('.more.sel, .mline.sel')).toHaveCount(1);
+    await mp.keyboard.press('ArrowLeft');
+    await expect(dlg.locator('.mline.folded')).toHaveCount(0);
+    await expect(dlg.locator('.more.sel .pop-label')).toHaveText('更多版本 · 2');
+    // The long name in the browser: one row, full text.
+    assert.equal(await cutOff(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.name')), false, `${theme}: the long name is cut in the browser`);
+    await expect(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.facts')).toHaveText('不稳定 · 1M 上下文 · ¥21.3 / ¥107 每百万 · 看图 · 思考');
+    // An unavailable model: last in its section, its dot, picked after a confirmation.
+    const openai = await dlg.locator('.mline').evaluateAll((rows) => rows.map((r) => r.querySelector('.name').textContent).filter((n) => /^GPT/.test(n)));
+    assert.deepEqual(openai, ['GPT Image 2', 'GPT-6.1 Sol', 'GPT-6 Sol', 'GPT-5.5']);
+    const down = row(dlg, 'GPT-6.1 Sol');
+    await expect(down.locator('.dot.err')).toHaveCount(1);
+    await expect(down.locator('.facts')).toContainText('暂不可用');
+    await down.click();
+    await expect(mp.getByText('这个模型暂不可用')).toBeVisible();
+    await mp.getByRole('button',{name:'仍然使用'}).click();
+    await expect(dlg).toHaveCount(0);
+    assert.equal(await mp.evaluate(() => JSON.parse(localStorage.getItem('lynshen-model-picks')).recent[0]), 'monoize::gpt-6.1-sol');
+    await mp.close();
+  }
+  // An older gateway (no catalog, 404): names, vendors and families read
+  // from the ids; no price, health or plan.
+  {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + '?shell&models=old');
+    await expect(mp.locator('.fbtn.model')).toHaveText('DeepSeek V4.1 Flash', {timeout:30000});
+    await mp.locator('.fbtn.model').click();
+    await expect(mp.locator('.qs .mline').first().locator('.name')).toHaveText('DeepSeek V4.1 Flash');
+    await mp.getByRole('option', {name:/全部模型/}).click();
+    const dlg = mp.locator('.mb');
+    await expect(dlg.locator('.vhead .vname').first()).toHaveText('LynShen');
+    await expect(row(dlg, 'Claude Opus 5.5')).toHaveCount(1);
+    await expect(row(dlg, 'Claude Opus 4.8')).toHaveCount(0);
+    await expect(dlg.getByText(/¥|套餐内|不稳定|暂不可用/)).toHaveCount(0);
+    // Two spellings of one model are one row.
+    await dlg.locator('input').fill('v4.1');
+    await expect(dlg.locator('.mline .name')).toHaveText(['DeepSeek V4.1 Flash']);
+    await mp.close();
+  }
+  // Settings → 模型与推理: the same pickers; the image model's lists only
+  // models that draw images.
+  {
+    const mp = await browser.newPage({viewport:{width:1040,height:680}});
+    mp.on('pageerror', e => errors.push(e.message));
+    await mp.goto(base + '?models&loggedIn');
+    await mp.getByRole('button', {name:'模型与推理', exact:true}).click({timeout:30000});
+    const trigger = mp.locator('#set-default-model .trigger');
+    await expect(trigger).toContainText('DeepSeek V4.1 Flash');
+    await expect(mp.locator('#set-compact-model .trigger')).toContainText('GLM-5.3 Flash');
+    await expect(mp.locator('#set-image-model .trigger')).toContainText('GPT Image 2');
+    await trigger.click();
+    await mp.mouse.move(5, 5);
+    const quick = mp.locator('.pop.mp');
+    await solid(quick, 'the settings model list');
+    await expect(quick.locator('input')).toBeFocused();
+    await row(quick, 'Kimi K3').click();
+    await expect(trigger).toContainText('Kimi K3');
+    await expect.poll(() => mp.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => c.args.patch.model).filter(Boolean))).toContain('kimi-k3');
+    await mp.locator('#set-image-model .trigger').click();
+    await expect(mp.locator('.pop.mp .qs [role=option]')).toHaveText([/自动选择|自动/, /GPT Image 2/, /全部模型/]);
+    await mp.keyboard.press('Escape');
+    await expect(mp.locator('.pop.mp')).toHaveCount(0);
+    await mp.close();
+  }
+  console.log('Model pickers passed: quick switcher (rows, keys, pin), browser (typing, an input method, Chinese words, aliases, folding, unavailable model, long name), fallback without a catalog, settings pickers, dark and light at 1040 × 680.');
   assert.deepEqual(errors, []);
   console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings, the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys).');
 } finally { await browser.close(); await server.close(); }

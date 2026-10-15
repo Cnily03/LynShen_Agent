@@ -215,9 +215,9 @@
 			{/each}
 			{#each lines as line (line.key)}
 				{#if line.kind === 'vendor'}
-					<div class="vendor" role="presentation">
+					<div class="vhead" role="presentation">
 						<Vendor model={line.section.families[0]?.shown[0]?.id ?? ''} size={14} />
-						<span>{line.section.vendor === 'other' ? t('models.vendorOther') : vendorLabel({ vendor: line.section.vendor, vendorName: line.section.vendorName }, locale)}</span>
+						<span class="vname">{line.section.vendor === 'other' ? t('models.vendorOther') : vendorLabel({ vendor: line.section.vendor, vendorName: line.section.vendorName }, locale)}</span>
 					</div>
 				{:else if line.kind === 'model'}
 					{@const i = stopAt.get(line.key) ?? -1}
@@ -306,7 +306,7 @@
 	.list > :global(*) {
 		flex-shrink: 0;
 	}
-	.vendor {
+	.vhead {
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -315,7 +315,7 @@
 		font-size: var(--fs-xs);
 		font-weight: 600;
 	}
-	.vendor:first-child {
+	.vhead:first-child {
 		padding-top: 6px;
 	}
 	.more {
