@@ -343,6 +343,15 @@ pub fn monoize_desktop_plan() -> Result<Value, String> {
     gateway_key_call("GET", "/api/desktop/oauth/plan", None)
 }
 
+/// The models this device key can use, with names, vendors, versions,
+/// health, prices and plan coverage (`GET /api/desktop/models/catalog`,
+/// gateway contract MC-API). Errors as [`gateway_key_call`]'s (a 404: a
+/// gateway without the catalog; the app then reads the plain model list).
+#[tauri::command(async)]
+pub fn monoize_model_catalog() -> Result<Value, String> {
+    gateway_key_call("GET", "/api/desktop/models/catalog", None)
+}
+
 /// The body of `PUT /api/desktop/oauth/plan`: `plan` or `balance` only.
 fn plan_funding_request(funding: &str) -> Option<Value> {
     matches!(funding, "plan" | "balance").then(|| json!({ "plan_funding": funding }))

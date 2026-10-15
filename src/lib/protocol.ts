@@ -707,6 +707,10 @@ export const claimTrial = () => gatewayCall<unknown>('monoize_trial_claim');
 /** The account's desktop plan in force and this key's funding choice (GET
  *  /api/desktop/oauth/plan; src/lib/trial.ts reads it). 404: an older gateway. */
 export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan');
+/** The models this key can use, with names, health, prices and plan
+ *  coverage (GET /api/desktop/models/catalog; src/lib/models/gatewayCatalog.ts
+ *  reads it). 404: an older gateway, which has only the plain model list. */
+export const fetchModelCatalog = () => gatewayCall<unknown>('monoize_model_catalog');
 /** Sets who pays this key's requests in the plan's groups (PUT
  *  /api/desktop/oauth/plan); answers the same body. */
 export const setPlanFunding = (funding: 'plan' | 'balance') => gatewayCall<unknown>('monoize_set_plan_funding', { funding });
