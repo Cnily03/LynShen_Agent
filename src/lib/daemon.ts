@@ -58,8 +58,16 @@ const DAEMON_EVENTS = new Set([
 const CLOSE_TIMEOUT_MS = 10_000;
 
 /** An error the daemon replied with: it was reached, so retrying the
- *  connection won't help. */
-export class DaemonError extends Error {}
+ *  connection won't help. `code` is the reply's stable reason, for ops that
+ *  name one (the reply styles); the message is then the English detail. */
+export class DaemonError extends Error {
+	constructor(
+		message: string,
+		readonly code?: string
+	) {
+		super(message);
+	}
+}
 
 export class DaemonClient {
 	/** Called with the desktop session id and one raw frame (JSON text), and
@@ -262,7 +270,8 @@ export class DaemonClient {
 		if (typeof frame.id === 'number' && this.#pending.has(frame.id)) {
 			const pending = this.#pending.get(frame.id)!;
 			this.#pending.delete(frame.id);
-			if (frame.type === 'error') pending.reject(new DaemonError(String(frame.message)));
+			if (frame.type === 'error')
+				pending.reject(new DaemonError(String(frame.message), typeof frame.code === 'string' ? frame.code : undefined));
 			else pending.resolve(frame);
 			return;
 		}

@@ -22,6 +22,7 @@
 	import MicrophoneIcon from 'phosphor-svelte/lib/MicrophoneIcon';
 	import PlugsIcon from 'phosphor-svelte/lib/PlugsIcon';
 	import BrainIcon from 'phosphor-svelte/lib/BrainIcon';
+	import ChatCenteredTextIcon from 'phosphor-svelte/lib/ChatCenteredTextIcon';
 	import GlobeIcon from 'phosphor-svelte/lib/GlobeIcon';
 	import HardDrivesIcon from 'phosphor-svelte/lib/HardDrivesIcon';
 	import StorefrontIcon from 'phosphor-svelte/lib/StorefrontIcon';
@@ -104,6 +105,7 @@
 	import SettingsRow from './SettingsRow.svelte';
 	import BackendSection from './BackendSection.svelte';
 	import ShellSection from './ShellSection.svelte';
+	import StylesSection from './StylesSection.svelte';
 	import AcpSection from './AcpSection.svelte';
 	import DaemonSection from './DaemonSection.svelte';
 	import McpSection from './McpSection.svelte';
@@ -167,6 +169,7 @@
 		voice: MicrophoneIcon,
 		providers: PlugsIcon,
 		models: BrainIcon,
+		styles: ChatCenteredTextIcon,
 		network: GlobeIcon,
 		mcp: HardDrivesIcon,
 		skills: MagicWandIcon,
@@ -1307,6 +1310,8 @@
 							</div>
 						</SettingsRow>
 					</SettingsSection>
+				{:else if current === 'styles'}
+					<StylesSection project={chat && !chat.isChatMode ? chat.cwd : ''} />
 				{:else if current === 'network'}
 					<SettingsSection title={t('settings.page.requests')}>
 						<SettingsRow id="retry-attempts" title={t('settings.behavior.retryAttempts')} description={t('settings.behavior.retryAttemptsHint', { max: RETRY_ATTEMPTS_MAX })}>

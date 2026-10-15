@@ -47,6 +47,9 @@ export interface Session {
 	at?: number;
 	/** Model and effort picked while a draft, applied when it starts. */
 	draftPick?: { model?: string; effort?: string };
+	/** The reply style picked while a draft (LynShen), sent before its first
+	 *  message. */
+	draftStyle?: string;
 	/** Claude Code / Codex: runs through the LynShen gateway on the user's
 	 *  LynShen login (only this session's process; their own config is left
 	 *  alone). Unset: as it last ran (the daemon remembers it). */

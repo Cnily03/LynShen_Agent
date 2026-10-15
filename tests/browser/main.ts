@@ -125,7 +125,7 @@ Object.assign(window, {
         case 'monoize_avatar_upload': return {user: {id: 'u1', username: 'Test user', role: 'user', avatar_url: '/api/desktop/oauth/avatars/a2'}, data_url: `data:image/webp;base64,${args.image}`};
         case 'about_app': return {version:'0.5.0', cli:'0.5.0', os:'macos', arch:'aarch64', logs:'', daemon_log:''};
         // Only the agent-UX pages have a (stand-in) daemon.
-        case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell', 'agents'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
+        case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell', 'agents', 'styles'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
         // Plugins of other agents, as the import scan finds them.
         case 'import_scan': return {sessions: [], skipped: [], skills: [
           {source:'claude', name:'docx', description:'', path:'/p/document-skills/docx', plugin:'document-skills', present:false},
@@ -150,7 +150,7 @@ Object.assign(window, {
 });
 // The agent-UX pages run against a stand-in daemon (fakeDaemon.ts).
 const params = new URL(location.href).searchParams;
-const panels = ['skills', 'market', 'plugins', 'sidebar', 'welcome', 'updates', 'agents'].some((k) => params.has(k));
+const panels = ['skills', 'market', 'plugins', 'sidebar', 'welcome', 'updates', 'agents', 'styles'].some((k) => params.has(k));
 // ?shell: the window's frame around one conversation (Shell.svelte).
 const shell = params.has('shell');
 if (panels || shell) {

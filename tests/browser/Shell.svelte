@@ -27,6 +27,8 @@
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
 	//   &textOnly               the engine reports a model that takes no images
 	//                           and does not think (`window.__chat` attaches files)
+	//   &styles                 the engine reports the reply style: the "+"
+	//                           menu lists the styles (`window.__sent` the ops)
 	//   &models[=old]           a gateway session on the sample models
 	//                           (catalogSample.ts), described by the gateway's
 	//                           catalog, or (=old) by their ids only
@@ -244,7 +246,10 @@
 	// What the conversation sends its engine: no engine runs here, so the
 	// session is no draft waiting for one and its adapter keeps the ops.
 	const sent: Op[] = [];
-	if (mode.has('cards')) {
+	// ?shell&styles: the engine says which reply style the conversation
+	// uses, so the "+" menu lists the styles (fakeDaemon.ts answers styles_list).
+	if (mode.has('styles')) feed({ type: 'reply_style', style: 'default', name: '默认', source: 'builtin', chosen: false, missing: false });
+	if (mode.has('cards') || mode.has('styles')) {
 		clearDraft(session.id);
 		const adapter = adapterFor(session.id);
 		if (adapter) adapter.encodeOp = (op: Op) => (sent.push(op), []);

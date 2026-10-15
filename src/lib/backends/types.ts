@@ -96,6 +96,9 @@ export interface BackendCaps {
 	 *  notice when commands run without isolation, the sandbox approval card
 	 *  (kind, reason, scopes) and the escalation records. */
 	sandbox: boolean;
+	/** Reply styles (回复风格): the composer's style rows, `set_style` and
+	 *  the `reply_style` event. Only LynShen's own prompt carries one. */
+	replyStyles: boolean;
 }
 
 /** Normalized events are the existing lynshen AgentEvent dialect — adapters

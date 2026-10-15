@@ -91,6 +91,32 @@ describe('SessionStore lifecycle', () => {
 		]);
 	});
 
+	it('a reply style picked in a draft goes first, before its model and its first message', async () => {
+		const store = new SessionStore();
+		const p = proj();
+		store.projects.push(p);
+		const id = store.addSession(p);
+		const s = p.sessions[0];
+		s.draftStyle = 'concise';
+		s.draftPick = { model: 'gpt-5.5', effort: 'high' };
+		begin(id);
+		expect(s.draftStyle).toBeUndefined();
+		await flush();
+		const lines = vi.mocked(sendLine).mock.calls.filter(([sid]) => sid === id).map(([, l]) => l);
+		expect(lines).toEqual([
+			JSON.stringify({ op: 'set_style', style: 'concise' }),
+			JSON.stringify({ op: 'command', input: '/model gpt-5.5 high' }),
+			JSON.stringify({ op: 'user_message', content: 'hi' })
+		]);
+		// Only a LynShen engine takes a style: Claude Code's own prompt has none.
+		const other = store.addSession(p, undefined, 'claude');
+		p.sessions.find((x) => x.id === other)!.draftStyle = 'concise';
+		begin(other);
+		await flush();
+		const sent = vi.mocked(sendLine).mock.calls.filter(([sid]) => sid === other).map(([, l]) => l);
+		expect(sent).toEqual([JSON.stringify({ op: 'user_message', content: 'hi' })]);
+	});
+
 	it('a model picked on the home page goes before the first message', async () => {
 		const store = new SessionStore();
 		const p = proj();
