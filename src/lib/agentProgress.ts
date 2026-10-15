@@ -1,6 +1,6 @@
 // What the conversation shows of a turn's progress: its todo list (the plan)
-// and the subagents it runs, as the progress card at the top of the chat and
-// the subagent cards in the message list read them. Pure: the components pass
+// and the subagents it runs, as the plan and subagents cards at the top right
+// of the chat and the subagent cards in the message list read them. Pure: the components pass
 // in the chat's state and a clock.
 
 import type { AgentRun, BoardTask, PlanStep, SubagentInfo, TaskStatus, TeamAgent, TeamBudget, WorkflowRun } from './chat.svelte';
@@ -56,7 +56,7 @@ export function planSummary(plan: PlanStep[], team: Record<string, Pick<TeamAgen
 	return { steps, done, total: steps.length, current };
 }
 
-/** One subagent as the progress card and its spawn card show it. */
+/** One subagent as the subagents card and its spawn card show it. */
 export interface AgentRow {
 	/** The id its conversation is read by (agent_runs / lifecycle path). */
 	id: string;
@@ -389,25 +389,6 @@ function parse(output: string): Record<string, unknown> | null {
 export const planShown = (plan: PlanSummary, busy: boolean, planFresh: boolean) =>
 	plan.total > 0 && (planFresh || (busy && plan.done < plan.total));
 
-/** The progress tray above the composer: hidden (nothing to show), its one-line
- *  bar, or open (the bar plus the to-dos and subagents) when the user opened
- *  it for this session. */
-export type TrayMode = 'hidden' | 'bar' | 'open';
-
-export function trayMode(plan: PlanSummary, rows: AgentRow[], busy: boolean, planFresh: boolean, open: boolean): TrayMode {
-	if (!planShown(plan, busy, planFresh) && !rows.length) return 'hidden';
-	return open ? 'open' : 'bar';
-}
-
-/** The bar's counts: steps done of all, and subagents (running ones while any run). */
-export function pillParts(plan: PlanSummary, rows: AgentRow[], showPlan: boolean): { steps: string; agents: number; running: number } {
-	return {
-		steps: showPlan ? `${plan.done}/${plan.total}` : '',
-		agents: rows.length,
-		running: rows.filter((r) => r.state === 'running' || r.state === 'queued').length
-	};
-}
-
 /** A running time as the cards show it: 8s, 1m05s, 1h02m. */
 export function shortElapsed(ms: number): string {
 	const s = Math.max(0, Math.floor(ms / 1000));
@@ -417,7 +398,7 @@ export function shortElapsed(ms: number): string {
 	return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
 }
 
-/** A token count as the progress card shows it: 950, 18.4k, 120k, 1.2M. */
+/** A token count as the subagents card shows it: 950, 18.4k, 120k, 1.2M. */
 export function compactTokens(n: number): string {
 	const v = Math.max(0, Math.round(n));
 	if (v >= 1_000_000) return `${trimZero((v / 1_000_000).toFixed(1))}M`;
@@ -427,8 +408,8 @@ export function compactTokens(n: number): string {
 }
 const trimZero = (s: string) => s.replace(/\.0$/, '');
 
-/** The progress card's one-line summary: steps done, subagents (running ones
- *  while any run), and the team's tokens against its budget when it has one. */
+/** The turn in numbers: steps done, subagents (running ones while any run),
+ *  and the team's tokens against its budget when it has one. */
 export interface TeamSummary {
 	steps: { done: number; total: number } | null;
 	agents: number;

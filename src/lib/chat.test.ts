@@ -889,7 +889,7 @@ describe('claude session extras', () => {
 		c.handle({ type: 'tool_start', call_id: 't2', name: 'read', subagent: 'Scan auth' });
 		expect(c.messages.at(-1)).toMatchObject({ kind: 'tool', subagent: 'Scan auth' });
 		expect(c.subagentLastTool['Scan auth']).toMatchObject({ callId: 't2', name: 'read' });
-		// A finished subagent stays (the progress card shows it) until the next turn.
+		// A finished subagent stays (the subagents card shows it) until the next turn.
 		c.handle({ type: 'subagent_lifecycle', path: 'a1', label: 'Scan auth', status: 'completed', message: '' });
 		expect(c.subagents.a1).toMatchObject({ status: 'completed', label: 'Scan auth' });
 		expect(c.subagents.a1.endedAt).toBeGreaterThan(0);

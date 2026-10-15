@@ -1,6 +1,7 @@
 // How wide the conversation column is (design.md, "Workbench canvas"): the
-// messages, the composer and the trays above it share one centred column
-// whose width follows the chat pane and the 对话宽度 setting.
+// messages, the composer and the approval card above it share one centred
+// column whose width follows the chat pane and the 对话宽度 setting. (The
+// plan and subagents cards can move it left: agents/progressCards.ts.)
 
 export const CHAT_WIDTH_MODES = ['auto', 'standard', 'full'] as const;
 /** 自适应: a share of the pane, between two bounds. 标准: one fixed width.

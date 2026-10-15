@@ -78,10 +78,11 @@
 	import RateLimitBanner from '$lib/RateLimitBanner.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
-	import ProgressTray from '$lib/agents/ProgressTray.svelte';
+	import ProgressCards from '$lib/agents/ProgressCards.svelte';
+	import { anyCard, cardsLayout, cardsShown } from '$lib/agents/progressCards';
 	import NewSessionPicker from '$lib/NewSessionPicker.svelte';
 	import { placeFor, subagentPages, type OpenHow } from '$lib/agents/subagentPages.svelte';
-	import { agentRows, isLive, numstatTotals, porcelainFiles, type AgentRow } from '$lib/agentProgress';
+	import { agentRows, isLive, numstatTotals, planSummary, porcelainFiles, type AgentRow } from '$lib/agentProgress';
 	import { agentChanges } from '$lib/agents/agentChanges.svelte';
 	import { confirmStop } from '$lib/agents/confirmStop';
 	import { parseToolOutput, toolTarget, toolVerb } from '$lib/toolSummary';
@@ -240,8 +241,8 @@
 	// The room the pane wants beside the column (more with the rail at the
 	// left edge), and what the column leaves of it.
 	const sidePad = $derived(marks.length > 1 ? CHAT_PAD_RAIL : CHAT_PAD);
-	const chatW = $derived(wrapW > 0 ? chatColumnWidth(wrapW, prefs.chatWidth, sidePad) : CHAT_W_STANDARD);
-	const chatPad = $derived(wrapW > 0 ? chatColumnPad(wrapW, chatW, sidePad) : sidePad);
+	const columnW = $derived(wrapW > 0 ? chatColumnWidth(wrapW, prefs.chatWidth, sidePad) : CHAT_W_STANDARD);
+	const chatPad = $derived(wrapW > 0 ? chatColumnPad(wrapW, columnW, sidePad) : sidePad);
 
 	// In-conversation find (⌘F). The raw input updates per keystroke; the actual
 	// scan (findHits) keys off the debounced `findQuery` so the O(n) message scan
@@ -524,7 +525,7 @@
 		return null;
 	}
 	// The subagents of this conversation: every run (the message list's cards
-	// find theirs), and the current turn's (the progress card). Derived from
+	// find theirs), and the current turn's (the subagents card). Derived from
 	// the trace and lifecycle state, never from the streaming text.
 	const lastTool = (label: string) => {
 		const m = chat.subagentLastTool[label];
@@ -541,6 +542,17 @@
 			since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER
 		})
 	);
+	// The plan card and the subagents card (agents/ProgressCards.svelte), at
+	// the top right of the pane while the turn has a plan or subagents. Where
+	// the pane leaves room right of the column they sit beside it, and the
+	// column moves left to make that room (progressCards.ts, cardsLayout);
+	// the composer and the cards above it move with the column.
+	const turnPlan = $derived(planSummary(chat.plan, chat.team));
+	const planFresh = $derived(chat.turnStartedAt > 0 && chat.planAt >= chat.turnStartedAt);
+	const cards = $derived(cardsShown(turnPlan, turnAgents, chat.busy, planFresh));
+	const cardsAt = $derived(wrapW > 0 && anyCard(cards) ? cardsLayout(wrapW, columnW, chatPad) : null);
+	const beside = $derived(!!cardsAt?.beside);
+	const chatW = $derived(beside ? cardsAt!.width : columnW);
 	/** A subagent's conversation in a page of its own (see OpenHow); a
 	 *  Workflow opens the trace's run list. */
 	function openAgent(row: AgentRow, how: OpenHow = 'default') {
@@ -1157,6 +1169,12 @@
 		if ((e.target as Element | null)?.closest?.('.pop')) return;
 		atBottom = false;
 	}
+	/** A wheel over the cards beside the column that they cannot take. */
+	function wheelFromCards(e: WheelEvent) {
+		if (!scroller) return;
+		onWheel(e);
+		scroller.scrollTop += e.deltaMode === 1 ? e.deltaY * 18 : e.deltaY;
+	}
 	function pin() {
 		if (!scroller) return;
 		scroller.scrollTop = scroller.scrollHeight;
@@ -1362,7 +1380,15 @@
 
 <svelte:window onkeydown={onWindowKey} onfocus={refreshGitBranch} />
 
-<div class="chatpane" class:fresh style:--chat-w="{chatW}px" style:--chat-pad="{chatPad}px">
+<div
+	class="chatpane"
+	class:fresh
+	class:beside
+	style:--chat-w="{chatW}px"
+	style:--chat-pad="{chatPad}px"
+	style:--col-l={beside ? `${cardsAt!.left}px` : undefined}
+	style:--col-r={beside ? `${cardsAt!.right}px` : undefined}
+>
 	{#if owner}
 		<div class="owner">
 			<AgentAvatar agent={owner} size={16} />
@@ -1409,6 +1435,20 @@
 	{/if}
 
 	<div class="mainwrap" bind:clientWidth={wrapW}>
+	<ProgressCards
+		{chat}
+		sessionId={session.id}
+		plan={turnPlan}
+		rows={turnAgents}
+		shown={cards}
+		{beside}
+		lane={cardsAt?.right ?? 0}
+		onOpen={traceable ? openAgent : undefined}
+		onStop={(id) => send({ op: 'stop_task', task_id: id })}
+		onStopAgent={teamOps ? stopAgent : undefined}
+		onOpenTeam={teamPanel ? openTeam : undefined}
+		onWheel={wheelFromCards}
+	/>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
 			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
@@ -1467,16 +1507,6 @@
 		{#if chat.rateLimit}
 			<RateLimitBanner rateLimit={chat.rateLimit} onDismiss={() => (chat.rateLimit = null)} />
 		{/if}
-
-		<ProgressTray
-			{chat}
-			sessionId={session.id}
-			rows={turnAgents}
-			onOpen={traceable ? openAgent : undefined}
-			onStop={(id) => send({ op: 'stop_task', task_id: id })}
-			onStopAgent={teamOps ? stopAgent : undefined}
-			onOpenTeam={teamPanel ? openTeam : undefined}
-		/>
 
 		{#if chat.planRevising}
 			<div class="approval-wrap">
@@ -1677,6 +1707,9 @@
 		-webkit-mask-image: linear-gradient(to right, transparent, #000 var(--plate-feather), #000 calc(100% - var(--plate-feather)), transparent);
 		mask-image: linear-gradient(to right, transparent, #000 var(--plate-feather), #000 calc(100% - var(--plate-feather)), transparent);
 	}
+	:global(:root[data-canvas-bg]) .chatpane.beside::before {
+		inset-inline: max(0px, calc(var(--col-l, 0px) - var(--chat-pad) - var(--plate-feather))) max(0px, calc(var(--col-r, 0px) - var(--chat-pad) - var(--plate-feather)));
+	}
 	.jump {
 		position: absolute;
 		left: 50%;
@@ -1718,6 +1751,14 @@
 	}
 	.jump:active {
 		transform: translateX(-50%) scale(0.92);
+	}
+	/* With the cards beside it the column is off the pane's centre: the
+	   button, the composer and what sits above it follow the column. */
+	.chatpane.beside .jump {
+		left: calc(var(--col-l, 0px) + var(--chat-w) / 2);
+	}
+	.chatpane.beside .bottom {
+		padding-inline: calc(var(--col-l, 0px) - var(--chat-pad)) calc(var(--col-r, 0px) - var(--chat-pad));
 	}
 	/* Match the composer's outer frame (the column plus --chat-pad a side) so
 	   the approval box lines up flush with the input box. */
@@ -1825,8 +1866,12 @@
 		flex-direction: column;
 		gap: 16px;
 		/* Full width, so the scrollbar sits at the pane's edge; the padding
-		   centres the column. */
+		   centres the column (or, with the cards beside it, leaves their
+		   room at its right). */
 		padding-inline: max(var(--chat-pad), calc((100% - var(--chat-w)) / 2));
+	}
+	.chatpane.beside main {
+		padding-inline: var(--col-l, 0px) var(--col-r, 0px);
 	}
 	/* Fill backwards only: a fill that held the end left the block transformed
 	   for good, so the new-conversation picker's menus (fixed click-away

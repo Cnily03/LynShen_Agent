@@ -2,12 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
 	agentOfCall,
 	agentRows,
-	trayMode,
 	compactTokens,
 	mergeView,
 	porcelainFiles,
 	teamSummary,
-	pillParts,
 	planShown,
 	planSummary,
 	rowElapsed,
@@ -181,33 +179,6 @@ describe('spawn and wait payloads', () => {
 			['ping', 'running']
 		]);
 		expect(waitTargets('')).toEqual([]);
-	});
-});
-
-describe('progress tray', () => {
-	const plan = planSummary([
-		{ step: 'a', status: 'completed' },
-		{ step: 'b', status: 'in_progress' }
-	]);
-	const runningRow = { state: 'running' } as AgentRow;
-	const doneRow = { state: 'done' } as AgentRow;
-	const empty = planSummary([]);
-
-	it('shows while a turn has a plan or subagents, as a bar until opened', () => {
-		expect(trayMode(plan, [], true, true, false)).toBe('bar');
-		expect(trayMode(plan, [], true, true, true)).toBe('open');
-		expect(trayMode(empty, [runningRow], true, false, false)).toBe('bar');
-		expect(trayMode(empty, [], true, false, true)).toBe('hidden');
-	});
-
-	it('keeps an old plan out once its turn is over', () => {
-		expect(trayMode(plan, [], false, false, false)).toBe('hidden');
-		expect(trayMode(plan, [doneRow], false, false, false)).toBe('bar');
-	});
-
-	it('writes the bar counts', () => {
-		expect(pillParts(plan, [runningRow, doneRow], true)).toEqual({ steps: '1/2', agents: 2, running: 1 });
-		expect(pillParts(plan, [], false).steps).toBe('');
 	});
 });
 
