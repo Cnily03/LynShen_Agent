@@ -352,8 +352,13 @@ try {
   await page.reload();
   await expect(page.getByRole('button',{name:'项目',exact:true})).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('.folder-name')).toHaveCount(0);
-  await page.getByRole('button',{name:'展开所有项目'}).click();
+  // 全部折叠 covers 对话 too: with 对话 open it folds everything, then
+  // 全部展开 opens both sections and every project.
+  await page.getByRole('button',{name:'全部折叠'}).click();
+  await expect(page.getByRole('button',{name:'对话',exact:true})).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button',{name:'全部展开'}).click();
   await expect(page.locator('.folder-name')).toHaveCount(3);
+  await expect(page.getByRole('button',{name:'对话',exact:true})).toHaveAttribute('aria-expanded', 'true');
   await page.getByRole('button',{name:'已归档的对话'}).click();
   await expect(page.locator('.tools-count')).toHaveText('6');
   await page.getByRole('button',{name:'选择',exact:true}).click();

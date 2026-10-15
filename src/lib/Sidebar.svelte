@@ -189,7 +189,6 @@
 	// Each conversation outside a project has a folder (and group) of its own.
 	const homes = $derived(projects.filter((p) => p.home));
 	const codeProjects = $derived(projects.filter((p) => !p.chats && !p.home));
-	const everyFolded = $derived(allFolded(fold, codeProjects.map((p) => p.id)));
 	const RECENT_LIMIT = 8;
 	const recent = $derived.by(() => {
 		const listed = projects
@@ -199,6 +198,8 @@
 			.map((x, i) => ({ ...x, i, at: lastActive(x.s) }))
 			.sort((a, b) => b.at - a.at || a.i - b.i);
 	});
+	// The toolbar's 全部折叠 covers the 对话 section (when it lists any) and every project.
+	const everyFolded = $derived(allFolded(fold, codeProjects.map((p) => p.id), recent.length > 0));
 	let showAllRecent = $state(false);
 
 	// Session filter: case-insensitive substring over session title + project
@@ -611,7 +612,7 @@
 			<span class="grow"></span>
 			<button
 				class="tool"
-				disabled={!codeProjects.length}
+				disabled={!codeProjects.length && !recent.length}
 				onclick={() => saveFold(foldAll(fold, codeProjects.map((p) => p.id), !everyFolded))}
 				aria-label={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}
 				title={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}

@@ -323,8 +323,8 @@ const shell = {
 		archiveNoMatch: '已归档的对话里没有匹配的',
 		archiveMatches: '已归档中还有 {n} 个匹配',
 		listTools: '会话列表工具',
-		foldAll: '折叠所有项目',
-		unfoldAll: '展开所有项目',
+		foldAll: '全部折叠',
+		unfoldAll: '全部展开',
 		// The one-and-only creatable session type (mosaic +, sidebar, palette):
 		// the coding agent is picked inside the session, not at creation.
 		agentSession: '新建会话',
@@ -1337,8 +1337,8 @@ const shell = {
 		archiveNoMatch: 'No archived conversation matches',
 		archiveMatches: '{n} more in Archived',
 		listTools: 'Session list tools',
-		foldAll: 'Collapse all projects',
-		unfoldAll: 'Expand all projects',
+		foldAll: 'Collapse all',
+		unfoldAll: 'Expand all',
 		// The one-and-only creatable session type (mosaic +, sidebar, palette):
 		// the coding agent is picked inside the session, not at creation.
 		agentSession: 'New session',

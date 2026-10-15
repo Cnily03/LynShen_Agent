@@ -52,7 +52,28 @@ describe('sidebar fold', () => {
 		fold = toggleSection(fold, 'projects');
 		expect(allFolded(fold, ids)).toBe(true);
 		fold = foldAll(fold, ids, false);
-		expect(fold).toEqual({ sections: { projects: false }, folders: {} });
+		expect(fold).toEqual({ sections: { projects: false, chats: false }, folders: {} });
 		expect(allFolded(fold, [])).toBe(false);
+	});
+
+	it('folds and unfolds the 对话 section together with the projects', () => {
+		const ids = ['a'];
+		let fold = foldAll(readSidebarFold(memory()), ids, true);
+		expect(fold.sections.chats).toBe(true);
+		expect(allFolded(fold, ids, true)).toBe(true);
+		// 对话 opened by hand: not everything is folded any more.
+		fold = toggleSection(fold, 'chats');
+		expect(allFolded(fold, ids, true)).toBe(false);
+		fold = foldAll(fold, ids, false);
+		expect(fold).toEqual({ sections: { chats: false, projects: false }, folders: {} });
+		expect(allFolded(fold, ids, true)).toBe(false);
+	});
+
+	it('works with conversations and no projects', () => {
+		let fold = readSidebarFold(memory());
+		expect(allFolded(fold, [], true)).toBe(false);
+		fold = foldAll(fold, [], true);
+		expect(allFolded(fold, [], true)).toBe(true);
+		expect(allFolded(fold, [], false)).toBe(false);
 	});
 });
