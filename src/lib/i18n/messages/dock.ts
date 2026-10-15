@@ -214,7 +214,6 @@ const dock = {
 		},
 		plan: {
 			title: '任务计划',
-			empty: '暂无计划',
 			emptyHint: '多步任务时 AI 会在此列出步骤'
 		},
 		goal: {
@@ -447,7 +446,6 @@ const dock = {
 		},
 		plan: {
 			title: 'Task plan',
-			empty: 'No plan yet',
 			emptyHint: 'For multi-step tasks the AI will list steps here'
 		},
 		goal: {

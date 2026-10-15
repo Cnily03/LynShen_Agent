@@ -1,43 +1,26 @@
 <script lang="ts">
-	import ListBulletsIcon from 'phosphor-svelte/lib/ListBulletsIcon';
-	import CircleIcon from 'phosphor-svelte/lib/CircleIcon';
-	import RecordIcon from 'phosphor-svelte/lib/RecordIcon';
-	import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircleIcon';
+	// The plan tool panel (`plan`): the session's to-do list with the same
+	// checklist as the plan card at the top right of the conversation.
 	import type { PlanStep } from '$lib/chat.svelte';
+	import { planSummary } from '$lib/agentProgress';
+	import { planCard } from '$lib/agents/progressCards';
+	import PlanBody from '$lib/agents/PlanBody.svelte';
 	import { t } from '$lib/i18n';
 
 	let { plan }: { plan: PlanStep[] } = $props();
 
-	const META: Record<string, { icon: typeof CircleIcon; cls: string }> = {
-		pending: { icon: CircleIcon, cls: 'pending' },
-		in_progress: { icon: RecordIcon, cls: 'active' },
-		completed: { icon: CheckCircleIcon, cls: 'done' }
-	};
-	const metaOf = (s: string) => META[s] ?? META.pending;
-	const done = $derived(plan.filter((p) => p.status === 'completed').length);
+	const card = $derived(planCard({ plan: planSummary(plan), rows: [], busy: false, wait: null, error: '' }));
 </script>
 
 <div class="panel">
 	{#if plan.length}
 		<div class="head">
 			<span class="title">{t('dock.plan.title')}</span>
-			<span class="count">{done}/{plan.length}</span>
+			<span class="count">{card.done}/{card.total}</span>
 		</div>
-		<ol class="steps">
-			{#each plan as p, i (i)}
-				{@const m = metaOf(p.status)}
-				<li class="step {m.cls}">
-					<span class="ico"><m.icon size={15} /></span>
-					<span class="text">{p.step}</span>
-				</li>
-			{/each}
-		</ol>
+		<div class="steps" data-card-scroll><PlanBody {card} /></div>
 	{:else}
-		<div class="empty">
-			<ListBulletsIcon size={26} />
-			<p>{t('dock.plan.empty')}</p>
-			<span>{t('dock.plan.emptyHint')}</span>
-		</div>
+		<p class="empty">{t('dock.plan.emptyHint')}</p>
 	{/if}
 </div>
 
@@ -49,78 +32,29 @@
 	}
 	.head {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
+		align-items: baseline;
+		gap: 8px;
 		padding: 16px 18px 10px;
 	}
 	.title {
-		font-family: var(--font-sans);
 		font-weight: 600;
-		font-size: var(--fs-md);
+		font-size: var(--fs-sm);
 	}
 	.count {
 		font-family: var(--font-mono);
 		font-size: var(--fs-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--dim);
-		background: var(--surface2);
-		border-radius: var(--r-full);
-		padding: 2px 9px;
 	}
 	.steps {
-		list-style: none;
-		margin: 0;
-		padding: 0 12px 16px;
+		min-height: 0;
+		padding: 0 10px 16px;
 		overflow-y: auto;
 	}
-	.step {
-		display: flex;
-		align-items: flex-start;
-		gap: 9px;
-		padding: 7px 8px;
-		border-radius: var(--r-sm);
-		font-size: var(--fs-sm);
-		line-height: 1.4;
-	}
-	.ico {
-		display: inline-flex;
-		flex-shrink: 0;
-		margin-top: 1px;
-		color: var(--dim2);
-	}
-	.step.active .ico {
-		color: var(--accent-bright);
-	}
-	.step.done .ico {
-		color: var(--ok);
-	}
-	.step.active {
-		background: var(--accent-soft);
-	}
-	.step.active .text {
-		color: var(--text);
-		font-weight: 600;
-	}
-	.step.done .text {
-		color: var(--dim);
-		text-decoration: line-through;
-	}
 	.empty {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		color: var(--dim2);
-		padding: 30px;
-		text-align: center;
-	}
-	.empty p {
-		margin: 4px 0 0;
-		font-size: var(--fs-md);
+		margin: 0;
+		padding: 16px 18px;
+		font-size: var(--fs-sm);
 		color: var(--dim);
-	}
-	.empty span {
-		font-size: var(--fs-xs);
 	}
 </style>
