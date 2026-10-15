@@ -64,6 +64,9 @@ export interface Session {
 	 *  the user starts it): with a plan to confirm, the user's words, and
 	 *  the mode the work runs in (see `Requirements.begin`). */
 	requirementStart?: { plan: boolean; text?: string; mode?: string };
+	/** The daemon lists its conversation as saved with nothing in it (see
+	 *  savedEmpty.ts): a restored session whose transcript is not here. */
+	empty?: boolean;
 }
 
 /** 并行任务（git worktree）项目的元数据，随项目布局持久化。 */

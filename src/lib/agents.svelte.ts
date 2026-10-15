@@ -87,6 +87,9 @@ export interface DaemonSessionView {
 	chat?: boolean;
 	/** `lynshen`, `claude`, `codex` or `acp` (newer daemons). */
 	engine?: string;
+	/** How many entries its engine saved: LynShen conversations, newer
+	 *  daemons (0: nothing in it, see savedEmpty.ts). */
+	entries?: number | null;
 }
 
 export interface QuestionView {

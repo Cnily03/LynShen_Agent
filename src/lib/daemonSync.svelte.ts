@@ -10,14 +10,16 @@
 //   desktop's list, and one that knows fewer projects (a new daemon, a lost
 //   file) never closes the desktop's.
 // - Sessions: every daemon session in one of the active workspace's projects
-//   shows in the sidebar. Ones not open here are listed dormant and open when
-//   first shown; titles and archive state follow the daemon; a session
-//   another client removed leaves the list.
+//   shows in the sidebar, but one saved with nothing in it (savedEmpty.ts).
+//   Ones not open here are listed dormant and open when first shown; titles
+//   and archive state follow the daemon; a session another client removed
+//   leaves the list.
 //
 // Tabs, their order and chrome, and the tile layout stay desktop-only.
 
 import { daemon } from '$lib/protocol';
 import type { DaemonSessionView } from '$lib/agents.svelte';
+import { savedEmpty } from '$lib/savedEmpty';
 import type { SavedProject, SessionStore } from '$lib/session.svelte';
 import type { Project, WorktreeMeta } from '$lib/types';
 import type { WorkspaceStore } from '$lib/workbench/workspaceStore.svelte';
@@ -277,11 +279,17 @@ export class DaemonSync {
 				// Not open here yet: it runs the way the daemon last ran it (a tab
 				// saved without the flag would otherwise read as the official one).
 				if (s.dormant && typeof r.gateway === 'boolean') s.gateway = r.gateway;
+				// Saved with nothing in it: not listed until it has something.
+				const empty = savedEmpty(r) || undefined;
+				if (s.empty !== empty) s.empty = empty;
 				continue;
 			}
 			if (daemon.desktopOf(r.session)) continue;
 			if (opening && Date.now() - r.created_at < NEW_SESSION_GRACE_MS) continue;
 			if (!LISTED_ENGINES.has(r.engine ?? 'lynshen')) continue;
+			// A conversation opened elsewhere without a first message is listed
+			// once it has one.
+			if (savedEmpty(r)) continue;
 			const home = this.#projectFor(r.cwd);
 			// At the start, with the project's newest: it came from elsewhere just now.
 			if (home) this.store.listDormant(home, r, undefined, true);

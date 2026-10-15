@@ -41,7 +41,7 @@
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
 	import { queuedLabel, sessionInbox } from '$lib/sessions/inbox.svelte';
-	import { listedSessions } from '$lib/session.svelte';
+	import { isBlank, listedSessions } from '$lib/session.svelte';
 	import { lastActive, type Project, type Session } from '$lib/types';
 	import type { AgentView } from '$lib/agents.svelte';
 	import RequirementTag from '$lib/requirements/RequirementTag.svelte';
@@ -223,20 +223,22 @@
 		!query || s.chat.title.toLowerCase().includes(query) || p.name.toLowerCase().includes(query);
 	const shownRecent = $derived(recent.filter((x) => sessionMatches(x.p, x.s)));
 	// The archived conversations per place (对话 first, then each project) the
-	// filter matches, and how many there are in all.
+	// filter matches, and how many there are in all (blank ones are not
+	// conversations yet: see isBlank).
+	const archived = (s: Session) => s.archived && !isBlank(s);
 	const archivedGroups = $derived.by(() => {
 		const groups: { id: string; name: string; sessions: Session[] }[] = [];
-		const chats = homes.flatMap((h) => h.sessions.filter((s) => s.archived && sessionMatches(h, s)));
+		const chats = homes.flatMap((h) => h.sessions.filter((s) => archived(s) && sessionMatches(h, s)));
 		if (chats.length) groups.push({ id: 'chats', name: t('shell.chats'), sessions: chats });
 		for (const p of codeProjects) {
-			const list = p.sessions.filter((s) => s.archived && sessionMatches(p, s));
+			const list = p.sessions.filter((s) => archived(s) && sessionMatches(p, s));
 			if (list.length) groups.push({ id: p.id, name: p.name, sessions: list });
 		}
 		return groups;
 	});
 	const archivedShown = $derived(archivedGroups.flatMap((g) => g.sessions));
 	const archivedTotal = $derived(
-		[...homes, ...codeProjects].reduce((n, p) => n + p.sessions.filter((s) => s.archived).length, 0)
+		[...homes, ...codeProjects].reduce((n, p) => n + p.sessions.filter(archived).length, 0)
 	);
 
 	// Inline rename (dblclick a session title).
