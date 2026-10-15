@@ -16,6 +16,7 @@
   import FeedbackDialog from '../../src/lib/FeedbackDialog.svelte';
   import { trial } from '../../src/lib/trial.svelte';
   import { closeTab, leavesOf, moveTab, singleLeafLayout, splitLeaf, type TileLayout } from '../../src/lib/workbench/tiles';
+  import Sidebar from '../../src/lib/Sidebar.svelte';
   setLocale('zh');
   const mode = new URL(location.href).searchParams;
   // Settings → 账户 reads the plan through it (?trial): the regressions
@@ -55,6 +56,17 @@
     sessions.createProject('/tmp/regression-project');
     if (mode.has('glass')) prefs.init();
   }
+  // ?newchat: the navigator and the shown conversation, wired as the page
+  // wires them (新对话, a project's +, a row), with one conversation saved in
+  // a project. `window.__store` is the session store (what is saved).
+  if (mode.has('newchat')) {
+    provideRequirements(new Requirements({} as DaemonClient));
+    const p = sessions.createProject('/tmp/regression-project');
+    sessions.renameSession(p.sessions[0].id, '修复登录');
+    p.sessions[0].draft = false;
+    sessions.activeId = p.sessions[0].id;
+    (window as unknown as { __store: SessionStore }).__store = sessions;
+  }
   // ?feedback: the 反馈问题 dialog over an empty page, and how often it closed.
   let feedbackOpen = $state(false);
   let feedbackClosed = $state(0);
@@ -83,6 +95,34 @@
 {:else if mode.has('chat')}
   <div style="height:600px;width:900px;display:flex;flex-direction:column;position:relative">
     {#if paneSession}<ChatPane session={paneSession} store={sessions} isActive />{/if}
+  </div>
+{:else if mode.has('newchat')}
+  <div style="height:640px;display:flex">
+    <Sidebar
+      projects={sessions.userProjects}
+      activeId={sessions.activeId}
+      width={272}
+      onSelect={(id) => (sessions.activeId = id)}
+      onNewProject={() => {}}
+      onNewSession={(p) => sessions.addSession(p)}
+      onNewChat={() => void sessions.newChat()}
+      onNewTask={() => {}}
+      onCloseSession={(id) => sessions.removeSession(id)}
+      onCloseProject={() => {}}
+      onArchiveSession={(id) => sessions.archiveSession(id)}
+      onUnarchiveSession={(id) => sessions.unarchiveSession(id)}
+      onPinSession={() => {}}
+      onMoveSession={() => {}}
+      onMoveProject={() => {}}
+      onRenameSession={() => {}}
+      onSessionMenu={() => {}}
+      onProjectMenu={() => {}}
+      onHistory={() => {}}
+      footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
+    />
+    <div data-testid="canvas" style="flex:1;display:flex;flex-direction:column;position:relative;min-width:0">
+      {#if paneSession}{#key paneSession.id}<ChatPane session={paneSession} store={sessions} isActive />{/key}{/if}
+    </div>
   </div>
 {:else if mode.has('home')}
   <p data-testid="started">{started}</p>

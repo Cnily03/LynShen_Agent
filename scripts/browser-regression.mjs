@@ -16,11 +16,52 @@ try {
   for (let i=1;i<=3;i++) {
     await page.getByRole('button',{name:'新项目',exact:true}).click();
     await expect(page.getByTestId('session')).toHaveText('草稿已就绪');
+    // Before anything is sent, a new session there is the same draft.
     await page.getByRole('button',{name:'新会话',exact:true}).click();
     await expect(page.getByTestId('session')).toHaveText('草稿已就绪');
-    await expect(page.getByTestId('count')).toHaveText(String(i*2));
+    await expect(page.getByTestId('count')).toHaveText(String(i));
   }
   assert.equal(await page.evaluate(() => window.__calls.some(c => c.command === 'daemon_endpoint')), false);
+  // 新对话 clicked again and again opens the one new conversation: it is not
+  // listed or saved as a conversation until its first message (each click
+  // added a 新对话 row and a saved tab), and it keeps what was typed into it.
+  // A project's + does the same in its project.
+  await page.goto(base + '?newchat');
+  const nav = page.locator('aside');
+  const navRows = nav.locator('.list .sess:not(.ghost)');
+  const newChatButton = nav.locator('nav.primary').getByRole('button',{name:'新对话',exact:true});
+  const savedTabs = () => page.evaluate(() => window.__store.serialize().map((p) => [p.newFolder ? 'waiting' : p.home ? 'chat' : p.name, p.tabs.length]));
+  await expect(navRows).toHaveCount(2);
+  for (let i = 0; i < 5; i++) await newChatButton.click();
+  await expect(page.locator('[data-testid=canvas] .welcome')).toBeVisible();
+  await expect(navRows).toHaveCount(2);
+  await expect(nav.locator('.list').getByText('新对话',{exact:true})).toHaveCount(0);
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['regression-project', 1]]);
+  const newChatBox = page.locator('[data-testid=canvas] .rich');
+  await newChatBox.click();
+  await page.keyboard.type('还没发出去的话');
+  await nav.locator('.sess', {hasText:'修复登录'}).first().click();
+  await expect(newChatBox).toHaveText('');
+  await newChatButton.click();
+  await expect(newChatBox).toHaveText('还没发出去的话');
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['regression-project', 1]]);
+  // Sent: a conversation, listed; the next 新对话 is a new one.
+  await newChatBox.click();
+  await page.keyboard.press('Enter');
+  await expect(navRows).toHaveCount(3);
+  await expect.poll(savedTabs).toEqual([['chat', 1], ['regression-project', 1]]);
+  await newChatButton.click();
+  await expect(newChatBox).toHaveText('');
+  await expect(navRows).toHaveCount(3);
+  await expect.poll(savedTabs).toEqual([['waiting', 1], ['chat', 1], ['regression-project', 1]]);
+  const projectPlus = nav.getByRole('button',{name:'在此项目下新建对话'});
+  for (let i = 0; i < 3; i++) {
+    await nav.locator('.folder-row').hover();
+    await projectPlus.click();
+  }
+  await expect(page.locator('[data-testid=canvas] .welcome')).toBeVisible();
+  await expect(nav.locator('.project .sess:not(.ghost)')).toHaveText(['修复登录']);
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['chat', 1], ['regression-project', 2]]);
   await page.goto(base);
   await page.getByRole('button',{name:'在浏览器中授权',exact:true}).click();
   await expect(page.getByText('ABCDEF-123456')).toBeVisible();
@@ -1594,5 +1635,5 @@ try {
     await mp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
 } finally { await browser.close(); await server.close(); }
