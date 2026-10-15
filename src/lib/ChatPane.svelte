@@ -58,6 +58,8 @@
 		type Op
 	} from '$lib/protocol';
 	import { buildModelRows, splitRoute, stripGroupSuffix, toolModels, type ToolModel } from '$lib/composer/modelRows';
+	import { displayNameOf } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 	import { configModelList } from '$lib/configModels';
 	import { confirm } from '$lib/ui/confirm.svelte';
 	import { BACKEND_LABELS, caps } from '$lib/backends';
@@ -720,6 +722,14 @@
 			current: chat.model,
 			routes
 		});
+	});
+
+	// The model button's name: the catalog's, or one read from the id, as the
+	// model pickers show it (src/lib/models). Claude Code / Codex keep theirs.
+	const shownModelName = $derived.by(() => {
+		const stored = stripGroupSuffix(providersList.find((p) => p.id === chat.provider)?.models.find((m) => m.name === chat.model)?.display_name || '');
+		if (chat.backendId !== 'lynshen' || !chat.model) return stored || undefined;
+		return displayNameOf(chat.provider ?? '', chat.model, stored || stripGroupSuffix(chat.modelLabel || ''), gatewayCatalog.lookup);
 	});
 
 	// Claude Code / Codex: the current model and where it can run, for the
@@ -1574,7 +1584,7 @@
 			onModelSelect={selectRow}
 			onModelClose={() => chat.closePicker()}
 			modelRows={filteredRows}
-			modelDisplayName={stripGroupSuffix(providersList.find(p => p.id === chat.provider)?.models.find(m => m.name === chat.model)?.display_name || '') || undefined}
+			modelDisplayName={shownModelName}
 			modelSearch={showPickerSearch}
 			{backendLocked}
 			toolProvider={toolModel

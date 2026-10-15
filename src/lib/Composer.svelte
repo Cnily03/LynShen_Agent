@@ -1070,13 +1070,10 @@
 				{chat}
 				canPickModel={bcaps.modelPicker}
 				rows={bcaps.modelPicker ? modelRows : []}
-				showSearch={modelSearch}
 				{backendLocked}
 				{toolProvider}
 				{effortDisabled}
 				anchor={modelButton}
-				bind:query={pickerQuery}
-				bind:selIdx={pickerSelIdx}
 				onClose={closeModelPopover}
 				onSelect={selectFromPopover}
 				onEffort={setEffort}

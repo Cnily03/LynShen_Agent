@@ -27,6 +27,9 @@
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
 	//   &textOnly               the engine reports a model that takes no images
 	//                           and does not think (`window.__chat` attaches files)
+	//   &models[=old]           a gateway session on the sample models
+	//                           (catalogSample.ts), described by the gateway's
+	//                           catalog, or (=old) by their ids only
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it); `window.__shellChat` the conversation's
 	// chat (to send it more events), `window.__opened` what the chat asked the
@@ -58,6 +61,7 @@
 	import HomePage from '../../src/lib/HomePage.svelte';
 	import SettingsPage from '../../src/lib/settings/SettingsPage.svelte';
 	import { SIDEBAR_RAIL_WIDTH } from '../../src/lib/shell/sidebarState';
+	import { SAMPLE_PLAIN_IDS } from '../../src/lib/models/catalogSample';
 
 	const mode = new URL(location.href).searchParams;
 	const NAV_W = Number(mode.get('nav')) || 272;
@@ -119,6 +123,16 @@
 	].join('\n');
 
 	const feed = (ev: Record<string, unknown>) => session.chat.handle(ev as never);
+	// A gateway session: the engine's model and its list (as it reports them).
+	const gatewayModels = mode.has('models');
+	const providersList = gatewayModels
+		? [{ id: 'monoize', name: 'LynShen', base_url: 'https://api.lynshen.org/v1', format: 'responses', models: SAMPLE_PLAIN_IDS.map((name) => ({ name, display_name: name })) }]
+		: [];
+	if (gatewayModels) {
+		feed({ type: 'model_status', provider: 'monoize', model: 'deepseek-v4.1-flash', model_label: 'deepseek-v4.1-flash', reasoning_effort: 'medium', reasoning_efforts: ['low', 'medium', 'high'], state: 'ready', context_window: 384000 });
+		session.chat.silentModelView = 1;
+		feed({ type: 'model_view', active_effort: 'medium', models: SAMPLE_PLAIN_IDS.map((model) => ({ model, active: model === 'deepseek-v4.1-flash', context_window: 0, max_output_tokens: 0, reasoning_efforts: ['low', 'medium', 'high'] })) });
+	}
 	if (mode.has('preview')) {
 		const reply = (text: string) => {
 			feed({ type: 'status', message: 'streaming' });
@@ -283,6 +297,8 @@
 		{session}
 		{store}
 		isActive
+		providers={gatewayModels ? ['monoize'] : []}
+		{providersList}
 		onOpenTrace={mode.has('cards') ? () => opened.push('trace') : undefined}
 		onOpenTeam={mode.has('cards') ? () => opened.push('team') : undefined}
 	/>

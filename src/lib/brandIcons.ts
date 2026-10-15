@@ -79,7 +79,8 @@ const SVG: Record<string, string> = {
 	xai: i_xai,
 	zhipu: i_zhipu,
 	zai: i_zai,
-	kimi: i_kimi,
+	// Its K is drawn white: the text colour instead, or it vanishes on the light theme.
+	kimi: i_kimi.replace(/fill="#fff"/gi, 'fill="currentColor"'),
 	moonshot: i_moonshot,
 	doubao: i_doubao,
 	volcengine: i_volcengine,

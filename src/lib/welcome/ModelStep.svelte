@@ -14,10 +14,10 @@
 	import { BACKEND_LABELS } from '$lib/backends';
 	import { loadProfile } from '$lib/backendProfile';
 	import { modelSetup } from '$lib/modelSetupState.svelte';
-	import { fmtContext } from '$lib/composer/modelRows';
-	import Vendor from '$lib/Vendor.svelte';
 	import Button from '$lib/ui/Button.svelte';
-	import Select from '$lib/ui/Select.svelte';
+	import ModelPicker from '$lib/models/ModelPicker.svelte';
+	import { itemsFromOptions } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
@@ -62,7 +62,14 @@
 
 	const gateway = $derived(loggedIn && (backend === 'claude' || backend === 'codex'));
 	const efforts = $derived(models.find((m) => m.name === model)?.reasoning_efforts ?? []);
-	const modelOpts = $derived(models.map((m) => ({ value: m.name, label: m.label || m.name, vendor: m.vendor || m.name, context_window: m.context_window })));
+	// The same picker as the settings and the composer (src/lib/models).
+	const modelItems = $derived(
+		itemsFromOptions(
+			models.map((m) => ({ provider: provider || backend, name: m.vendor || m.name, value: m.name, display_name: m.label, context_window: m.context_window, reasoning_efforts: m.reasoning_efforts })),
+			model,
+			gatewayCatalog.lookup
+		)
+	);
 	const effortOpts = $derived(efforts.map((e) => ({ value: e, label: e.charAt(0).toUpperCase() + e.slice(1) })));
 
 	function validEffort(name: string, current: string): string {
@@ -224,13 +231,7 @@
 		<span class="hint">{t('setup.welcome.model.chooseRequired')}</span>
 		{#if backend === 'lynshen'}<span class="hint">{t('setup.welcome.model.defaultHint', { provider: provider || '-' })}</span>{/if}
 		<div class="sel">
-			<Select value={model} onChange={setModel} options={modelOpts} disabled={saving} placeholder={t('settings.behavior.selectModel')}>
-				{#snippet item(o)}
-					<Vendor model={String(o.vendor ?? o.value)} size={15} />
-					<span class="mono">{o.label}</span>
-					{#if o.context_window}<span class="ctx">{fmtContext(o.context_window as number)}</span>{/if}
-				{/snippet}
-			</Select>
+			<ModelPicker items={modelItems} value={model} label={t('settings.behavior.defaultModel')} disabled={saving} placeholder={t('settings.behavior.selectModel')} onChange={setModel} />
 		</div>
 	</div>
 
@@ -301,19 +302,6 @@
 	}
 	.sel {
 		max-width: 360px;
-	}
-	.mono {
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.ctx {
-		margin-left: auto;
-		color: var(--dim2);
-		font-size: var(--fs-2xs);
-		font-variant-numeric: tabular-nums;
 	}
 	.confirmation {
 		align-items: center;

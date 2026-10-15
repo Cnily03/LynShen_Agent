@@ -16,13 +16,12 @@
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
 	import SessionMark from '$lib/SessionMark.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
-	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
-	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
-	import Vendor from '$lib/Vendor.svelte';
 	import { readConfig } from '$lib/protocol';
 	import { configModelList } from '$lib/configModels';
 	import { isImageModel } from '$lib/providers/monoize';
-	import { fmtContext } from '$lib/composer/modelRows';
+	import ModelPicker from '$lib/models/ModelPicker.svelte';
+	import { itemsFromOptions } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 
 	let {
 		projects,
@@ -53,11 +52,11 @@
 
 	// The engine's models as config.json lists them (what its model menu
 	// shows), the current one first chosen. Reread each time the page shows.
-	type HomeModel = { name: string; label: string; window: number };
+	type HomeModel = { name: string; label: string; window: number; efforts?: string[] };
 	let models = $state<HomeModel[]>([]);
+	let provider = $state('');
 	let model = $state('');
 	let picked = $state(false);
-	let menuOpen = $state(false);
 	$effect(() => {
 		if (!modelPicker) return;
 		readConfig()
@@ -67,8 +66,10 @@
 					.map((m) => ({
 						name: String(m.name),
 						label: typeof m.display_name === 'string' && m.display_name ? m.display_name : String(m.name),
-						window: typeof m.context_window === 'number' ? m.context_window : 0
+						window: typeof m.context_window === 'number' ? m.context_window : 0,
+						efforts: Array.isArray(m.reasoning_efforts) ? (m.reasoning_efforts as string[]) : undefined
 					}));
+				provider = typeof cfg.provider === 'string' ? cfg.provider : '';
 				const current = typeof cfg.model === 'string' ? cfg.model : '';
 				if (!picked || !models.some((m) => m.name === model))
 					model = models.some((m) => m.name === current) ? current : (models[0]?.name ?? '');
@@ -76,6 +77,15 @@
 			.catch(() => {});
 	});
 	const shownModel = $derived(models.find((m) => m.name === model));
+	// The same pickers as the composer's (src/lib/models): the quick
+	// switcher, and the full browser from it.
+	const items = $derived(
+		itemsFromOptions(
+			models.map((m) => ({ provider, name: m.name, display_name: m.label, context_window: m.window, reasoning_efforts: m.efforts })),
+			model,
+			gatewayCatalog.lookup
+		)
+	);
 
 	let text = $state('');
 	let box = $state<HTMLTextAreaElement | null>(null);
@@ -134,34 +144,17 @@
 			></textarea>
 			{#if modelPicker && shownModel}
 				<div class="model-anchor">
-					<button class="model" class:on={menuOpen} onclick={() => (menuOpen = !menuOpen)} title={t('shell.home.model')} aria-haspopup="menu" aria-expanded={menuOpen}>
-						<Vendor model={shownModel.name} size={14} />
-						<span class="mname">{shownModel.label}</span>
-						<CaretDownIcon size={12} />
-					</button>
-					{#if menuOpen}
-						<button class="model-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={() => (menuOpen = false)}></button>
-						<div class="pop model-menu" role="menu">
-							{#each models as m (m.name)}
-								<button
-									class="pop-row"
-									role="menuitemradio"
-									aria-checked={m.name === model}
-									onclick={() => {
-										model = m.name;
-										picked = true;
-										menuOpen = false;
-										box?.focus();
-									}}
-								>
-									<span class="pop-ico"><Vendor model={m.name} size={16} /></span>
-									<span class="pop-txt"><span class="pop-label">{m.label}</span></span>
-									{#if m.window}<span class="pop-hint">{fmtContext(m.window)}</span>{/if}
-									{#if m.name === model}<span class="pop-check"><CheckIcon size={16} /></span>{/if}
-								</button>
-							{/each}
-						</div>
-					{/if}
+					<ModelPicker
+						variant="inline"
+						{items}
+						value={model}
+						label={t('shell.home.model')}
+						onChange={(v) => {
+							model = v;
+							picked = true;
+							box?.focus();
+						}}
+					/>
 				</div>
 			{/if}
 			<button class="send" disabled={!text.trim()} onclick={start} aria-label={t('chat.sendTitle')} title={t('chat.sendTitle')}>
@@ -296,54 +289,6 @@
 		position: absolute;
 		left: 10px;
 		bottom: 10px;
-	}
-	.model {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		max-width: 320px;
-		height: 28px;
-		padding: 0 8px;
-		border: none;
-		border-radius: var(--r-sm);
-		background: none;
-		color: var(--dim);
-		font: inherit;
-		font-size: var(--fs-xs);
-		cursor: pointer;
-		transition: background var(--t-fast) var(--ease-base), color var(--t-fast) var(--ease-base);
-	}
-	.model:hover,
-	.model.on {
-		background: var(--surface2);
-		color: var(--text);
-	}
-	.mname {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.model-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 80;
-		border: none;
-		background: none;
-		cursor: default;
-	}
-	.model-menu {
-		position: absolute;
-		left: 0;
-		top: calc(100% + 6px);
-		z-index: 81;
-		width: max-content;
-		min-width: 240px;
-		max-width: min(420px, calc(100vw - 32px));
-		max-height: min(360px, 60vh);
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		transform-origin: top left;
-		animation: pop-in var(--t-pop) var(--ease-enter);
 	}
 	.send {
 		position: absolute;

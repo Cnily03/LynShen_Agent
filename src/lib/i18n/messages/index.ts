@@ -12,6 +12,7 @@ import shell from './shell';
 import editor from './editor';
 import web from './web';
 import preview from './preview';
+import models from './models';
 
 export type Locale = 'zh' | 'en';
 
@@ -25,7 +26,8 @@ export const catalog = {
 		shell: shell.zh,
 		editor: editor.zh,
 		web: web.zh,
-		preview: preview.zh
+		preview: preview.zh,
+		models: models.zh
 	},
 	en: {
 		common: common.en,
@@ -36,6 +38,7 @@ export const catalog = {
 		shell: shell.en,
 		editor: editor.en,
 		web: web.en,
-		preview: preview.en
+		preview: preview.en,
+		models: models.en
 	}
 } as const;

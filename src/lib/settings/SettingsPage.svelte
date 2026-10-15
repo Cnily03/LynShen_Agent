@@ -88,6 +88,9 @@
 	import TextField from '$lib/ui/TextField.svelte';
 	import { RETRY_ATTEMPTS_MAX, retryAttemptsSetting } from '$lib/retryView';
 	import Select from '$lib/ui/Select.svelte';
+	import ModelPicker from '$lib/models/ModelPicker.svelte';
+	import { itemsFromOptions } from '$lib/models/items';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 	import Switch from '$lib/ui/Switch.svelte';
 	import Checkbox from '$lib/ui/Checkbox.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
@@ -325,15 +328,26 @@
 		...PROVIDER_CATALOG.providers.filter((entry) => !allProviders.some((provider) => provider.id === entry.id))
 	]);
 	const providerOpts = $derived(allProviders.filter(usable).map((p) => ({ value: p.id, label: p.name ?? cap(p.id) })));
-	const modelOpts = $derived(models.map((m) => ({ value: m.name, label: m.display_name || m.name, ...m })));
-	// Empty = the main model (the engine's `Config::title`).
-	const titleModelOpts = $derived([{ value: '', label: t('settings.behavior.followMainModel') }, ...modelOpts]);
+	// The default provider's models (config.json `models`), for the compaction,
+	// title and image pickers (src/lib/models: the same pickers as the composer).
+	const providerItems = $derived(
+		itemsFromOptions(
+			models.map((m) => ({ provider: cfg.provider ?? '', name: m.name, display_name: m.display_name, context_window: m.context_window, reasoning_efforts: m.reasoning_efforts, input_modalities: (m as { input_modalities?: string[] }).input_modalities })),
+			'',
+			gatewayCatalog.lookup
+		)
+	);
+	/** Models that chat (not image makers), marked against `value`; the one
+	 *  set stays listed even when it would not be. Empty for the title model
+	 *  = the main model (the engine's `Config::title`). */
+	const chatItems = (value: string) =>
+		providerItems.filter((i) => !i.drawsImages || i.value === value).map((i) => ({ ...i, active: i.value === value }));
 	// Empty = the engine picks the first model named like an image model.
-	const imageModelOpts = $derived([
-		{ value: '', label: t('settings.behavior.imageModelAuto') },
-		...modelOpts.filter((m) => /image/i.test(m.value)),
-		...modelOpts.filter((m) => !/image/i.test(m.value))
-	]);
+	const imageItems = $derived(
+		providerItems
+			.filter((i) => i.drawsImages || i.value === (cfg.image_model ?? ''))
+			.map((i) => ({ ...i, active: i.value === (cfg.image_model ?? '') }))
+	);
 	const effortOpts = $derived(efforts.map((e) => ({ value: e, label: cap(e) })));
 	// All providers' models in one list (provider-qualified), so the default-model
 	// picker isn't limited to whichever provider is currently the default.
@@ -346,11 +360,13 @@
 			.flatMap((p) =>
 			p.models.map((m) => ({
 				value: `${p.id}::${m.name}`,
-				label: m.display_name || m.name,
 				provider: p.id,
-				group: p.id === 'lynshen' || p.id === 'monoize' ? t('settings.behavior.groupLynShen') : p.name || p.id,
+				providerName: p.id === 'lynshen' || p.id === 'monoize' ? t('settings.behavior.groupLynShen') : p.name || p.id,
+				name: m.name,
+				display_name: m.display_name,
 				context_window: m.context_window,
-				authed: usable(p)
+				reasoning_efforts: m.reasoning_efforts,
+				input_modalities: (m as { input_modalities?: string[] }).input_modalities
 			}))
 		)
 	);
@@ -359,6 +375,9 @@
 	$effect(() => {
 		modelKey = `${cfg.provider ?? ''}::${cfg.model ?? ''}`;
 	});
+	const defaultItems = $derived(
+		itemsFromOptions(allModelOpts, modelKey, gatewayCatalog.lookup).filter((i) => !i.drawsImages || i.active)
+	);
 	function applyModel(key: string) {
 		const i = key.indexOf('::');
 		if (i < 0) return;
@@ -1220,16 +1239,17 @@
 				{:else if current === 'models'}
 					<SettingsSection title={t('settings.page.defaults')}>
 						<SettingsRow id="default-model" title={t('settings.behavior.defaultModel')} description={allModelOpts.length ? undefined : t('settings.behavior.noModels')}>
-							<div class="w-lg">
-								<Select bind:value={modelKey} onChange={applyModel} options={allModelOpts} placeholder={t('settings.behavior.selectModel')}>
-									{#snippet item(o)}
-										<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>
-										<span class="mono ell">{o.label}</span>
-										<span class="optprov">{o.provider as string}</span>
-										{#if o.context_window}<span class="pill">{fmt(o.context_window as number)}</span>{/if}
-										{#if !o.authed}<span class="optlock">{t('settings.behavior.notConfigured')}</span>{/if}
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={defaultItems}
+									value={modelKey}
+									label={t('settings.behavior.defaultModel')}
+									placeholder={t('settings.behavior.selectModel')}
+									onChange={(key) => {
+										modelKey = key;
+										applyModel(key);
+									}}
+								/>
 							</div>
 						</SettingsRow>
 						{#if effortOpts.length}
@@ -1243,13 +1263,15 @@
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.compaction')}>
 						<SettingsRow id="compact-model" title={t('settings.behavior.compactModel')}>
-							<div class="w-lg">
-								<Select bind:value={cfg.compact_model} options={modelOpts} placeholder={t('settings.behavior.selectModel')}>
-									{#snippet item(o)}
-										<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>
-										<span class="mono ell">{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={chatItems(cfg.compact_model ?? '')}
+									value={cfg.compact_model ?? ''}
+									label={t('settings.behavior.compactModel')}
+									remember={false}
+									placeholder={t('settings.behavior.selectModel')}
+									onChange={(v) => (cfg.compact_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 						<SettingsRow id="compaction-threshold" title={t('settings.behavior.compactionThreshold')} description={t('settings.behavior.compactionThresholdSub')}>
@@ -1259,25 +1281,29 @@
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.titles')}>
 						<SettingsRow id="title-model" title={t('settings.behavior.titleModel')} description={t('settings.behavior.titleModelHint')}>
-							<div class="w-lg">
-								<Select value={cfg.title_model ?? ''} options={titleModelOpts} onChange={(v) => (cfg.title_model = v)}>
-									{#snippet item(o)}
-										{#if o.value}<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>{/if}
-										<span class="ell" class:mono={!!o.value}>{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={chatItems(cfg.title_model ?? '')}
+									value={cfg.title_model ?? ''}
+									extras={[{ value: '', label: t('settings.behavior.followMainModel'), active: false }]}
+									label={t('settings.behavior.titleModel')}
+									remember={false}
+									onChange={(v) => (cfg.title_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.images')}>
 						<SettingsRow id="image-model" title={t('settings.behavior.imageModel')} description={t('settings.behavior.imageModelHint')}>
-							<div class="w-lg">
-								<Select value={cfg.image_model ?? ''} options={imageModelOpts} onChange={(v) => (cfg.image_model = v)}>
-									{#snippet item(o)}
-										{#if o.value}<span class="tile sm"><Vendor model={o.label ?? ''} size={15} /></span>{/if}
-										<span class="ell" class:mono={!!o.value}>{o.label}</span>
-									{/snippet}
-								</Select>
+							<div class="w-model">
+								<ModelPicker
+									items={imageItems}
+									value={cfg.image_model ?? ''}
+									extras={[{ value: '', label: t('settings.behavior.imageModelAuto'), active: false }]}
+									label={t('settings.behavior.imageModel')}
+									remember={false}
+									onChange={(v) => (cfg.image_model = v)}
+								/>
 							</div>
 						</SettingsRow>
 					</SettingsSection>
@@ -1728,6 +1754,11 @@
 	.w-lg {
 		width: 300px;
 	}
+	/* Model pickers: room for a full model name (a longer one wraps). */
+	.w-model {
+		width: 340px;
+		max-width: 100%;
+	}
 	.w-num {
 		width: 96px;
 	}
@@ -1863,29 +1894,10 @@
 		height: 22px;
 		border-radius: var(--r-sm);
 	}
-	.mono {
-		font-family: var(--font-mono);
-		font-size: var(--fs-sm);
-	}
 	.ell {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.pill {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--accent-bright);
-		background: var(--accent-soft);
-		border-radius: var(--r-full);
-		padding: 2px 8px;
-		flex-shrink: 0;
-		margin-left: auto;
-	}
-	.optprov {
-		font-size: var(--fs-2xs);
-		color: var(--dim2);
-		flex-shrink: 0;
 	}
 	/* Settings → 账户 while the account is read: the page's first line, quiet. */
 	.acct-wait {
@@ -1898,13 +1910,5 @@
 		background: var(--panel);
 		color: var(--dim);
 		font-size: var(--fs-sm);
-	}
-	.optlock {
-		font-size: var(--fs-2xs);
-		color: var(--dim);
-		border: 1px solid var(--border);
-		border-radius: var(--r-xs);
-		padding: 0 5px;
-		flex-shrink: 0;
 	}
 </style>

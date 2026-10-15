@@ -24,19 +24,29 @@ export async function useAccountForEngine(): Promise<boolean> {
 /** How long the welcome page waits for the account's models before it
  *  closes anyway (the model list then fills in when they arrive). */
 const ENGINE_WAIT_MS = 10_000;
+/** How long the engine's setup waits for the trial claim: the plan decides
+ *  the first model (a trial starts on a model the plan pays for). */
+const CLAIM_WAIT_MS = 4_000;
 
 /** After a sign-in on the welcome page. The trial claim runs in the
- *  background; the page waits (a bounded time) only for the engine's setup. */
+ *  background; the engine's setup waits for it a moment (its first model
+ *  follows the plan), and the page waits a bounded time for that setup. */
 export async function afterWelcomeSignIn(): Promise<void> {
 	try {
 		localStorage.setItem(SETUP_DONE_KEY, '1');
 	} catch {
 		/* no storage: the sign-in shows again next start, and is skipped there */
 	}
-	void trial.signedIn();
+	const claim = trial.signedIn().catch(() => {});
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	const setup = async () => {
+		let wait: ReturnType<typeof setTimeout> | undefined;
+		await Promise.race([claim, new Promise((resolve) => (wait = setTimeout(resolve, CLAIM_WAIT_MS)))]);
+		clearTimeout(wait);
+		await useAccountForEngine();
+	};
 	await Promise.race([
-		useAccountForEngine().catch((e) => console.error('account provider', e)),
+		setup().catch((e) => console.error('account provider', e)),
 		new Promise((resolve) => (timer = setTimeout(resolve, ENGINE_WAIT_MS)))
 	]);
 	clearTimeout(timer);
