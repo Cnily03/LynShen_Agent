@@ -45,8 +45,8 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 24px;
-		min-height: 56px;
-		padding: 12px 0;
+		min-height: 48px;
+		padding: 10px 0;
 		scroll-margin: 24px;
 	}
 	.row.stacked {
@@ -65,6 +65,7 @@
 	}
 	.title {
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		color: var(--text);
 	}
 	.tag {
@@ -81,7 +82,7 @@
 	.desc {
 		max-width: 52ch;
 		font-size: var(--fs-xs);
-		line-height: 1.45;
+		line-height: 16px;
 		color: var(--dim);
 	}
 	.ctl {

@@ -153,14 +153,15 @@
 <style>
 	.pm-sep {
 		height: 1px;
-		margin: 4px 8px;
+		margin: 3px 4px;
 		background: var(--hairline);
 	}
 	.pm-group {
-		padding: 6px 12px 2px;
+		padding: 6px 8px 2px;
 		color: var(--dim2);
-		font-size: var(--fs-2xs);
-		font-weight: 500;
+		font-size: var(--fs-xs);
+		font-weight: 600;
+		line-height: 16px;
 	}
 	.pm-backdrop {
 		position: fixed;
@@ -177,7 +178,7 @@
 		position: absolute;
 		z-index: 81;
 		width: max-content;
-		min-width: 200px;
+		min-width: 180px;
 		max-width: min(480px, calc(100vw - 32px));
 		max-height: calc(100vh - 16px);
 		overflow-x: hidden;

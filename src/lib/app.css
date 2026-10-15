@@ -231,14 +231,15 @@
 	box-sizing: border-box;
 }
 
-/* Keyboard focus ring (mouse clicks don't trigger :focus-visible). Inputs keep
-   their own border-based focus indication to avoid a doubled outline. */
+/* Keyboard focus ring (mouse clicks don't trigger :focus-visible). Text
+   inputs keep their own border-based focus indication to avoid a doubled
+   outline; a slider has no border, so it keeps the ring. */
 :focus-visible {
 	outline: 2px solid var(--brand-bright);
 	outline-offset: 2px;
 	border-radius: var(--r-xs);
 }
-input:focus-visible,
+input:not([type='range']):focus-visible,
 textarea:focus-visible {
 	outline: none;
 }
@@ -469,41 +470,50 @@ body {
 }
 
 /* Popover surface shared by every menu and floating picker (ui/PopMenu.svelte
-   and the pickers built on it): one fill, radius, shadow and row style. */
+   and the pickers built on it), design.md "Menus and popovers": --panel,
+   --r-lg, --shadow-pop (its --divider ring), 4px padding; 28px rows. */
 .pop {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 6px;
+	gap: 1px;
+	padding: 4px;
 	border-radius: var(--r-lg);
 	background: var(--panel);
 	box-shadow: var(--shadow-pop);
+	font-size: var(--fs-sm);
+	line-height: 18px;
 	user-select: none;
 }
 .pop-head {
-	padding: 8px 12px 6px;
+	padding: 6px 8px 4px;
 	color: var(--dim2);
-	font-size: var(--fs-sm);
+	font-size: var(--fs-xs);
+	line-height: 16px;
 }
 .pop-row {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
 	width: 100%;
-	min-height: 38px;
-	padding: 6px 12px;
+	min-height: 28px;
+	padding: 4px 8px;
 	border: none;
 	border-radius: var(--r-md);
 	background: none;
 	color: var(--text);
 	font: inherit;
 	font-size: var(--fs-sm);
+	line-height: 18px;
 	text-align: left;
 	cursor: pointer;
-	transition: background var(--t-fast) var(--ease-out);
+	transition: background var(--t-fast) var(--ease-base);
+}
+/* Keyboard focus is drawn inside the row. */
+.pop-row:focus-visible {
+	outline-offset: -2px;
 }
 .pop-row.two {
-	padding: 8px 12px;
+	padding: 6px 8px;
 }
 .pop-row:disabled {
 	opacity: 0.4;
@@ -515,7 +525,7 @@ body {
 }
 .pop-ico {
 	display: inline-flex;
-	width: 18px;
+	width: 16px;
 	flex-shrink: 0;
 	color: var(--dim);
 }
@@ -532,11 +542,13 @@ body {
 .pop-desc {
 	color: var(--dim2);
 	font-size: var(--fs-xs);
+	line-height: 16px;
 }
 .pop-hint {
 	flex-shrink: 0;
 	color: var(--dim2);
-	font-size: var(--fs-xs);
+	font-family: var(--font-mono);
+	font-size: var(--fs-2xs);
 }
 .pop-check {
 	display: inline-flex;

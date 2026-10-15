@@ -18,11 +18,13 @@
 <button class="b {variant} {size}" class:full {...rest}>{@render children()}</button>
 
 <style>
+	/* design.md "Controls and states": --r-sm, frame text, weight 400; the
+	   primary is the neutral --accent, flat on hover. */
 	.b {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		gap: 7px;
+		gap: 6px;
 		border-radius: var(--r-sm);
 		border: 1px solid var(--border);
 		background: var(--surface2);
@@ -42,21 +44,27 @@
 		transform: scale(0.97);
 	}
 	.md {
+		min-height: 32px;
+		padding: 0 14px;
 		font-size: var(--fs-sm);
-		padding: 9px 14px;
+		line-height: 18px;
 	}
 	.sm {
-		font-size: var(--fs-xs);
-		padding: 6px 10px;
+		min-height: 28px;
+		padding: 0 10px;
+		font-size: var(--fs-sm);
+		line-height: 18px;
 	}
 	.icon {
-		padding: 8px;
+		width: 32px;
+		height: 32px;
+		padding: 0;
 	}
 	.full {
 		width: 100%;
 	}
 	.b:hover:not(:disabled) {
-		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+		border-color: var(--border-strong);
 		background: var(--surface2);
 	}
 	.b:disabled {
@@ -67,12 +75,10 @@
 		background: var(--accent);
 		border-color: var(--accent);
 		color: var(--on-accent);
-		font-weight: 600;
 	}
 	.primary:hover:not(:disabled) {
 		background: var(--accent-bright);
-		border-color: transparent;
-		box-shadow: 0 3px 12px var(--accent-soft);
+		border-color: var(--accent-bright);
 	}
 	.ghost {
 		background: none;

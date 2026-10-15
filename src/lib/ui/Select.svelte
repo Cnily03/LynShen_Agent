@@ -69,12 +69,14 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		padding: 9px 11px;
+		min-height: 32px;
+		padding: 6px 10px;
 		background: var(--surface2);
 		border: 1px solid var(--border);
 		border-radius: var(--r-sm);
 		color: var(--text);
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		cursor: pointer;
 		text-align: left;
 		transition: border-color var(--t-fast) var(--ease-out);
@@ -85,7 +87,7 @@
 	}
 	.trigger:hover,
 	.trigger.open {
-		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+		border-color: var(--border-strong);
 	}
 	.cur {
 		flex: 1;
@@ -124,7 +126,7 @@
 		max-height: 240px;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		padding: 5px;
+		padding: 4px;
 		background: var(--panel);
 		border-radius: var(--r-lg);
 		box-shadow: var(--shadow-pop);
@@ -136,22 +138,23 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		padding: 8px 9px;
+		min-height: 28px;
+		padding: 4px 8px;
 		border: none;
 		background: none;
 		color: var(--text);
 		font-size: var(--fs-sm);
-		border-radius: var(--r-sm);
+		line-height: 18px;
+		border-radius: var(--r-md);
 		cursor: pointer;
 		text-align: left;
 	}
 	.opt-group {
-		padding: 8px 9px 4px;
+		padding: 6px 8px 2px;
 		color: var(--dim2);
-		font-size: var(--fs-2xs);
+		font-size: var(--fs-xs);
 		font-weight: 600;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
+		line-height: 16px;
 	}
 	.opt-group:not(:first-child) {
 		margin-top: 3px;
@@ -161,7 +164,7 @@
 		background: var(--surface2);
 	}
 	.opt.on {
-		background: var(--accent-soft);
+		background: var(--surface2);
 	}
 	.opt-c {
 		flex: 1;

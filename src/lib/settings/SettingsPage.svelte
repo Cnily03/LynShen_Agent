@@ -834,12 +834,12 @@
 	<nav class="nav" style:width="{navWidth}px" aria-label={t('settings.title')}>
 		<div class="nav-head">
 			<button class="back" title={t('settings.page.back')} aria-label={t('settings.page.back')} onclick={onClose}>
-				<ArrowLeftIcon size={18} />
+				<ArrowLeftIcon size={16} />
 			</button>
 			<h2>{t('settings.title')}</h2>
 		</div>
 		<label class="search">
-			<MagnifyingGlassIcon size={16} />
+			<MagnifyingGlassIcon size={14} />
 			<input bind:value={query} placeholder={t('settings.page.search')} spellcheck="false" onkeydown={onSearchKey} />
 		</label>
 		<div class="nav-list">
@@ -847,7 +847,7 @@
 				{#each hits as r (r.id)}
 					{@const Icon = ICONS[r.section]}
 					<button class="item hit" class:on={current === r.section} onclick={() => goTo(r)}>
-						<Icon size={18} />
+						<Icon size={16} />
 						<span class="hit-txt">
 							<span class="label">{t(r.titleKey)}</span>
 							<span class="where">{t(`settings.section.${r.section}`)}</span>
@@ -862,7 +862,7 @@
 					{#each g.sections as key (key)}
 						{@const Icon = ICONS[key]}
 						<button class="item" class:on={current === key} aria-current={current === key ? 'page' : undefined} onclick={() => (section = key)}>
-							<Icon size={18} weight={current === key ? 'fill' : 'regular'} />
+							<Icon size={16} weight={current === key ? 'fill' : 'regular'} />
 							<span class="label">{t(`settings.section.${key}`)}</span>
 						</button>
 					{/each}
@@ -1421,11 +1421,14 @@
 	}
 
 	/* ---------- nav column (the session list's place and fill) ---------- */
+	/* The full-panel page's navigation (design.md, "Full-panel page"): the
+	   frame tone at the navigator's width, a --divider at its edge. */
 	.nav {
 		flex-shrink: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+		border-right: 1px solid var(--divider);
 		background: var(--sidebar);
 	}
 	:global(:root[data-vibrancy='on']) .nav {
@@ -1444,23 +1447,25 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		height: 40px;
-		margin: 14px 12px 8px;
+		height: 48px;
+		margin: 0 8px;
 	}
 	.nav-head h2 {
 		margin: 0;
 		font-size: var(--fs-lg);
 		font-weight: 600;
+		line-height: 24px;
 		color: var(--text);
 	}
 	.back {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		cursor: pointer;
@@ -1475,14 +1480,18 @@
 	.search {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		height: 36px;
-		margin: 0 12px 10px;
-		padding: 0 12px;
-		border-radius: var(--r-md);
-		background: var(--surface2);
+		gap: 6px;
+		height: 28px;
+		margin: 0 8px 8px;
+		padding: 0 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
+		background: var(--bg);
 		color: var(--dim2);
 		cursor: text;
+	}
+	.search:focus-within {
+		border-color: var(--border-strong);
 	}
 	.search input {
 		flex: 1;
@@ -1506,30 +1515,34 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-		padding: 0 12px 16px;
+		padding: 0 8px 16px;
 	}
 	/* Between groups of sections: space and a faint rule, no heading. */
 	.sep {
 		height: 1px;
-		margin: 8px 12px;
+		margin: 6px 8px;
 		background: var(--hairline);
 	}
 	.item {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		width: 100%;
-		min-height: 34px;
-		padding: 0 12px;
+		min-height: 28px;
+		padding: 0 8px;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		font: inherit;
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		text-align: left;
 		cursor: pointer;
-		transition: background var(--t-fast) var(--ease-out);
+		transition: background var(--t-fast) var(--ease-base);
+	}
+	.item:focus-visible {
+		outline-offset: -2px;
 	}
 	.item > :global(svg) {
 		flex-shrink: 0;
@@ -1550,8 +1563,8 @@
 		text-overflow: ellipsis;
 	}
 	.item.hit {
-		padding-top: 7px;
-		padding-bottom: 7px;
+		padding-top: 5px;
+		padding-bottom: 5px;
 	}
 	.hit-txt {
 		display: flex;
@@ -1627,7 +1640,7 @@
 	/* Left-aligned next to the nav, like the Claude and ChatGPT settings. */
 	.col {
 		max-width: calc(680px + 2 * 48px);
-		padding: 30px 48px 80px;
+		padding: 28px 48px 80px;
 		animation: rise var(--t-med) var(--ease-out);
 	}
 	h1 {

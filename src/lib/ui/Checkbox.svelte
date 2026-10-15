@@ -69,7 +69,8 @@
 		background: var(--accent);
 	}
 	input:focus-visible + .box {
-		box-shadow: 0 0 0 2px var(--brand);
+		outline: 2px solid var(--brand-bright);
+		outline-offset: 2px;
 	}
 	.box :global(svg) {
 		animation: fade var(--t-fast) var(--ease-out);

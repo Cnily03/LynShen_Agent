@@ -16,7 +16,8 @@
 		align-items: center;
 		gap: 5px;
 		font-size: var(--fs-xs);
-		padding: 4px 12px;
+		line-height: 16px;
+		padding: 3px 10px;
 		border-radius: var(--r-full);
 		border: 1px solid var(--border);
 		background: var(--surface);

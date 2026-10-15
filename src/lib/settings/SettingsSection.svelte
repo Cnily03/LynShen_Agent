@@ -57,13 +57,14 @@
 		margin: 0;
 		font-size: var(--fs-sm);
 		font-weight: 600;
+		line-height: 18px;
 		color: var(--text);
 	}
 	p {
 		margin: 2px 0 0;
 		max-width: 64ch;
 		font-size: var(--fs-xs);
-		line-height: 1.45;
+		line-height: 16px;
 		color: var(--dim);
 	}
 	.act {
