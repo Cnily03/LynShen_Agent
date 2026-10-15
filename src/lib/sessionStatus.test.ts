@@ -15,9 +15,14 @@ describe('sessionStatus', () => {
 		c.engineState = 'ready';
 		expect(sessionStatus(c)).toEqual({ kind: 'failed', message: 'boom' });
 		c.pendingApproval = { callId: 'x', name: 'bash', summary: '', subagentId: null, hunks: null };
-		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'approve' });
-		c.pendingApproval = { ...c.pendingApproval, questions: [{ question: 'q', options: [] } as never] };
-		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'answer' });
+		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'approve', what: '' });
+		c.pendingApproval = { ...c.pendingApproval, summary: '\n  npm install -g pnpm\n(outside the sandbox)' };
+		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'approve', what: 'npm install -g pnpm' });
+		c.pendingApproval = { ...c.pendingApproval, questions: [{ question: '429 时重试还是报错？', options: [] } as never] };
+		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'answer', what: '429 时重试还是报错？' });
+		c.pendingApproval = null;
+		c.trustPrompt = { cwd: '/w/app/src', repoRoot: '/w/app' };
+		expect(sessionStatus(c)).toEqual({ kind: 'input', ask: 'approve', what: '/w/app' });
 	});
 
 	it('clears a failure when the next turn starts', () => {
