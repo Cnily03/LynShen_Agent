@@ -9,7 +9,7 @@
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwiseIcon';
 	import { writeConfig } from '$lib/protocol';
 	import { openExternal } from '$lib/openExternal';
-	import { INSTALL, currentLabel, fellBack, missingShells, shellLabel, shellName, shellOptions } from '$lib/shells';
+	import { INSTALL, currentLabel, fellBack, missingShells, sandboxInstead, shellLabel, shellName, shellOptions } from '$lib/shells';
 	import { shells } from '$lib/shellStore.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import { t } from '$lib/i18n';
@@ -81,6 +81,9 @@
 						· {t('settings.shells.helper', { label: shellLabel(reply.commands.helper.id, reply.commands.helper.version) })}
 					{/if}
 				</div>
+				{#if sandboxInstead(reply)}
+					<div class="now">{t('settings.shells.sandboxInstead', { label: currentLabel(reply) })}</div>
+				{/if}
 				{#if reply.platform !== 'windows' && !reply.commands.snapshot && reply.commands.id !== 'sh'}
 					<div class="now dim">{t('settings.shells.noSnapshot')}</div>
 				{/if}

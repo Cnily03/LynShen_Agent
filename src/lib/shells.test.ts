@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, t } from '$lib/i18n';
-import { autoLabel, currentLabel, fellBack, INSTALL, missingShells, shellLabel, shellOptions, type ShellsReply } from './shells';
+import { autoLabel, currentLabel, fellBack, INSTALL, missingShells, sandboxInstead, shellLabel, shellOptions, type ShellsReply } from './shells';
 import { runCommand, terminalRequests } from './sandbox/terminal.svelte';
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -110,6 +110,15 @@ describe('shell options', () => {
 		expect(fellBack(windows({ shell: 'gitbash' }))).toBe(false);
 		expect(fellBack(mac({ shell: '/bin/zsh' }))).toBe(false);
 		expect(fellBack(mac({ shell: '/usr/local/bin/fish' }))).toBe(true);
+		// The Windows sandbox runs PowerShell instead of Git Bash: said as
+		// that, not as a missing shell.
+		const pwsh = { id: 'pwsh', name: 'PowerShell 7', label: 'PowerShell 7.5.2', path: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', version: '7.5.2', login: true, snapshot: false, notes: ['Git Bash cannot run in the Windows sandbox (preview): commands run in PowerShell 7 instead'], helper: null, instead_of: 'gitbash' };
+		for (const shell of ['gitbash', 'auto']) {
+			const reply = windows({ shell, commands: pwsh });
+			expect(sandboxInstead(reply)).toBe(true);
+			expect(fellBack(reply)).toBe(false);
+		}
+		expect(sandboxInstead(windows())).toBe(false);
 		expect(currentLabel(windows())).toBe('Git Bash 5.2.37');
 	});
 });

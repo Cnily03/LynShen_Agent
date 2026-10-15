@@ -44,6 +44,10 @@ export interface ShellsReply {
 		notes: string[];
 		/** With Git Bash: the PowerShell for Windows-native work. */
 		helper: { id: string; name: string; version: string | null } | null;
+		/** The shell the setting picked that cannot run, when this one runs
+		 *  instead: `gitbash` under the Windows sandbox (preview). Absent from
+		 *  an engine before it. */
+		instead_of?: string | null;
 	};
 	terminal: TerminalShell;
 }
@@ -147,9 +151,17 @@ export function currentLabel(reply: ShellsReply): string {
 	return shellLabel(reply.commands.id, reply.commands.version);
 }
 
+/** Git Bash is chosen (or what `auto` takes), but the Windows sandbox
+ *  (preview) runs commands in PowerShell, as Git Bash cannot run there. */
+export function sandboxInstead(reply: ShellsReply): boolean {
+	return reply.commands.instead_of === 'gitbash';
+}
+
 /** The chosen shell is not what runs: it is not installed (or the path is
- *  not a shell commands run in). */
+ *  not a shell commands run in). Not when the Windows sandbox replaced it
+ *  (`sandboxInstead`). */
 export function fellBack(reply: ShellsReply): boolean {
+	if (sandboxInstead(reply)) return false;
 	const chosen = reply.shell.trim() || 'auto';
 	if (chosen === 'auto') return false;
 	if (reply.shells.some((s) => s.id === chosen)) return reply.commands.id !== chosen;

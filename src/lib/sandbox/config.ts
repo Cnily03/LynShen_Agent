@@ -1,7 +1,8 @@
 // The sandbox settings in ~/.lynshen/config.json (sandbox contract, config
 // format): the sandbox mode, the network switch, the writable directories
 // and the command rules, each for every project (top level) or for one
-// project (`projects.<root>`), and where 始终允许 keeps its rules. The
+// project (`projects.<root>`), where 始终允许 keeps its rules, and on
+// Windows whether the engine's own sandbox runs (`sandbox_windows`). The
 // engine reads and writes the same file (a saved 始终允许 rule, a directory
 // added from a card), so every change here is a patch of the top-level
 // keys it touches, built over a fresh read: keys and entries this page does
@@ -35,6 +36,9 @@ export interface SandboxSettings {
 	mode: SandboxMode;
 	network: boolean;
 	alwaysScope: AlwaysAllowScope;
+	/** Windows 沙箱（预览）: `sandbox_windows` is `restricted-token`. Off by
+	 *  default; the engine ignores it elsewhere. */
+	windowsSandbox: boolean;
 	/** Every project's first, then each project's, the given project's first. */
 	directories: DirEntry[];
 	rules: RuleEntry[];
@@ -99,9 +103,16 @@ export function readSandboxSettings(cfg: Json, project = ''): SandboxSettings {
 		mode: SANDBOX_MODES.includes(cfg.sandbox as SandboxMode) ? (cfg.sandbox as SandboxMode) : 'workspace-write',
 		network: cfg.sandbox_network !== false,
 		alwaysScope: cfg.always_allow_scope === 'global' ? 'global' : 'project',
+		windowsSandbox: cfg.sandbox_windows === 'restricted-token',
 		directories,
 		rules
 	};
+}
+
+/** Turns the engine's Windows sandbox on or off. It is a machine setting:
+ *  the engine reads it when a session starts and on `set_sandbox`. */
+export function windowsSandboxPatch(on: boolean): Json {
+	return { sandbox_windows: on ? 'restricted-token' : 'off' };
 }
 
 const LIST_KEYS = ['sandbox_directories', 'command_rules'];

@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Settings → 权限与沙箱: what LynShen's commands may touch. The sandbox
-	// mode (完全访问 only after a confirmation), the network switch, where
+	// mode (完全访问 only after a confirmation), on Windows the engine's own
+	// sandbox (Windows 沙箱（预览）, `sandbox_windows`), the network switch, where
 	// 始终允许 keeps its rules, the writable directories (桌面 / 下载 / 文档 in
 	// one click) and the command rules, the ones 始终允许 saved included —
 	// config.json in the sandbox contract's format (sandbox/config.ts). Each
@@ -37,6 +38,7 @@
 		removeRulePatch,
 		samePath,
 		updateRulePatch,
+		windowsSandboxPatch,
 		type AlwaysAllowScope,
 		type DirMode,
 		type RuleAction,
@@ -128,6 +130,17 @@
 		if (!(await apply(() => ({ sandbox: mode })))) return modeKey++;
 		send(GLOBAL, (chat) => ({ op: 'set_sandbox', mode, network: chat.sandbox?.network ?? view?.network ?? true }));
 	}
+	/** The engine reads `sandbox_windows` when a session starts and on
+	 *  set_sandbox, so the running sessions take it at once and report
+	 *  whether their commands are isolated now. */
+	async function setWindowsSandbox(on: boolean) {
+		if (!(await apply(() => windowsSandboxPatch(on)))) return;
+		send(GLOBAL, (chat) => ({
+			op: 'set_sandbox',
+			mode: chat.sandbox?.mode || view?.mode || 'workspace-write',
+			network: chat.sandbox?.network ?? view?.network ?? true
+		}));
+	}
 	async function setNetwork(network: boolean) {
 		if (!(await apply(() => ({ sandbox_network: network })))) return;
 		send(GLOBAL, (chat) => ({ op: 'set_sandbox', mode: chat.sandbox?.mode || view?.mode || 'workspace-write', network }));
@@ -215,8 +228,14 @@
 	}
 </script>
 
-{#if windows}
-	<div class="top"><Notice tone="warn">{t('settings.sandbox.windows')}</Notice></div>
+{#if windows && view}
+	<div class="top">
+		{#if view.windowsSandbox}
+			<Notice tone="info">{t('settings.sandbox.windowsOn')}</Notice>
+		{:else}
+			<Notice tone="warn">{t('settings.sandbox.windows')}</Notice>
+		{/if}
+	</div>
 {/if}
 {#each unavailable as text (text)}
 	<div class="top"><Notice tone="warn" mono>{text}</Notice></div>
@@ -230,7 +249,16 @@
 				<Segmented value={view.mode} options={MODES} onChange={setMode} />
 			{/key}
 		</SettingsRow>
-		<SettingsRow id="sandbox-network" title={t('settings.sandbox.network')} description={t('settings.sandbox.networkHint')}>
+		{#if windows}
+			<SettingsRow id="sandbox-windows" title={t('settings.sandbox.windowsSandbox')} description={t('settings.sandbox.windowsSandboxHint')}>
+				<Switch checked={view.windowsSandbox} label={t('settings.sandbox.windowsSandbox')} onChange={setWindowsSandbox} />
+			</SettingsRow>
+		{/if}
+		<SettingsRow
+			id="sandbox-network"
+			title={t('settings.sandbox.network')}
+			description={t(windows ? 'settings.sandbox.networkHintWindows' : 'settings.sandbox.networkHint')}
+		>
 			<Switch checked={view.network} label={t('settings.sandbox.network')} onChange={setNetwork} />
 		</SettingsRow>
 		<SettingsRow id="sandbox-always" title={t('settings.sandbox.always')} description={t(`settings.sandbox.alwaysHint.${view.alwaysScope}`)}>
