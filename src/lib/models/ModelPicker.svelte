@@ -24,6 +24,7 @@
 		label,
 		disabled = false,
 		remember = true,
+		variant = 'field',
 		onChange
 	}: {
 		items: PickItem[];
@@ -36,6 +37,9 @@
 		disabled?: boolean;
 		/** A pick here is a model to chat with: it joins the recents. */
 		remember?: boolean;
+		/** 'field': a settings control; 'inline': a text button in a box (the
+		 *  home page's start box). */
+		variant?: 'field' | 'inline';
 		onChange: (value: string) => void;
 	} = $props();
 
@@ -54,12 +58,13 @@
 	function place() {
 		if (!button || !popEl) return;
 		const r = button.getBoundingClientRect();
-		const width = Math.min(Math.max(r.width, 400), window.innerWidth - 16);
+		const width = Math.min(Math.max(r.width, variant === 'inline' ? 380 : 400), window.innerWidth - 16);
 		const fit = fitMenu({ anchor: { top: r.top, bottom: r.bottom }, band: visibleBand(button, popEl), natural: popEl.scrollHeight, preferred: 'down' });
 		const height = Math.min(popEl.scrollHeight, fit.maxHeight);
 		pos = {
-			// Settings put the control at the row's right end: the list lines up with it there.
-			left: Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8)),
+			// Settings put the control at the row's right end: the list lines up
+			// with it there; an inline button's list starts at its left.
+			left: Math.max(8, Math.min(variant === 'inline' ? r.left : r.right - width, window.innerWidth - width - 8)),
 			top: fit.side === 'down' ? r.bottom + 6 : r.top - 8 - height,
 			width,
 			maxHeight: fit.maxHeight,
@@ -73,10 +78,14 @@
 		await tick();
 		place();
 	}
-	function close(refocus = true) {
+	/** Closes the list; the focus goes back to the button unless the caller
+	 *  moved it on (the home page's text box). */
+	function close() {
 		open = false;
 		browsing = null;
-		if (refocus) tick().then(() => button?.focus());
+		tick().then(() => {
+			if (!document.activeElement || document.activeElement === document.body) button?.focus();
+		});
 	}
 	function choose(item: PickItem) {
 		void pick(
@@ -113,6 +122,7 @@
 <button
 	class="trigger"
 	class:open
+	class:inline={variant === 'inline'}
 	{disabled}
 	bind:this={button}
 	aria-haspopup="listbox"
@@ -128,7 +138,7 @@
 	}}
 >
 	{#if chosen}
-		<span class="ico"><Vendor model={chosen.id} size={16} /></span>
+		<span class="ico"><Vendor model={chosen.id} size={variant === 'inline' ? 14 : 16} /></span>
 		<span class="txt">
 			<span class="name"
 				>{#if chosen.health === 'down' || chosen.health === 'degraded'}<span class="dot" class:err={chosen.health === 'down'} aria-hidden="true"></span>{/if}{chosen.name}</span
@@ -143,7 +153,7 @@
 	{:else}
 		<span class="txt"><span class="ph">{placeholder || t('models.choose')}</span></span>
 	{/if}
-	<span class="chev" class:up={open}><CaretDownIcon size={15} /></span>
+	<span class="chev" class:up={open}><CaretDownIcon size={variant === 'inline' ? 12 : 15} /></span>
 </button>
 
 {#if open && browsing === null}
@@ -194,6 +204,27 @@
 	.trigger:hover:not(:disabled),
 	.trigger.open {
 		border-color: var(--border-strong);
+	}
+	.trigger.inline {
+		display: inline-flex;
+		width: auto;
+		min-height: 30px;
+		gap: 6px;
+		padding: 0 10px;
+		border: none;
+		background: none;
+		color: var(--dim);
+		transition:
+			background var(--t-fast) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
+	}
+	.trigger.inline:hover:not(:disabled),
+	.trigger.inline.open {
+		background: var(--surface2);
+		color: var(--text);
+	}
+	.trigger.inline .txt {
+		flex: none;
 	}
 	.trigger:disabled {
 		opacity: 0.45;

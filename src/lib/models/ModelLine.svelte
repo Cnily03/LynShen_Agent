@@ -116,6 +116,7 @@
 
 <style>
 	.mline {
+		flex-shrink: 0;
 		align-items: flex-start;
 		cursor: pointer;
 	}

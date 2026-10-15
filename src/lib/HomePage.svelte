@@ -16,17 +16,12 @@
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
 	import SessionMark from '$lib/SessionMark.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
-	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
-	import Vendor from '$lib/Vendor.svelte';
 	import { readConfig } from '$lib/protocol';
 	import { configModelList } from '$lib/configModels';
 	import { isImageModel } from '$lib/providers/monoize';
-	import QuickSwitcher from '$lib/models/QuickSwitcher.svelte';
-	import ModelBrowser from '$lib/models/ModelBrowser.svelte';
+	import ModelPicker from '$lib/models/ModelPicker.svelte';
 	import { itemsFromOptions } from '$lib/models/items';
 	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
-	import { factsOptions, onTrial } from '$lib/models/pickerState.svelte';
-	import { pick as pickModel } from '$lib/models/pick';
 
 	let {
 		projects,
@@ -62,7 +57,6 @@
 	let provider = $state('');
 	let model = $state('');
 	let picked = $state(false);
-	let menuOpen = $state(false);
 	$effect(() => {
 		if (!modelPicker) return;
 		readConfig()
@@ -92,24 +86,6 @@
 			gatewayCatalog.lookup
 		)
 	);
-	const shownItem = $derived(items.find((i) => i.value === model));
-	let browsing = $state<string | null>(null);
-	// Escape closes the model list (the browser dialog closes itself).
-	function onWindowKey(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !menuOpen || browsing !== null) return;
-		e.preventDefault();
-		menuOpen = false;
-		box?.focus();
-	}
-	function chooseModel(item: (typeof items)[number]) {
-		void pickModel(item, (chosen) => {
-			model = chosen.value;
-			picked = true;
-			menuOpen = false;
-			browsing = null;
-			box?.focus();
-		});
-	}
 
 	let text = $state('');
 	let box = $state<HTMLTextAreaElement | null>(null);
@@ -154,7 +130,6 @@
 	const count = (p: Project) => p.sessions.filter((s: Session) => !s.archived).length;
 </script>
 
-<svelte:window onkeydown={onWindowKey} />
 <div class="home-page" out:paneOut|global>
 	<div class="col">
 		<h1>{t('shell.home.greeting')}</h1>
@@ -169,40 +144,17 @@
 			></textarea>
 			{#if modelPicker && shownModel}
 				<div class="model-anchor">
-					<button
-						class="model"
-						class:on={menuOpen}
-						onclick={() => {
-							menuOpen = !menuOpen;
-							if (menuOpen) void gatewayCatalog.refreshIfStale();
+					<ModelPicker
+						variant="inline"
+						{items}
+						value={model}
+						label={t('shell.home.model')}
+						onChange={(v) => {
+							model = v;
+							picked = true;
+							box?.focus();
 						}}
-						title={t('shell.home.model')}
-						aria-haspopup="dialog"
-						aria-expanded={menuOpen}
-					>
-						<Vendor model={shownModel.name} size={14} />
-						<span class="mname">{shownItem?.name ?? shownModel.label}</span>
-						<CaretDownIcon size={12} />
-					</button>
-					{#if menuOpen && browsing === null}
-						<button class="model-backdrop" aria-label={t('common.close')} tabindex="-1" onclick={() => (menuOpen = false)}></button>
-						<div class="pop model-menu" role="dialog" aria-label={t('shell.home.model')}>
-							<QuickSwitcher {items} trial={onTrial()} facts={factsOptions()} onPick={chooseModel} onBrowse={(q) => (browsing = q)} />
-						</div>
-					{/if}
-					{#if menuOpen && browsing !== null}
-						<ModelBrowser
-							{items}
-							trial={onTrial()}
-							facts={factsOptions()}
-							query={browsing}
-							onPick={chooseModel}
-							onClose={() => {
-								menuOpen = false;
-								browsing = null;
-							}}
-						/>
-					{/if}
+					/>
 				</div>
 			{/if}
 			<button class="send" disabled={!text.trim()} onclick={start} aria-label={t('chat.sendTitle')} title={t('chat.sendTitle')}>
@@ -333,52 +285,6 @@
 		position: absolute;
 		left: 10px;
 		bottom: 10px;
-	}
-	.model {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		max-width: 320px;
-		height: 30px;
-		padding: 0 10px;
-		border: none;
-		border-radius: var(--r-full);
-		background: none;
-		color: var(--dim);
-		font: inherit;
-		font-size: var(--fs-sm);
-		cursor: pointer;
-		transition: background var(--t-fast) var(--ease-base), color var(--t-fast) var(--ease-base);
-	}
-	.model:hover,
-	.model.on {
-		background: var(--accent-soft);
-		color: var(--text);
-	}
-	.mname {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.model-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 80;
-		border: none;
-		background: none;
-		cursor: default;
-	}
-	.model-menu {
-		position: absolute;
-		left: 0;
-		top: calc(100% + 6px);
-		z-index: 81;
-		width: min(380px, calc(100vw - 32px));
-		max-height: min(440px, 60vh);
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		transform-origin: top left;
-		animation: pop-in var(--t-pop) var(--ease-enter);
 	}
 	.send {
 		position: absolute;

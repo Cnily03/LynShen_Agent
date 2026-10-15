@@ -50,9 +50,10 @@ try {
   }
   // The home page offers the gateway's models before any conversation exists.
   await page.goto(base + '?home');
-  await page.locator('button.model').click();
-  await expect(page.locator('.model-menu .mline')).toHaveCount(2);
-  await page.locator('.model-menu .mline', {hasText:'Claude Opus 5.5'}).click();
+  await page.locator('.model-anchor .trigger').click();
+  await expect(page.locator('.pop.mp .mline')).toHaveCount(2);
+  await page.locator('.pop.mp .mline', {hasText:'Claude Opus 5.5'}).click();
+  await expect(page.locator('textarea')).toBeFocused();
   await page.locator('textarea').fill('你好');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('started')).toHaveText('你好 @ claude-opus-5-5');

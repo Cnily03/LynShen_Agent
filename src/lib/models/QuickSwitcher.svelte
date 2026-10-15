@@ -182,42 +182,44 @@
 			onkeydown={onKey}
 		/>
 	</label>
-	<div class="list" role="listbox" id={`${uid}-list`} aria-label={t('models.choose')} bind:this={listEl}>
-		{#each stops as stop, i (stop.kind === 'model' ? stop.item.key : stop.kind === 'extra' ? `x:${stop.extra.value}` : 'all')}
-			{#if stop.kind === 'extra'}
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected={stop.extra.active} onclick={() => act(stop)} onmousemove={() => i !== sel && select(i)}>
-					<span class="pop-txt"><span class="pop-label">{stop.extra.label}</span></span>
-					<span class="pop-check" class:off={!stop.extra.active}><CheckIcon size={16} /></span>
-				</div>
-			{:else if stop.kind === 'model'}
-				{@const label = head(i)}
-				{#if label}<div class="head" role="presentation">{label}</div>{/if}
-				<ModelLine
-					item={stop.item}
-					id={idOf(i)}
-					selected={i === sel}
-					pinned={modelPicks.isFavorite(stop.item.key)}
-					compact
-					withProvider={repeated.has(stop.item.name)}
-					{facts}
-					onPick={() => act(stop)}
-					onPin={(item) => pin(item.key)}
-					{onRoutes}
-					onHover={() => i !== sel && select(i)}
-				/>
-			{:else}
-				{#if !items.length}<div class="empty" role="presentation">{t('models.empty')}</div>{/if}
-				<div class="sep" role="presentation"></div>
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<div class="pop-row all" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected="false" onclick={() => browse()} onmousemove={() => i !== sel && select(i)}>
-					<span class="pop-ico"><SquaresFourIcon size={16} /></span>
-					<span class="pop-txt"><span class="pop-label">{t('models.all')}</span></span>
-					<span class="pop-hint">{t('models.allCount', { n: count })}</span>
-					<span class="pop-ico caret"><CaretRightIcon size={14} /></span>
-				</div>
-			{/if}
-		{/each}
+	<!-- The models scroll; 全部模型… stays at the bottom. -->
+	<div class="lb" role="listbox" id={`${uid}-list`} aria-label={t('models.choose')}>
+		<div class="list" bind:this={listEl}>
+			{#each stops as stop, i (stop.kind === 'model' ? stop.item.key : stop.kind === 'extra' ? `x:${stop.extra.value}` : 'all')}
+				{#if stop.kind === 'extra'}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div class="pop-row" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected={stop.extra.active} onclick={() => act(stop)} onmousemove={() => i !== sel && select(i)}>
+						<span class="pop-txt"><span class="pop-label">{stop.extra.label}</span></span>
+						<span class="pop-check" class:off={!stop.extra.active}><CheckIcon size={16} /></span>
+					</div>
+				{:else if stop.kind === 'model'}
+					{@const label = head(i)}
+					{#if label}<div class="head" role="presentation">{label}</div>{/if}
+					<ModelLine
+						item={stop.item}
+						id={idOf(i)}
+						selected={i === sel}
+						pinned={modelPicks.isFavorite(stop.item.key)}
+						compact
+						withProvider={repeated.has(stop.item.name)}
+						{facts}
+						onPick={() => act(stop)}
+						onPin={(item) => pin(item.key)}
+						{onRoutes}
+						onHover={() => i !== sel && select(i)}
+					/>
+				{/if}
+			{/each}
+			{#if !items.length}<div class="empty" role="presentation">{t('models.empty')}</div>{/if}
+		</div>
+		<div class="sep" role="presentation"></div>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div class="pop-row all" class:sel={sel === stops.length - 1} role="option" tabindex="-1" id={idOf(stops.length - 1)} aria-selected="false" onclick={() => browse()} onmousemove={() => sel !== stops.length - 1 && select(stops.length - 1)}>
+			<span class="pop-ico"><SquaresFourIcon size={16} /></span>
+			<span class="pop-txt"><span class="pop-label">{t('models.all')}</span></span>
+			<span class="pop-hint">{t('models.allCount', { n: count })}</span>
+			<span class="pop-ico caret"><CaretRightIcon size={14} /></span>
+		</div>
 	</div>
 </div>
 
@@ -252,6 +254,12 @@
 	.search input::placeholder {
 		color: var(--dim2);
 	}
+	.lb {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-height: 0;
+	}
 	.list {
 		display: flex;
 		flex-direction: column;
@@ -259,6 +267,9 @@
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
+	}
+	.list > :global(*) {
+		flex-shrink: 0;
 	}
 	.head {
 		padding: 8px 12px 2px;
