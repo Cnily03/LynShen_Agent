@@ -17,6 +17,7 @@
 	import KeyboardIcon from 'phosphor-svelte/lib/KeyboardIcon';
 	import UserCircleIcon from 'phosphor-svelte/lib/UserCircleIcon';
 	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
+	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
 	import DesktopTowerIcon from 'phosphor-svelte/lib/DesktopTowerIcon';
 	import ChartBarIcon from 'phosphor-svelte/lib/ChartBarIcon';
 	import MicrophoneIcon from 'phosphor-svelte/lib/MicrophoneIcon';
@@ -99,6 +100,7 @@
 	import AccountPage from './AccountPage.svelte';
 	import InviteSection from './InviteSection.svelte';
 	import DevicesSection from './DevicesSection.svelte';
+	import PurchaseSection from './PurchaseSection.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import SettingsSection from './SettingsSection.svelte';
@@ -163,6 +165,7 @@
 		general: GearSixIcon,
 		shortcuts: KeyboardIcon,
 		account: UserCircleIcon,
+		purchase: WalletIcon,
 		invite: GiftIcon,
 		devices: DesktopTowerIcon,
 		usage: ChartBarIcon,
@@ -1070,6 +1073,7 @@
 							onUsage={() => (section = 'usage')}
 							onInvite={() => (section = 'invite')}
 							onDevices={() => (section = 'devices')}
+							onPurchase={() => (section = 'purchase')}
 						/>
 					{:else if account.state === 'loading'}
 						<!-- Being read: neither the account nor 未登录 yet. -->
@@ -1090,10 +1094,12 @@
 							</SettingsRow>
 						</SettingsSection>
 					{/if}
+				{:else if current === 'purchase'}
+					<div id="set-purchase"><PurchaseSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} /></div>
 				{:else if current === 'invite'}
 					<div id="set-invite"><InviteSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} /></div>
 				{:else if current === 'devices'}
-					<div id="set-devices"><DevicesSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} /></div>
+					<div id="set-devices"><DevicesSection onSignIn={() => { section = 'account'; editing = '__monoize__'; }} onTopUp={() => (section = 'purchase')} /></div>
 				{:else if current === 'usage'}
 					<OverviewPanel />
 				{:else if current === 'voice'}

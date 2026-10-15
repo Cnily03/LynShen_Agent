@@ -31,7 +31,8 @@
   const sessions = new SessionStore();
   const sessionMap = $derived(new Map(sessions.allSessions.map(s => [s.id,s])));
   let welcome = $state(false);
-  let section = $state('account');
+  // ?section=<key>: the settings page opens there (default 账户).
+  let section = $state(mode.get('section') ?? 'account');
   let sequence = 0;
   const projectMode = new URL(location.href).searchParams.has('projects');
   // A reply thinking and answering at length, fed by the test (window.__chat).

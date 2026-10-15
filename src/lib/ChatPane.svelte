@@ -96,6 +96,7 @@
 	import type { SessionSwitch } from '$lib/composer/SessionSwitches.svelte';
 	import Modal from '$lib/ui/Modal.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
+	import { trial } from '$lib/trial.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
 	import { acceptsImages } from '$lib/settings/providerFields';
 	import { planPages } from '$lib/planPages.svelte';
@@ -331,10 +332,20 @@
 		}
 	}
 
+	// "改用余额" on a used-up plan: this device key pays with the balance from
+	// its next request (DT-F3), as Settings → 账户 sets it.
+	async function payWithBalance() {
+		const error = await trial.setFunding('balance');
+		if (error) toast.error(t('shell.trial.fundingFailed', { error }));
+		else toast.success(t('shell.trial.fundingToBalance'));
+	}
+
 	// An error notice's fix button.
 	function fixError(action: ErrorAction) {
 		if (action === 'restart') store.restartSession(session.id, true);
 		else if (action === 'login' || action === 'account') onOpenSettings?.('account');
+		else if (action === 'purchase' || action === 'topUp') onOpenSettings?.('purchase');
+		else if (action === 'useBalance') void payWithBalance();
 		else if (action === 'providers') onOpenSettings?.('providers');
 		else if (action === 'compact') send({ op: 'command', input: '/compact' });
 		else if (action === 'model') openModelPicker();

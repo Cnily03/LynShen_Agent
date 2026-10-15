@@ -45,6 +45,19 @@ describe('describeError', () => {
 		expect(describeError(raw)?.kind).toBe(kind);
 	});
 
+	it('offers a larger plan or the balance when the plan is used up, a top-up when the balance is', () => {
+		expect(describeError('unexpected status 402 Payment Required: {"error":{"code":"plan_quota_exhausted"}}', 'codex')).toMatchObject({
+			kind: 'planQuota',
+			action: 'purchase',
+			secondary: 'useBalance'
+		});
+		expect(describeError('API Error: 402 余额不足', 'claude')).toMatchObject({ kind: 'balance', action: 'topUp' });
+		expect(describeError('LLM API returned HTTP 402: insufficient balance', 'lynshen', 'monoize')).toMatchObject({ action: 'topUp' });
+		// A key of the user's own is topped up at its provider, not here.
+		expect(describeError('LLM API returned HTTP 402: insufficient balance', 'lynshen', 'deepseek')).toMatchObject({ action: 'account' });
+		expect(describeError('API Error: 402 余额不足')?.secondary).toBeUndefined();
+	});
+
 	it('leaves errors it does not know alone', () => {
 		expect(describeError('the tool crashed in an odd way')).toBeNull();
 	});

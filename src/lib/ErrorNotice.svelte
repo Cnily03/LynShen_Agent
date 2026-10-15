@@ -1,7 +1,8 @@
 <script lang="ts">
 	// An engine error in the conversation: what went wrong and what to do
-	// (errorInfo.ts), with the one action that fixes it and the raw text on
-	// demand. Errors it does not recognise show as they came.
+	// (errorInfo.ts), with the action that fixes it (and a second way out,
+	// such as paying with the balance when the plan is used up) and the raw
+	// text on demand. Errors it does not recognise show as they came.
 	import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircleIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
@@ -45,6 +46,9 @@
 		<div class="foot">
 			{#if info.action && onAction}
 				<Button size="sm" onclick={() => onAction(info.action!)}>{t(`chat.err.action.${info.action}`)}</Button>
+				{#if info.secondary}
+					<Button size="sm" variant="ghost" onclick={() => onAction(info.secondary!)}>{t(`chat.err.action.${info.secondary}`)}</Button>
+				{/if}
 			{/if}
 			<button class="raw-toggle" class:open={showRaw} onclick={() => (showRaw = !showRaw)}>
 				<CaretRightIcon size={12} />{showRaw ? t('chat.err.hideRaw') : t('chat.err.raw')}

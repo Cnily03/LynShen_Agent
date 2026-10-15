@@ -3,12 +3,16 @@
 // url: …`); this names what went wrong, what to do, and which button does it.
 // Unknown errors return null and show as they came.
 
-export type ErrorAction = 'restart' | 'login' | 'account' | 'compact' | 'model' | 'providers';
+/** `purchase` / `topUp`: Settings → 套餐与充值; `useBalance`: this device
+ *  key pays with the balance from its next request (DT-F3). */
+export type ErrorAction = 'restart' | 'login' | 'account' | 'compact' | 'model' | 'providers' | 'purchase' | 'topUp' | 'useBalance';
 
 export interface ErrorInfo {
 	/** i18n key under `chat.err.<kind>` for the title and the hint. */
 	kind: string;
 	action?: ErrorAction;
+	/** A second way out, shown after the action. */
+	secondary?: ErrorAction;
 	/** Named in the hint: the provider, the tool, the model. */
 	subject?: string;
 	/** The HTTP status and request id, when the raw text carries them. */
@@ -47,9 +51,10 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 	const low = text.toLowerCase();
 	const status = statusOf(text);
 	const requestId = requestIdOf(text);
-	const info = (kind: string, action?: ErrorAction, subject?: string): ErrorInfo => ({
+	const info = (kind: string, action?: ErrorAction, subject?: string, secondary?: ErrorAction): ErrorInfo => ({
 		kind,
 		...(action ? { action } : {}),
+		...(secondary ? { secondary } : {}),
 		...(subject ? { subject } : {}),
 		...(status ? { status } : {}),
 		...(requestId ? { requestId } : {})
@@ -75,10 +80,13 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		return info('toolAuth', undefined, tool || undefined);
 	}
 	// A desktop plan's window is used up (the key pays with the plan, which
-	// never falls back to the balance): not a balance problem.
-	if (/plan[_ ]quota[_ ]exhausted/i.test(text)) return info('planQuota', 'account');
+	// never falls back to the balance): not a balance problem. A larger plan,
+	// or paying with the balance, gets the work going again.
+	if (/plan[_ ]quota[_ ]exhausted/i.test(text)) return info('planQuota', 'purchase', undefined, 'useBalance');
+	// Through the LynShen gateway the balance is topped up in the app; a key
+	// of the user's own (DeepSeek, …) is topped up at its provider.
 	if (status === 402 || /insufficient[_ ](balance|quota|funds)|余额不足|quota exceeded|billing/i.test(text))
-		return info('balance', 'account');
+		return info('balance', backend === 'lynshen' && provider && !LYNSHEN_PROVIDERS.has(provider) ? 'account' : 'topUp');
 	if (/context[_ ]length|context window|prompt is too long|maximum context|too many tokens|input.*exceeds|上下文/i.test(text))
 		return info('context', 'compact');
 	if (status === 429 || /rate[ _-]?limit|too many requests|限流|请求过于频繁/i.test(text)) return info('rateLimit');

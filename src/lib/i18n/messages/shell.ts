@@ -888,6 +888,7 @@ const shell = {
 			cacheHit: '缓存命中',
 			windowLeft: '{window}额度剩 {n} 积分',
 			planDetails: '在设置中查看套餐和余额',
+			purchase: '购买套餐或充值',
 			logout: '退出登录',
 			roles: { admin: '管理员', superAdmin: '超级管理员' }
 		},
@@ -913,6 +914,7 @@ const shell = {
 			fundingPlanHint: '{group}的模型先用套餐额度；当前时段用完时请求会失败，不会自动改用余额。',
 			fundingBalanceHint: '所有请求都从余额扣费，不用套餐额度。',
 			fundingFailed: '计费方式没有改成：{error}',
+			fundingToBalance: '这台电脑的请求改为从余额扣费',
 			fundingSaving: '正在保存计费方式'
 		},
 		sidebarCollapse: '收起侧栏',
@@ -1900,6 +1902,7 @@ const shell = {
 			cacheHit: 'Cache hit',
 			windowLeft: '{window}: {n} credits left',
 			planDetails: 'See the plan and balance in Settings',
+			purchase: 'Buy a plan or top up',
 			logout: 'Log out',
 			roles: { admin: 'Admin', superAdmin: 'Super admin' }
 		},
@@ -1923,6 +1926,7 @@ const shell = {
 			fundingPlanHint: 'Models in {group} use the plan first. When a window runs out, requests fail until it recovers; the balance is not used.',
 			fundingBalanceHint: 'Every request is paid from the balance; the plan is not used.',
 			fundingFailed: 'Could not change how requests are paid: {error}',
+			fundingToBalance: 'This computer’s requests now pay with the balance',
 			fundingSaving: 'Saving how requests are paid'
 		},
 		sidebarCollapse: 'Collapse sidebar',

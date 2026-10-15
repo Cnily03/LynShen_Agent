@@ -48,6 +48,13 @@ describe('the account card', () => {
 		for (const gone of ['最近 60 秒', '计费方式', '显示货币', '主题', '7 天 2.50']) expect(shown).not.toContain(gone);
 	});
 
+	it('offers buying a plan or balance when the app can, and only when signed in', async () => {
+		const { default: AccountCard } = await import('./AccountCard.svelte');
+		expect(text(render(AccountCard, { props: { ...props(true), onPurchase() {} } }).body)).toContain('购买套餐或充值');
+		expect(text(render(AccountCard, { props: props(true) }).body)).not.toContain('购买套餐或充值');
+		expect(text(render(AccountCard, { props: { ...props(false), onPurchase() {} } }).body)).not.toContain('购买套餐或充值');
+	});
+
 	it('reads as loading, not logged out, while the account is read', async () => {
 		const { default: AccountCard } = await import('./AccountCard.svelte');
 		const shown = text(render(AccountCard, { props: { ...props(true), user: null, balance: null } }).body);

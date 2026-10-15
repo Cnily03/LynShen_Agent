@@ -9,6 +9,8 @@ export type SectionKey =
 	| 'general'
 	| 'shortcuts'
 	| 'account'
+	/** 套餐与充值: buying a plan or balance in the app (purchase.ts). */
+	| 'purchase'
 	| 'invite'
 	| 'devices'
 	| 'usage'
@@ -33,7 +35,7 @@ export type SectionKey =
 	| 'updates';
 
 export const GROUPS: { key: string; sections: SectionKey[] }[] = [
-	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'invite', 'devices', 'usage', 'voice'] },
+	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'purchase', 'invite', 'devices', 'usage', 'voice'] },
 	{ key: 'models', sections: ['providers', 'models', 'styles', 'network'] },
 	{ key: 'agents', sections: ['agents', 'sandbox', 'team', 'acp', 'skills', 'plugins', 'mcp', 'import'] },
 	{ key: 'system', sections: ['daemon', 'updates'] }
@@ -86,6 +88,8 @@ export const ROWS: SearchRow[] = [
 	{ section: 'account', id: 'account-balance', titleKey: 'settings.usage.balance' },
 	{ section: 'account', id: 'account-models', titleKey: 'settings.monoize.square' },
 	{ section: 'account', id: 'account-provider', titleKey: 'settings.page.apiKey', descKey: 'settings.monoize.managedKey' },
+	{ section: 'purchase', id: 'purchase-plans', titleKey: 'settings.purchase.plansSection', descKey: 'settings.purchase.plansHint' },
+	{ section: 'purchase', id: 'purchase-topup', titleKey: 'settings.purchase.topUpSection', descKey: 'settings.purchase.topUpHint' },
 	{ section: 'invite', id: 'invite', titleKey: 'settings.section.invite', descKey: 'settings.accountPage.inviteSub' },
 	{ section: 'devices', id: 'devices', titleKey: 'settings.section.devices', descKey: 'settings.accountPage.devicesSub' },
 	{ section: 'usage', id: 'usage-daily', titleKey: 'settings.section.usage' },
