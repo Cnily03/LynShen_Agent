@@ -294,11 +294,14 @@
 		min-width: 0;
 		animation: pane-in var(--t-med) var(--ease-out);
 	}
+	/* A full-panel page's navigation: a --divider at its edge (design.md,
+	   "Window frame"). */
 	.nav {
 		flex-shrink: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+		border-right: 1px solid var(--divider);
 		background: var(--sidebar);
 	}
 	:global(:root[data-vibrancy='on']) .nav {

@@ -1,10 +1,6 @@
 <script lang="ts">
-	import ShieldWarningIcon from 'phosphor-svelte/lib/ShieldWarningIcon';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
-	import RobotIcon from 'phosphor-svelte/lib/RobotIcon';
-	import ChatCircleDotsIcon from 'phosphor-svelte/lib/ChatCircleDotsIcon';
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
-	import ClipboardTextIcon from 'phosphor-svelte/lib/ClipboardTextIcon';
 	import CopyIcon from 'phosphor-svelte/lib/CopyIcon';
 	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimpleIcon';
 	import { t } from '$lib/i18n';
@@ -265,33 +261,31 @@
 
 <svelte:window onkeydowncapture={onKey} />
 <div class="approval" class:ask={!!questions} class:plan={isPlan}>
+	<!-- It waits for the reader: a 6px --warn dot before the title; scope
+	     and state after it as plain --dim text (design.md, "Status, attention
+	     and emphasis"). -->
 	<div class="approval-head">
+		<span class="dot" aria-hidden="true"></span>
 		{#if questions}
-			<ChatCircleDotsIcon size={15} />
 			<span>{t('shell.askQuestion')}</span>
 		{:else if isPlan}
-			<ClipboardTextIcon size={15} />
 			<span>{t('shell.proposePlan')}</span>
 		{:else if sbx}
-			<ShieldWarningIcon size={15} />
 			<span class="aname"
 				>{t(`shell.sandbox.kind.${sbx.kind}`)}{#if sbx.kind === 'tool' || sbx.kind === 'edit'} · <b>{approval.name}</b>{/if}</span
 			>
-			{#if sbx.mustAsk}<span class="must" title={t('shell.sandbox.mustAskHint')}>{t('shell.sandbox.mustAsk')}</span>{/if}
+			{#if sbx.mustAsk}<span class="meta" title={t('shell.sandbox.mustAskHint')}>· {t('shell.sandbox.mustAsk')}</span>{/if}
 		{:else}
-			<ShieldWarningIcon size={15} />
 			<span class="aname"
 				>{isShell ? t('shell.approveCommand') : t('shell.approveFile')} · <b>{approval.name}</b
 				></span
 			>
 		{/if}
 		{#if multiHunk}
-			<span class="hunk-count">{t('shell.hunkCount', { n: hunks.length })}</span>
+			<span class="meta">· {t('shell.hunkCount', { n: hunks.length })}</span>
 		{/if}
 		{#if approval.subagentId}
-			<span class="subagent-chip" title={approval.subagentId}
-				><RobotIcon size={11} />{t('chat.subagentChip', { id: approval.subagentId })}</span
-			>
+			<span class="meta subagent" title={approval.subagentId}>· {t('chat.subagentChip', { id: approval.subagentId })}</span>
 		{/if}
 	</div>
 
@@ -529,14 +523,17 @@
 		border: 1px solid var(--border);
 		border-radius: var(--r-lg);
 		box-shadow: var(--shadow-float);
+		font-size: var(--fs-sm);
+		line-height: 18px;
 		animation: rise var(--t-slow) var(--ease-out) backwards;
 	}
+	/* Blocks inside the raised card: a --surface fill, no second border or
+	   shadow. */
 	.plan-body {
 		margin-top: 10px;
-		padding: 10px 12px;
-		background: var(--sidebar);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-sm);
+		padding: 8px 10px;
+		background: var(--surface);
+		border-radius: var(--r-md);
 		font-size: var(--fs-sm);
 		max-height: 340px;
 		overflow-y: auto;
@@ -550,11 +547,29 @@
 		gap: 8px;
 		font-size: var(--fs-sm);
 		font-weight: 500;
+		line-height: 18px;
 		color: var(--text);
 	}
-	.approval-head > :global(svg) {
+	.dot {
 		flex-shrink: 0;
+		width: 6px;
+		height: 6px;
+		border-radius: var(--r-full);
+		background: var(--warn);
+	}
+	.approval-head .meta {
+		flex-shrink: 0;
+		margin-left: -4px;
 		color: var(--dim);
+		font-size: var(--fs-xs);
+		font-weight: 400;
+		white-space: nowrap;
+	}
+	.approval-head .subagent {
+		min-width: 0;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.questions {
 		display: flex;
@@ -582,7 +597,7 @@
 		padding: 8px 10px;
 		border: 1px solid var(--border);
 		border-radius: var(--r-sm);
-		background: var(--sidebar);
+		background: var(--surface);
 		color: var(--text);
 		cursor: pointer;
 		transition:
@@ -598,7 +613,7 @@
 	}
 	.q-opt.on {
 		border-color: var(--accent);
-		background: color-mix(in oklab, var(--accent) 12%, var(--sidebar));
+		background: color-mix(in oklab, var(--accent) 12%, var(--panel));
 	}
 	.q-mark {
 		display: inline-flex;
@@ -636,37 +651,17 @@
 	}
 	.approval-head b {
 		font-family: var(--font-mono);
+		font-weight: 400;
 		color: var(--text);
 	}
-	.hunk-count {
-		font-size: var(--fs-2xs);
-		color: var(--dim);
-	}
-	.subagent-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		margin-left: auto;
-		padding: 1px 7px;
-		font-size: var(--fs-2xs);
-		font-family: var(--font-mono);
-		color: var(--dim);
-		background: var(--surface2);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-full);
-		max-width: 200px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 	.approval-sum {
-		margin: 8px 0 0;
+		margin: 10px 0 0;
 		padding: 8px 10px;
-		background: var(--sidebar);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-sm);
+		background: var(--surface);
+		border-radius: var(--r-md);
 		font-family: var(--font-mono);
 		font-size: var(--fs-xs);
+		line-height: 18px;
 		white-space: pre-wrap;
 		word-break: break-word;
 		max-height: 120px;
@@ -678,8 +673,9 @@
 	.approval-actions {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: 8px;
-		margin-top: 10px;
+		margin-top: 12px;
 	}
 	.scope-anchor {
 		position: relative;
@@ -695,9 +691,8 @@
 		overflow-y: auto;
 	}
 	.hunk {
-		background: var(--sidebar);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-sm);
+		background: var(--surface);
+		border-radius: var(--r-md);
 		overflow: hidden;
 	}
 	.hunk.off {
@@ -781,10 +776,11 @@
 	.approval-actions :global(kbd) {
 		margin-left: 6px;
 		padding: 0 4px;
-		border-radius: 3px;
+		border-radius: var(--r-xs);
 		background: color-mix(in oklab, currentColor 14%, transparent);
-		font: inherit;
-		font-size: 10px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		line-height: 14px;
 		opacity: 0.75;
 	}
 	.aname {
@@ -792,27 +788,22 @@
 		overflow-wrap: anywhere;
 	}
 	/* --- sandbox request --- */
-	.must {
-		flex-shrink: 0;
-		padding: 1px 7px;
-		font-size: var(--fs-2xs);
-		font-weight: 500;
-		color: var(--warn);
-		background: color-mix(in oklab, var(--warn) 12%, transparent);
-		border-radius: var(--r-full);
-		white-space: nowrap;
-	}
+	/* The facts, one key–value line each (the reason, the command, which
+	   opens to its full text, the paths, the directory), in one --surface
+	   block. */
 	.sbx-lines {
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
-		margin-top: 8px;
+		gap: 4px;
+		margin-top: 10px;
+		padding: 8px 10px;
+		border-radius: var(--r-md);
+		background: var(--surface);
 	}
-	/* One line each: the reason, the command (opens to its full text), the paths, the directory. */
 	.sline {
 		display: flex;
 		align-items: baseline;
-		gap: 8px;
+		gap: 12px;
 		min-width: 0;
 		padding: 0;
 		border: none;
@@ -820,12 +811,12 @@
 		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-xs);
-		line-height: 1.5;
+		line-height: 16px;
 		text-align: left;
 	}
 	.sk {
 		flex: none;
-		min-width: 3em;
+		min-width: 2.5em;
 		color: var(--dim);
 	}
 	.sv {
@@ -845,15 +836,16 @@
 	}
 	code.sv {
 		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
+		font-size: var(--fs-xs);
 	}
 	.cmdline {
-		padding: 5px 8px;
-		margin: 2px 0;
-		background: var(--sidebar);
-		border: 1px solid var(--hairline);
+		margin: 0 -4px;
+		padding: 2px 4px;
 		border-radius: var(--r-sm);
 		cursor: pointer;
+	}
+	.cmdline:hover {
+		background: var(--surface2);
 	}
 	.cmdline code.sv {
 		font-size: var(--fs-xs);
@@ -885,7 +877,7 @@
 		padding: 7px 10px;
 		border: 1px solid var(--border);
 		border-radius: var(--r-sm);
-		background: var(--surface2);
+		background: var(--bg);
 		color: var(--text);
 		font-family: var(--font-sans);
 		font-size: var(--fs-sm);
@@ -893,10 +885,6 @@
 		outline: none;
 	}
 	.fb-input:focus {
-		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
-	}
-	.hunk-count {
-		flex-shrink: 0;
-		white-space: nowrap;
+		border-color: var(--border-strong);
 	}
 </style>

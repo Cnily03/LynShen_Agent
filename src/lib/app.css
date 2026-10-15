@@ -1,18 +1,32 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/geist-mono';
 
-/* LynShen design system — follows brand-docs/DESIGN-SPEC.md, tuned for a desktop
-   app. Dark is the default theme.
+/* The display face (design.md, "Type"): Noto Serif SC 500, SIL OFL 1.1
+   (fonts/OFL.txt), cut down to the glyphs of the two display moments and
+   printable ASCII (scripts/subset-display-font.py). Fetched only when a
+   display line is on screen. */
+@font-face {
+	font-family: 'Noto Serif SC';
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url('./fonts/noto-serif-sc-display.woff2') format('woff2');
+}
 
-   Color: near-black, off-white and neutral grays carry the UI (a little warm
-   in the light theme). --accent is the *neutral*
-   emphasis (primary buttons, selected state: near-white on dark, near-black on
-   light); the brand purple (--brand) is kept for links and the focus ring only.
-   Layers, back to front: --rail (window chrome: top-left strip + workspace
-   rail and the title bar across the window) → --sidebar (the session-list
-   panel) → --bg (the canvas) → --panel with
-   --shadow-float (composer, cards) → --panel with --shadow-pop (menus, modals).
-   Depth comes from these fills and shadows; strokes stay faint (--hairline).
+/* Aogiri design tokens (design.md at the repo root is the contract). Dark is
+   the default theme.
+
+   Direction: an editor's frame around a quiet conversation. Near-black,
+   off-white and neutral grays carry the UI (a little warm in the light
+   theme). --accent is the *neutral* emphasis (primary buttons, selected
+   state: near-white on dark, near-black on light); the brand purple
+   (--brand) is kept for links and the focus ring only.
+   Layers, back to front: the frame tone (--rail = --sidebar: the title bar,
+   the navigator, tab bars) → --bg (the canvas, edge to edge) → --panel with
+   --shadow-float (composer, approval card) → --panel with --shadow-pop
+   (menus, popovers, tooltips) → --shadow-modal (dialogs). 1px --divider
+   lines mark where regions meet; --hairline divides rows; --border outlines
+   inputs, buttons and the floating controls. The frame has no shadow.
 
    Type scale: every font-size uses a --fs-* step. Radius: every corner uses a
    --r-* step. Colors come only from the tokens below. */
@@ -30,8 +44,11 @@
 	--on-accent: #171717;
 
 	--bg: #1a1a1a;
-	--sidebar: #202020;
+	/* The frame tone: one step darker than the canvas. */
+	--sidebar: #141414;
 	--rail: #141414;
+	/* Region boundaries and the lines between tabs. */
+	--divider: #2a2a2a;
 	--panel: #262626;
 	--surface: rgba(255, 255, 255, 0.03);
 	--surface2: rgba(255, 255, 255, 0.06);
@@ -39,7 +56,8 @@
 	--border: #2e2e2e;
 	--border-strong: #3a3a3a;
 
-	/* On --bg / --sidebar: --text 14.7 / 13.8, --dim 7.6 / 7.1, --dim2 4.9 / 4.6. */
+	/* On --bg / the frame tone: --text 14.7 / 15.6, --dim 7.6 / 8.0,
+	   --dim2 4.9 / 5.2 (src/lib/themeTokens.test.ts holds these). */
 	--text: #ececec;
 	--dim: #ababab;
 	--dim2: #888888;
@@ -49,23 +67,29 @@
 	--err: #f7a39a;
 	--warn: #e5bd5c;
 
-	--font-sans: 'Inter Variable', Inter, -apple-system, 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+	/* The system UI face first (SF Pro and PingFang SC on macOS, Segoe UI and
+	   Microsoft YaHei on Windows); the bundled Inter where neither is there. */
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Inter Variable', Inter, 'Noto Sans SC', system-ui, sans-serif;
 	--font-mono: 'Geist Mono Variable', 'Geist Mono', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+	/* The two display moments only, at weight 500 and --fs-2xl. */
+	--font-display: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
 
-	--fs-2xs: 12px; /* mono labels, badges */
-	--fs-xs: 13px; /* meta, secondary rows */
-	--fs-sm: 15px; /* UI controls, lists */
-	--fs-md: 16px; /* chat body, inputs */
-	--fs-lg: 18px; /* section titles */
-	--fs-xl: 24px; /* page titles */
-	--fs-2xl: 36px; /* welcome wordmark */
+	--fs-2xs: 11px; /* badges, key glyphs, mono labels */
+	--fs-xs: 12px; /* metadata, descriptions, group heads */
+	--fs-sm: 13px; /* frame text: rows, tabs, menus, buttons */
+	--fs-md: 15px; /* conversation text, composer */
+	--fs-lg: 18px; /* settings page, dialog and navigation titles */
+	--fs-xl: 22px; /* canvas-page and overview titles */
+	--fs-2xl: 28px; /* the display moments */
 
-	--r-xs: 5px;
-	--r-sm: 8px;
-	--r-md: 10px;
-	--r-lg: 14px;
-	--r-xl: 20px;
-	--r-2xl: 26px;
+	/* The frame, menus, cards and dialogs stay at --r-lg or less; the user
+	   bubble (--r-xl) and the composer (--r-2xl) are rounder. */
+	--r-xs: 2px;
+	--r-sm: 4px;
+	--r-md: 6px;
+	--r-lg: 8px;
+	--r-xl: 12px;
+	--r-2xl: 14px;
 	--r-full: 999px;
 
 	/* Motion, after hark.com's web app: one base curve for size, colour and
@@ -92,11 +116,13 @@
 	--t-enter: calc(0.4s * var(--time-scale));
 
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-	/* Surfaces that float on the content layer (composer, cards): depth, no outline. */
-	--shadow-float: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.35);
-	--shadow-float-strong: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 12px 36px rgba(0, 0, 0, 0.45);
-	--shadow-canvas: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 28px rgba(0, 0, 0, 0.45);
-	--shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.07);
+	/* The composer and the approval card: their 1px --border and, in the
+	   light theme, a faint blur; none here. Focus shows as --border-strong. */
+	--shadow-float: none;
+	--shadow-float-strong: none;
+	/* Menus, popovers, tooltips, the peeking navigator: a --divider ring and
+	   a soft drop. */
+	--shadow-pop: 0 0 0 1px var(--divider), 0 8px 24px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.2);
 	--shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.07);
 	--scrim: rgba(0, 0, 0, 0.6);
 	/* Frosted dialog sheet (ui/Modal.svelte): a translucent fill over a blur
@@ -117,11 +143,11 @@
 }
 
 /* Light: an off-white canvas (L* 96.5, a little warm), never pure white on
-   anything larger than a card; the sidebar and the window chrome are each a
-   step darker, panels a step lighter. Contrast on --bg / --sidebar / --rail:
-   --text 16.1 / 14.9 / 13.7, --dim 8.6 / 8.0 / 7.3, --dim2 5.6 / 5.1 / 4.7;
-   the status colours are at least 4.5:1 on all three and on their own 11%
-   tints (src/lib/themeTokens.test.ts holds these numbers). */
+   anything larger than a card; the frame tone (--rail = --sidebar, L* 94.4)
+   a step darker, panels a step lighter. Contrast on --bg / the frame tone:
+   --text 16.1 / 15.3, --dim 8.6 / 8.2, --dim2 5.6 / 5.3; the status colours
+   are at least 4.5:1 on both and on their own 11% tints
+   (src/lib/themeTokens.test.ts holds these numbers). */
 [data-theme='light'] {
 	--brand: #7c3aed;
 	--brand-bright: #6d28d9;
@@ -133,8 +159,9 @@
 	--on-accent: #ffffff;
 
 	--bg: #f6f5f2;
-	--sidebar: #eeece8;
-	--rail: #e5e3de;
+	--sidebar: #f0efeb;
+	--rail: #f0efeb;
+	--divider: #e0ded9;
 	--panel: #fbfaf8;
 	--surface: rgba(26, 25, 23, 0.03);
 	--surface2: rgba(26, 25, 23, 0.06);
@@ -152,10 +179,9 @@
 	--warn: #954e00;
 
 	--shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.08);
-	--shadow-float: 0 0 0 1px rgba(28, 25, 23, 0.05), 0 6px 22px rgba(28, 25, 23, 0.07);
-	--shadow-float-strong: 0 0 0 1px rgba(28, 25, 23, 0.07), 0 8px 28px rgba(28, 25, 23, 0.11);
-	--shadow-canvas: 0 0 0 1px rgba(28, 25, 23, 0.06), 0 6px 24px rgba(28, 25, 23, 0.07);
-	--shadow-pop: 0 10px 28px rgba(28, 25, 23, 0.12), 0 0 0 1px rgba(28, 25, 23, 0.08);
+	--shadow-float: 0 2px 8px rgba(28, 25, 23, 0.05);
+	--shadow-float-strong: 0 2px 8px rgba(28, 25, 23, 0.05);
+	--shadow-pop: 0 0 0 1px var(--divider), 0 8px 24px rgba(28, 25, 23, 0.12), 0 2px 6px rgba(28, 25, 23, 0.08);
 	--shadow-modal: 0 20px 56px rgba(28, 25, 23, 0.18), 0 0 0 1px rgba(28, 25, 23, 0.08);
 	--scrim: rgba(28, 25, 23, 0.32);
 	--glass-strong: color-mix(in oklab, var(--panel) 88%, transparent);
@@ -169,6 +195,25 @@
 	--cm-property: #2360e8;
 	--cm-tag: #be123c;
 	--cm-punct: #55524e;
+}
+
+/* The phone remote page (src/routes/remote) and the web chat (src/routes/(web))
+   are outside design.md's scope: they keep the type scale and radii they
+   were made with, sized for a phone and a browser tab. */
+:root:has(.remote, .web, .signin) {
+	--fs-2xs: 12px;
+	--fs-xs: 13px;
+	--fs-sm: 15px;
+	--fs-md: 16px;
+	--fs-lg: 18px;
+	--fs-xl: 24px;
+	--fs-2xl: 36px;
+	--r-xs: 5px;
+	--r-sm: 8px;
+	--r-md: 10px;
+	--r-lg: 14px;
+	--r-xl: 20px;
+	--r-2xl: 26px;
 }
 
 /* ⌘K AI-edit pending pulse (CodeMirror line decoration, outside svelte scope). */
@@ -186,14 +231,15 @@
 	box-sizing: border-box;
 }
 
-/* Keyboard focus ring (mouse clicks don't trigger :focus-visible). Inputs keep
-   their own border-based focus indication to avoid a doubled outline. */
+/* Keyboard focus ring (mouse clicks don't trigger :focus-visible). Text
+   inputs keep their own border-based focus indication to avoid a doubled
+   outline; a slider has no border, so it keeps the ring. */
 :focus-visible {
 	outline: 2px solid var(--brand-bright);
 	outline-offset: 2px;
 	border-radius: var(--r-xs);
 }
-input:focus-visible,
+input:not([type='range']):focus-visible,
 textarea:focus-visible {
 	outline: none;
 }
@@ -226,7 +272,6 @@ body {
 	color: var(--text);
 	font-family: var(--font-sans);
 	font-size: var(--fs-md);
-	font-feature-settings: 'cv11', 'ss01';
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
@@ -250,10 +295,10 @@ body {
  * in the light theme and 5% of a white one in the dark theme; under that the
  * sidebar keeps its own colour. Over white / over black, on the chrome and
  * on the sidebar (src/lib/themeTokens.test.ts holds these):
- *   light  --text 13.7 / 13.3 and 14.8 / 14.8, --dim 7.3 / 7.1 and 7.9 / 7.9,
- *          --dim2 4.7 / 4.6 and 5.1 / 5.1
- *   dark   --text 13.8 / 15.7 and 13.8 / 13.9, --dim 7.1 / 8.1 and 7.1 / 7.1,
- *          --dim2 4.6 / 5.2 and 4.6 / 4.6 */
+ *   light  --text 15.3 / 14.7 and 15.3 / 15.3, --dim 8.2 / 7.9 and 8.2 / 8.2,
+ *          --dim2 5.3 / 5.1 and 5.3 / 5.3
+ *   dark   --text 13.8 / 15.7 and 15.6 / 15.6, --dim 7.1 / 8.1 and 8.0 / 8.0,
+ *          --dim2 4.6 / 5.2 and 5.2 / 5.2 */
 :root[data-os='macos'],
 :root[data-os='macos'] body,
 :root[data-vibrancy='on'],
@@ -425,41 +470,50 @@ body {
 }
 
 /* Popover surface shared by every menu and floating picker (ui/PopMenu.svelte
-   and the pickers built on it): one fill, radius, shadow and row style. */
+   and the pickers built on it), design.md "Menus and popovers": --panel,
+   --r-lg, --shadow-pop (its --divider ring), 4px padding; 28px rows. */
 .pop {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 6px;
+	gap: 1px;
+	padding: 4px;
 	border-radius: var(--r-lg);
 	background: var(--panel);
 	box-shadow: var(--shadow-pop);
+	font-size: var(--fs-sm);
+	line-height: 18px;
 	user-select: none;
 }
 .pop-head {
-	padding: 8px 12px 6px;
+	padding: 6px 8px 4px;
 	color: var(--dim2);
-	font-size: var(--fs-sm);
+	font-size: var(--fs-xs);
+	line-height: 16px;
 }
 .pop-row {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
 	width: 100%;
-	min-height: 38px;
-	padding: 6px 12px;
+	min-height: 28px;
+	padding: 4px 8px;
 	border: none;
 	border-radius: var(--r-md);
 	background: none;
 	color: var(--text);
 	font: inherit;
 	font-size: var(--fs-sm);
+	line-height: 18px;
 	text-align: left;
 	cursor: pointer;
-	transition: background var(--t-fast) var(--ease-out);
+	transition: background var(--t-fast) var(--ease-base);
+}
+/* Keyboard focus is drawn inside the row. */
+.pop-row:focus-visible {
+	outline-offset: -2px;
 }
 .pop-row.two {
-	padding: 8px 12px;
+	padding: 6px 8px;
 }
 .pop-row:disabled {
 	opacity: 0.4;
@@ -471,7 +525,7 @@ body {
 }
 .pop-ico {
 	display: inline-flex;
-	width: 18px;
+	width: 16px;
 	flex-shrink: 0;
 	color: var(--dim);
 }
@@ -488,11 +542,13 @@ body {
 .pop-desc {
 	color: var(--dim2);
 	font-size: var(--fs-xs);
+	line-height: 16px;
 }
 .pop-hint {
 	flex-shrink: 0;
 	color: var(--dim2);
-	font-size: var(--fs-xs);
+	font-family: var(--font-mono);
+	font-size: var(--fs-2xs);
 }
 .pop-check {
 	display: inline-flex;

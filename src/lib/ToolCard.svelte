@@ -36,16 +36,17 @@
 		sections?: { label: string; text: string }[];
 	} = $props();
 
-	// Auto-expand while the tool runs, auto-collapse once it finishes. Starts in
-	// that state (a card remounting — windowed back in, its group reopened — must
-	// not flash open) and follows only flips of `running`, so a manual toggle on a
-	// finished card still sticks.
-	let collapsed = $state(untrack(() => !running));
+	// Auto-expand while the tool runs, auto-collapse once it finishes; a
+	// failed call stays open (design.md, "Workbench canvas"). Starts in that
+	// state (a card remounting — windowed back in, its group reopened — must
+	// not flash open) and follows only flips of `running`, so a manual toggle
+	// on a finished card still sticks.
+	let collapsed = $state(untrack(() => !running && !isError));
 	let wasRunning = untrack(() => running);
 	$effect(() => {
 		if (running === wasRunning) return;
 		wasRunning = running;
-		collapsed = !running;
+		collapsed = !running && !untrack(() => isError);
 	});
 
 	const parsed = $derived(parseToolOutput(output));
@@ -144,7 +145,7 @@
 
 <div class="tool" class:err={isError || !!errorText}>
 	<button class="head" class:static={isRead} onclick={() => !isRead && (collapsed = !collapsed)}>
-		<span class="ico"><Icon size={14} /></span>
+		<span class="ico"><Icon size={16} /></span>
 		{#if heading}
 			<span class="verb heading">{heading}</span>
 		{:else}
@@ -217,25 +218,31 @@
 </div>
 
 <style>
-	/* Flat, card-less row: a muted one-line label with a trailing chevron,
-	 * matching the reasoning header's aesthetic. The expanded body hangs below
-	 * behind a hairline left rule instead of inside a bordered box. */
+	/* A tool call is one line (design.md, "Workbench canvas"): a 16px icon
+	 * and --fs-xs --dim text, no card. Opened, its output sits in a --surface
+	 * block below. */
 	.head {
 		display: inline-flex;
 		align-items: center;
-		gap: 7px;
+		gap: 8px;
 		max-width: 100%;
-		min-height: 26px;
+		min-height: 24px;
+		margin-left: -6px;
 		text-align: left;
-		padding: 2px 0;
-		font-size: var(--fs-sm);
+		padding: 2px 6px;
+		font-size: var(--fs-xs);
+		line-height: 16px;
 		background: none;
 		border: none;
+		border-radius: var(--r-sm);
 		color: var(--dim);
 		cursor: pointer;
-		transition: color var(--t-fast) var(--ease-out);
+		transition:
+			color var(--t-fast) var(--ease-base),
+			background var(--t-fast) var(--ease-base);
 	}
 	.head:hover:not(.static) {
+		background: var(--surface2);
 		color: var(--text);
 	}
 	.head.static {
@@ -263,7 +270,6 @@
 		color: color-mix(in oklab, var(--err) 70%, var(--dim));
 	}
 	.verb {
-		font-weight: 500;
 		flex-shrink: 0;
 	}
 	.target {
@@ -313,7 +319,10 @@
 		color: color-mix(in oklab, var(--err) 70%, var(--dim));
 	}
 	.body {
-		margin: 2px 0 6px 20px;
+		margin: 4px 0 2px;
+		padding: 6px 10px;
+		border-radius: var(--r-md);
+		background: var(--surface);
 	}
 	.heading {
 		min-width: 0;
@@ -362,10 +371,10 @@
 	}
 	.body pre {
 		margin: 0;
-		padding: 4px 0;
+		padding: 2px 0;
 		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		line-height: 1.45;
+		font-size: var(--fs-xs);
+		line-height: 18px;
 		color: var(--dim);
 		max-height: 200px;
 		overflow: auto;

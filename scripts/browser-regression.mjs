@@ -369,13 +369,13 @@ try {
   // (the last has no space after it). (The whole reply rendered again, as
   // one document: time and memory that grew with the reply.)
   const spaces = () => reply.locator('.md > p:last-child').evaluateAll((ps) => ps.map((p) => getComputedStyle(p).marginBottom));
-  assert.deepEqual([...new Set(await spaces())], ['10px'], 'the paragraphs of a streaming reply are spaced');
+  assert.deepEqual([...new Set(await spaces())], ['12px'], 'the paragraphs of a streaming reply are spaced');
   await page.evaluate(() => window.__chat.handle({ type: 'status', message: 'ready' }));
   await expect(reply.locator('.stream')).toHaveCount(0);
   await expect(reply.locator('.md')).toHaveCount(32);
   await expect(reply.locator('.md').last()).toHaveText('Done.');
   assert.equal(await reply.locator('.md').first().getAttribute('data-seen'), '1', 'a paragraph rendered again as the reply ended');
-  assert.deepEqual(await spaces(), [...Array(30).fill('10px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
+  assert.deepEqual(await spaces(), [...Array(30).fill('12px'), '0px'], 'the paragraphs of a finished reply are spaced as one document');
   // A steered message cuts the streaming reply off: it stays, finished and
   // marked, and the next response is a reply of its own after the message.
   await page.evaluate(() => {
@@ -551,8 +551,9 @@ try {
   // The conversation column follows its pane and that setting, the composer
   // with it; a wide table and a code block take the column, the page never
   // scrolls sideways, and the composer stays in view at the size a user
-  // reported blank margins at (1720 × 789, sidebar open: a 1428px pane; the
-  // fixture's conversation has the turn rail, so 56px beside the column).
+  // reported blank margins at (1720 × 789, sidebar open at its 272px default
+  // and the 1px divider: a 1447px pane; the fixture's conversation has the
+  // turn rail, so 56px beside the column).
   const shell = await browser.newPage({viewport:{width:1720,height:789}});
   shell.on('pageerror', e => errors.push(e.message));
   await shell.goto(base + '?shell');
@@ -576,17 +577,17 @@ try {
     assert.equal(l.sideways, 0, `${what}: the page scrolls sideways`);
     assert.ok(l.composerInView, `${what}: the composer is cut off`);
   };
-  await expectColumn(1071, '自适应, 1720 wide');
+  await expectColumn(1085, '自适应, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('standard'));
   await expectColumn(844, '标准, 1720 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('full'));
-  await expectColumn(1316, '铺满, 1720 wide');
+  await expectColumn(1335, '铺满, 1720 wide');
   await shell.setViewportSize({width:1280,height:800});
-  await expectColumn(876, '铺满, 1280 wide');
+  await expectColumn(895, '铺满, 1280 wide');
   await shell.evaluate(() => window.__prefs.setChatWidth('auto'));
   await expectColumn(844, '自适应, 1280 wide');
   await shell.setViewportSize({width:1040,height:680});
-  await expectColumn(640, '自适应, the smallest window');
+  await expectColumn(655, '自适应, the smallest window');
   await shell.close();
   // The window frost is off unless chosen. Preferences stored with the old
   // default (on, without a version) are switched off once: in storage, in
@@ -609,7 +610,7 @@ try {
   }));
   const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
   await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
-  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(32, 32, 32)', stored: [2, false], told: [false]});
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [2, false], told: [false]});
   // Turned on afterwards it is a choice: macOS frosts at once, and it is
   // still on after a restart.
   await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
@@ -639,7 +640,7 @@ try {
   await light.goto(base + '?shell&theme=light');
   await expect(light.locator('.composer')).toBeVisible({timeout:30000});
   const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
-  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(238, 236, 232)', 'rgb(251, 250, 248)']);
+  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(240, 239, 235)', 'rgb(251, 250, 248)']);
   await light.close();
   // A message sent with a file shows what was typed and the file as a chip,
   // never the list the engine reads after the text; history from the

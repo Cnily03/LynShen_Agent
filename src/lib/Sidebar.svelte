@@ -443,7 +443,7 @@
 				data-tip-side="right"
 			>
 				<span class="mark" aria-hidden="true">{@html mark}</span>
-				<span class="mark-alt" aria-hidden="true"><SidebarSimpleIcon size={18} /></span>
+				<span class="mark-alt" aria-hidden="true"><SidebarSimpleIcon size={16} /></span>
 			</button>
 		{:else}
 			<span class="logo" aria-hidden="true"><span class="mark">{@html mark}</span></span>
@@ -455,10 +455,10 @@
 
 	<nav class="primary">
 		<button class="row" onclick={() => (newHere(), endPeek())} aria-label={t('shell.newChat')} data-tip={folded ? t('shell.newChat') : undefined} data-tip-side="right">
-			<NotePencilIcon size={18} /><span class="label">{t('shell.newChat')}</span>
+			<NotePencilIcon size={16} /><span class="label">{t('shell.newChat')}</span>
 		</button>
 		<button class="row" class:on={homeOpen} onclick={() => (onHome(), endPeek())} aria-label={t('shell.home.title')} data-tip={folded ? t('shell.home.title') : undefined} data-tip-side="right">
-			<HouseIcon size={18} weight={homeOpen ? 'fill' : 'regular'} /><span class="label">{t('shell.home.title')}</span>
+			<HouseIcon size={16} weight={homeOpen ? 'fill' : 'regular'} /><span class="label">{t('shell.home.title')}</span>
 		</button>
 		{#if agentsStatus !== 'off'}
 			<button
@@ -468,7 +468,7 @@
 				data-tip={folded ? (pendingCount > 0 ? `${t('shell.desk.title')} · ${pendingCount}` : t('shell.desk.title')) : undefined}
 				data-tip-side="right"
 			>
-				<TrayIcon size={18} /><span class="label">{t('shell.desk.title')}</span>
+				<TrayIcon size={16} /><span class="label">{t('shell.desk.title')}</span>
 				{#if pendingCount > 0}<span class="count">{pendingCount}</span><span class="count-dot" aria-hidden="true"></span>{/if}
 			</button>
 		{/if}
@@ -484,6 +484,7 @@
 			in:rowIn
 			class="sess"
 			class:nested
+			class:waits={status?.kind === 'input' && !selectable}
 			class:on={!selectable && s.id === activeId}
 			class:arch={s.archived}
 			class:selectable
@@ -502,6 +503,10 @@
 				<span class="pick" class:on={picked.includes(s.id)} aria-hidden="true">
 					{#if picked.includes(s.id)}<CheckIcon size={12} weight="bold" />{/if}
 				</span>
+			{:else}
+				<!-- The status dot sits before the title; every row keeps its slot,
+				     so the titles line up. -->
+				<span class="st">{#if status && status.kind !== 'running'}<SessionMark {status} />{/if}</span>
 			{/if}
 			{#if s.icon}
 				<TabGlyph icon={s.icon} color={s.color} size={14} />
@@ -541,7 +546,7 @@
 			{#if s.pinned && !s.archived}<span class="pin-mark" title={t('shell.pin')}><PushPinIcon size={12} weight="fill" /></span>{/if}
 			<!-- Another conversation's message waits for this one to be free. -->
 			{#if waiting}<span class="queued-mark" title={waiting} aria-label={waiting}><EnvelopeSimpleIcon size={12} /></span>{/if}
-			<SessionMark status={status} />
+			{#if status?.kind === 'running'}<SessionMark {status} />{/if}
 			{#if !selectable}
 			{#if !s.archived}
 				<span
@@ -584,6 +589,10 @@
 				onkeydown={(e) => e.key === 'Enter' && (e.stopPropagation(), onCloseSession(s.id))}
 				aria-label={t('shell.removeSessionTitle')}><XIcon size={16} /></span
 			>
+			{/if}
+			<!-- Waiting for the reader: what it waits on, on the line below. -->
+			{#if status?.kind === 'input' && !selectable}
+				<span class="why">{status.what ? t(status.ask === 'answer' ? 'shell.status.answerWhat' : 'shell.status.approveWhat', { what: status.what }) : t(status.ask === 'answer' ? 'shell.status.answer' : 'shell.status.approve')}</span>
 			{/if}
 		</button>
 	{/snippet}
@@ -670,7 +679,7 @@
 					onclick={() => onOpenAgent(a)}
 					title={t('shell.agents.view', { name: a.name })}
 				>
-					<AgentAvatar agent={a} size={18} />
+					<AgentAvatar agent={a} size={16} />
 					<span class="agent-text">
 						<span class="sess-title">{a.name}</span>
 						{#if a.summary}<span class="agent-summary">{a.summary}</span>{/if}
@@ -761,7 +770,7 @@
 								onclick={() => saveFold(toggleFolder(fold, p.id))}><CaretRightIcon size={11} /></button
 							>
 							<button class="folder-row" onpointerdown={(e) => rowDown(e, p)} onclick={() => onOpenProject(p)} oncontextmenu={(e) => onProjectMenu(p, e)} title={p.worktree ? t('shell.task.worktreeTip', { branch: p.worktree.branch, base: p.worktree.baseBranch || '?' }) : p.path}>
-								{#if p.icon}<TabGlyph icon={p.icon} color={p.color ?? 'var(--dim)'} active={w === 'fill'} size={16} />{:else if p.worktree}<GitBranchIcon size={18} weight={w} color={p.color} />{:else if open}<FolderOpenIcon size={18} weight={w} color={p.color} />{:else}<FolderIcon size={18} weight={w} color={p.color} />{/if}
+								{#if p.icon}<TabGlyph icon={p.icon} color={p.color ?? 'var(--dim)'} active={w === 'fill'} size={16} />{:else if p.worktree}<GitBranchIcon size={16} weight={w} color={p.color} />{:else if open}<FolderOpenIcon size={16} weight={w} color={p.color} />{:else}<FolderIcon size={16} weight={w} color={p.color} />{/if}
 								<span class="folder-name">{p.name}</span>
 							</button>
 							{#if p.stale}
@@ -840,14 +849,14 @@
 	.sidebar.peek .sb-inner {
 		/* Past the right edge, so the shadow shows. */
 		clip-path: inset(0 -48px 0 0);
-		box-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.28);
+		box-shadow: var(--shadow-pop);
 	}
 	/* The surface stays while the panel slides shut (closing), so the fading
 	   labels never show over a bare canvas. */
 	.sidebar.peek .sb-inner,
 	.sidebar.closing .sb-inner {
 		background: var(--sidebar);
-		border-right: 1px solid var(--border);
+		border-right: 1px solid var(--divider);
 	}
 	:global(:root[data-glass]) .sidebar.peek .sb-inner,
 	:global(:root[data-glass]) .sidebar.closing .sb-inner {
@@ -897,13 +906,14 @@
 		-webkit-backdrop-filter: var(--glass-filter);
 		backdrop-filter: var(--glass-filter);
 	}
-	/* The logo sits in a 42px slot from x = 10, centred on the rail
-	   (--rail-w / 2), as are the nav icons and the avatar. */
+	/* The logo, the nav icons and the avatar sit on the rail's centre line
+	   (--rail-w / 2 = 24px). */
 	.brand {
 		display: flex;
 		align-items: center;
-		height: 40px;
-		margin: 14px 10px 10px;
+		gap: 10px;
+		height: 48px;
+		padding: 0 9px;
 		flex-shrink: 0;
 	}
 	.logo {
@@ -911,14 +921,17 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 42px;
-		height: 40px;
+		width: 30px;
+		height: 30px;
 		flex-shrink: 0;
 		padding: 0;
 		border: none;
 		border-radius: var(--r-md);
 		background: none;
 		color: var(--dim);
+	}
+	.logo.expand:focus-visible {
+		outline-offset: 2px;
 	}
 	.mark,
 	.mark-alt {
@@ -927,7 +940,7 @@
 		justify-content: center;
 		width: 30px;
 		height: 30px;
-		border-radius: var(--r-sm);
+		border-radius: var(--r-md);
 		line-height: 0;
 	}
 	.mark {
@@ -944,7 +957,7 @@
 	}
 	.mark-alt {
 		position: absolute;
-		inset: 5px 6px;
+		inset: 0;
 		background: var(--surface2);
 		color: var(--text);
 		opacity: 0;
@@ -960,26 +973,25 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
-		padding-left: 6px;
 	}
-	/* The list's toolbar, between the primary nav and the list: quiet icons
-	   (fold every project, filter, archive) that stay put while the list
-	   scrolls. */
+	/* The list's toolbar, between the primary nav and the list: quiet 28px
+	   icon buttons (fold every project, filter, archive) that stay put while
+	   the list scrolls. */
 	.tools {
 		display: flex;
 		align-items: center;
 		gap: 2px;
 		flex-shrink: 0;
-		height: 34px;
-		margin: 4px 10px 0;
-		padding: 0 4px;
+		height: 36px;
+		margin: 4px 8px 0;
+		padding: 0;
 	}
 	.tool {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 30px;
-		height: 30px;
+		width: 28px;
+		height: 28px;
 		flex-shrink: 0;
 		padding: 0;
 		border: none;
@@ -1007,8 +1019,8 @@
 		align-items: baseline;
 		gap: 6px;
 		padding-left: 4px;
-		color: var(--text);
-		font-size: var(--fs-sm);
+		color: var(--dim2);
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		white-space: nowrap;
 	}
@@ -1024,26 +1036,26 @@
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
-		height: 32px;
-		margin: 4px 14px 2px;
-		padding: 0 2px 0 10px;
+		height: 28px;
+		margin: 0 8px 4px;
+		padding: 0 2px 0 8px;
 		border: 1px solid var(--border);
-		border-radius: var(--r-md);
-		background: var(--surface);
-		color: var(--dim);
+		border-radius: var(--r-sm);
+		background: var(--bg);
+		color: var(--dim2);
 		animation: rise var(--t-fast) var(--ease-out);
 	}
 	.search-row:focus-within {
 		border-color: var(--border-strong);
 	}
 	.search-row .tool {
-		width: 26px;
-		height: 26px;
+		width: 22px;
+		height: 22px;
 	}
 	.filter {
 		flex: 1;
 		min-width: 0;
-		height: 28px;
+		height: 24px;
 		padding: 0;
 		border: none;
 		background: none;
@@ -1058,7 +1070,7 @@
 		font-family: var(--font-sans);
 		font-size: var(--fs-lg);
 		font-weight: 700;
-		letter-spacing: -0.005em;
+		line-height: 24px;
 		color: var(--text);
 		white-space: nowrap;
 	}
@@ -1066,7 +1078,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-		padding: 0 10px 8px;
+		padding: 0 8px;
 	}
 	/* Primary rows paint their fill from a layer that shrinks to the icon
 	   when the panel collapses, so the row itself never changes size. */
@@ -1080,21 +1092,64 @@
 		position: absolute;
 		inset: 0;
 		z-index: -1;
-		border-radius: var(--r-md);
-		transition:
-			background var(--t-fast) var(--ease-out),
-			right var(--t-base) var(--ease-base);
-	}
-	.collapsed .primary .row::before {
-		right: calc(100% - 42px);
+		border-radius: var(--r-sm);
+		transition: background var(--t-fast) var(--ease-base);
 	}
 	.primary .row:hover,
 	.primary .row.on {
 		background: none;
+		color: var(--text);
 	}
 	.primary .row:hover::before,
 	.primary .row.on::before {
 		background: var(--surface2);
+	}
+	.primary .row :global(svg) {
+		width: 16px;
+		height: 16px;
+		transition:
+			width var(--t-base) var(--ease-base),
+			height var(--t-base) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
+	}
+	.primary .row:hover :global(svg),
+	.primary .row.on :global(svg) {
+		color: var(--text);
+	}
+	/* The rail (design.md, "Navigator"): 44px items with 20px icons on the
+	   rail's centre line; the current item has a 2px bar on the rail's left
+	   edge and a --text icon, the others are --dim. */
+	.primary .row {
+		transition:
+			min-height var(--t-base) var(--ease-base),
+			padding var(--t-base) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
+	}
+	.collapsed .primary .row {
+		min-height: 44px;
+		padding: 0 6px;
+	}
+	.collapsed .primary .row :global(svg) {
+		width: 20px;
+		height: 20px;
+	}
+	.collapsed .primary .row:hover::before,
+	.collapsed .primary .row.on::before {
+		background: none;
+	}
+	.primary .row::after {
+		content: '';
+		position: absolute;
+		top: 10px;
+		bottom: 10px;
+		left: -8px;
+		width: 2px;
+		background: var(--text);
+		opacity: 0;
+		transition: opacity var(--t-fast) var(--ease-base);
+	}
+	.collapsed .primary .row.on::after {
+		opacity: 1;
 	}
 	.primary .row:focus-visible {
 		outline: none;
@@ -1103,15 +1158,16 @@
 		outline: 2px solid var(--brand-bright);
 		outline-offset: -2px;
 	}
-	/* Collapsed, the pending count becomes a dot on the icon. */
+	/* Collapsed, the pending count becomes a 6px --warn dot on the icon:
+	   something waits for the reader. */
 	.count-dot {
 		position: absolute;
-		top: 7px;
-		left: 33px;
-		width: 8px;
-		height: 8px;
+		top: 10px;
+		left: 25px;
+		width: 6px;
+		height: 6px;
 		border-radius: var(--r-full);
-		background: var(--accent);
+		background: var(--warn);
 		box-shadow: 0 0 0 2px var(--sidebar);
 		opacity: 0;
 		transition: opacity var(--t-fast) var(--ease-out);
@@ -1119,27 +1175,41 @@
 	.collapsed .count-dot {
 		opacity: 1;
 	}
+	/* Rows (design.md, "Navigator"): 28px, 8px side padding, a 16px icon,
+	   --r-sm; the selected row has a --surface2 fill and --text. */
 	.row,
 	.sess,
 	.more,
 	.folder-row {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		width: 100%;
-		min-height: 38px;
-		padding: 0 12px;
+		min-height: 28px;
+		padding: 0 8px;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		text-align: left;
 		cursor: pointer;
 		transition:
-			background var(--t-fast) var(--ease-out),
-			color var(--t-fast) var(--ease-out);
+			background var(--t-fast) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
+	}
+	/* Unselected nav items are --dim until hover. */
+	.row {
+		color: var(--dim);
+	}
+	/* Keyboard focus is drawn inside the row, not over its neighbours. */
+	.row:focus-visible,
+	.sess:focus-visible,
+	.more:focus-visible,
+	.folder-row:focus-visible {
+		outline-offset: -2px;
 	}
 	.row :global(svg),
 	.sess > :global(svg),
@@ -1167,13 +1237,15 @@
 	}
 	.count {
 		flex: none !important;
-		min-width: 20px;
-		padding: 1px 7px;
+		min-width: 18px;
+		padding: 0 6px;
 		border-radius: var(--r-full);
-		background: var(--accent);
-		color: var(--on-accent);
+		background: var(--surface2);
+		color: var(--dim);
+		font-family: var(--font-mono);
 		font-size: var(--fs-2xs);
-		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		line-height: 16px;
 		text-align: center;
 	}
 
@@ -1181,20 +1253,22 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 4px 10px 12px;
+		padding: 0 8px 8px;
 	}
 	section + section {
-		margin-top: 22px;
+		margin-top: 12px;
 	}
+	/* Group heads: plain --fs-xs 600 --dim2, no fill, border or colour. */
 	.head {
 		display: flex;
 		align-items: center;
 		gap: 2px;
-		height: 32px;
-		padding: 0 4px 0 12px;
+		height: 28px;
+		padding: 0 2px 0 8px;
 		color: var(--dim2);
 		font-size: var(--fs-xs);
-		font-weight: 500;
+		font-weight: 600;
+		line-height: 16px;
 	}
 	.head > span {
 		flex: 1;
@@ -1207,7 +1281,7 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		height: 28px;
+		height: 24px;
 		padding: 0;
 		border: none;
 		background: none;
@@ -1238,10 +1312,10 @@
 	}
 	/* 已归档: the place each archived conversation is from. */
 	.group-name {
-		padding: 12px 12px 4px;
+		padding: 12px 8px 4px;
 		color: var(--dim2);
 		font-size: var(--fs-xs);
-		font-weight: 500;
+		font-weight: 600;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1254,11 +1328,12 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 30px;
-		height: 30px;
+		width: 22px;
+		height: 22px;
 		flex-shrink: 0;
+		padding: 0;
 		border: none;
-		border-radius: var(--r-xs);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim2);
 		cursor: pointer;
@@ -1306,7 +1381,7 @@
 	.project.drop-after::after {
 		content: '';
 		position: absolute;
-		left: 12px;
+		left: 8px;
 		right: 8px;
 		height: 2px;
 		border-radius: var(--r-full);
@@ -1315,7 +1390,7 @@
 	}
 	.sess.nested.drop-before::before,
 	.sess.nested.drop-after::after {
-		left: 42px;
+		left: 34px;
 	}
 	.sess.drop-before::before,
 	.project.drop-before::before {
@@ -1335,8 +1410,34 @@
 		color: var(--dim);
 		flex-shrink: 0;
 	}
+	/* Under a project: the title lines up with the project's name. */
 	.sess.nested {
-		padding-left: 42px;
+		padding-left: 34px;
+	}
+	/* The status slot: a 6px dot (SessionMark) or nothing. */
+	.st {
+		display: inline-flex;
+		align-items: center;
+		width: 6px;
+		flex-shrink: 0;
+	}
+	/* Waiting for the reader: the reason on a second line, under the title. */
+	.sess.waits {
+		flex-wrap: wrap;
+		row-gap: 0;
+		padding-block: 5px;
+	}
+	.why {
+		flex-basis: 100%;
+		min-width: 0;
+		order: 99;
+		padding-left: 14px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--dim);
+		font-size: var(--fs-xs);
+		line-height: 16px;
 	}
 	.more-act {
 		flex-shrink: 0;
@@ -1401,7 +1502,7 @@
 	.sess-edit {
 		flex: 1;
 		min-width: 0;
-		height: 24px;
+		height: 22px;
 		padding: 0 6px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--r-xs);
@@ -1456,6 +1557,11 @@
 		color: var(--dim2);
 		font-size: var(--fs-xs);
 	}
+	/* Hovered or focused, the row's actions take the project label's place. */
+	.sess:hover .where,
+	.sess:focus-within .where {
+		display: none;
+	}
 	.backend-chip {
 		display: inline-flex;
 		color: var(--dim);
@@ -1496,7 +1602,7 @@
 		border-radius: var(--r-sm);
 	}
 	.folder:hover {
-		background: var(--surface);
+		background: var(--surface2);
 	}
 	.folder-row {
 		flex: 1;
@@ -1511,8 +1617,8 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 18px;
-		height: 24px;
+		width: 16px;
+		height: 20px;
 		margin-left: 4px;
 		padding: 0;
 		border: none;
@@ -1542,7 +1648,6 @@
 		text-overflow: ellipsis;
 	}
 	.more {
-		min-height: 30px;
 		color: var(--dim);
 		font-size: var(--fs-xs);
 	}

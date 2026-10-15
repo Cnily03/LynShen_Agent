@@ -129,22 +129,26 @@
 		opacity: 1;
 	}
 	.tick:focus-visible {
-		outline: 1px solid var(--accent-bright);
-		outline-offset: -1px;
+		outline: 2px solid var(--brand-bright);
+		outline-offset: -2px;
 		border-radius: var(--r-xs);
 	}
+	.tick:focus-visible span {
+		background: var(--text);
+		opacity: 1;
+	}
+	/* The message in one line, on a popover (--shadow-pop draws its ring). */
 	.preview {
 		position: fixed;
 		z-index: 400;
-		max-width: min(360px, 60vw);
-		padding: 10px 16px;
-		border-radius: var(--r-lg);
+		max-width: min(420px, 60vw);
+		padding: 6px 10px;
+		border-radius: var(--r-md);
 		background: var(--panel);
-		border: 1px solid var(--border);
 		box-shadow: var(--shadow-pop);
 		color: var(--text);
 		font-size: var(--fs-sm);
-		line-height: 1.4;
+		line-height: 18px;
 		transform: translateY(-50%);
 		pointer-events: none;
 		overflow: hidden;

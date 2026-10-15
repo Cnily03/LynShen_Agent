@@ -15,6 +15,13 @@
 	//                           (previewFiles.ts stands in for the files)
 	//   &trial[=used|404]       signed in; the first-use trial claim as the app
 	//                           runs it, with its grant card (main.ts answers it)
+	//   &collapsed              the navigator collapsed to its icon rail
+	//   &home                   the home page over the canvas
+	//   &settings[=<section>]   the settings page over the navigator and canvas
+	//   &approval               the conversation waits for an approval (a
+	//                           sandbox request: the card above the composer)
+	//   &states                 the other conversations in the navigator wait
+	//                           for an answer, run, or failed
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
 	import { onMount, untrack } from 'svelte';
@@ -37,8 +44,16 @@
 	import { prefs } from '../../src/lib/prefs.svelte';
 	import { setLocale } from '../../src/lib/i18n';
 	import { fileName, withFiles, withVideo } from '../../src/lib/attachments';
+	import HomePage from '../../src/lib/HomePage.svelte';
+	import SettingsPage from '../../src/lib/settings/SettingsPage.svelte';
+	import { SIDEBAR_RAIL_WIDTH } from '../../src/lib/shell/sidebarState';
 
 	const mode = new URL(location.href).searchParams;
+	const NAV_W = Number(mode.get('nav')) || 272;
+	let collapsed = $state(mode.has('collapsed'));
+	const home = mode.has('home');
+	const settings = mode.has('settings');
+	let section = $state(mode.get('settings') || 'general');
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
 	provideRequirements(new Requirements(daemon));
 
@@ -134,6 +149,29 @@
 		feed({ type: 'status', message: 'ready' });
 	}
 
+	// A sandbox request, as the engine sends it.
+	const escalation = (callId: string) => ({
+		type: 'approval_request',
+		call_id: callId,
+		name: 'bash',
+		summary: 'npm install -g pnpm@11.5.1',
+		kind: 'escalation',
+		justification: '项目用 pnpm 管理依赖，全局没有装 pnpm。装到 /usr/local/lib 要写项目外的目录，还要从 npm 下载。',
+		command: 'npm install -g pnpm@11.5.1',
+		cwd: '/Users/me/code/lynshen-desktop',
+		paths: ['/usr/local/lib/node_modules/pnpm'],
+		prefix: 'npm install',
+		scopes: ['once', 'session', 'project']
+	});
+	if (mode.has('approval')) feed(escalation('c-approve'));
+	if (mode.has('states')) {
+		const byTitle = (title: string) => store.allSessions.find((x) => x.chat.title === title)!.chat;
+		byTitle('窗口磨砂默认关闭').handle(escalation('c-other') as never);
+		byTitle('clippy 清理').handle({ type: 'approval_request', call_id: 'q1', name: 'AskUserQuestion', summary: '', questions: [{ question: '429 时重试还是报错？', options: [{ label: '重试' }, { label: '报错' }], multiSelect: false }] } as never);
+		byTitle('浅色主题调色').handle({ type: 'status', message: 'streaming' } as never);
+		byTitle('daemon 技能开关').handle({ type: 'error', message: 'cargo test 没有通过' } as never);
+	}
+
 	// The canvas of ?shell&preview: the conversation, and a tab beside it
 	// for each file a chip opens (as +page.svelte places it).
 	let tiles = $state<TileLayout>(singleLeafLayout([chatTab(session.id)]));
@@ -167,13 +205,26 @@
 <Toaster />
 <TrialGrantCard />
 <div class="app">
-	<TitleBar leftWidth={292} sidebarOpen onToggleSidebar={() => {}} title={session.chat.title || '对话宽度跟随窗口'} subtitle="lynshen-desktop" addOptions={[{ key: 'term', label: '终端' }]} onAdd={() => {}} />
+	<TitleBar
+		leftWidth={settings || !collapsed ? NAV_W : SIDEBAR_RAIL_WIDTH}
+		sidebarOpen={!collapsed}
+		onToggleSidebar={() => (collapsed = !collapsed)}
+		heading={!settings && !home}
+		title={settings ? '设置' : home ? '主页' : session.chat.title || '对话宽度跟随窗口'}
+		subtitle={settings || home ? '' : 'lynshen-desktop'}
+		addOptions={settings ? [] : [{ key: 'term', label: '终端' }]}
+		onAdd={() => {}}
+	/>
 	<div class="body">
-		<div class="panel">
+		<div class="panel" class:covered={settings}>
 			<Sidebar
 				projects={store.userProjects}
-				activeId={session.id}
-				width={292}
+				activeId={home ? '' : session.id}
+				width={NAV_W}
+				{collapsed}
+				onToggleCollapsed={() => (collapsed = !collapsed)}
+				onHome={() => {}}
+				homeOpen={home}
 				onSelect={() => {}}
 				onNewProject={() => {}}
 				onNewSession={() => {}}
@@ -193,7 +244,9 @@
 				footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
 			/>
 			<div class="canvas" data-testid="canvas">
-				{#if mode.has('preview')}
+				{#if home}
+					<HomePage projects={store.userProjects} onStart={() => {}} onOpenSession={() => {}} onOpenProject={() => {}} onAddProject={() => {}} onOpenAgent={() => {}} />
+				{:else if mode.has('preview')}
 					<Mosaic hideSoloBar layout={tiles} onchange={(next) => (tiles = next)} label={(tab) => (previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : session.chat.title || '对话')}>
 						{#snippet panel(tab)}
 							{#if previewOf(tab.panel)}
@@ -207,6 +260,9 @@
 					<ChatPane {session} {store} isActive />
 				{/if}
 			</div>
+			{#if settings}
+				<SettingsPage sessionId={session.id} chat={session.chat} bind:section navWidth={NAV_W} onClose={() => {}} />
+			{/if}
 		</div>
 	</div>
 </div>
@@ -231,6 +287,7 @@
 		flex: 1;
 		display: flex;
 		min-height: 0;
+		border-top: 1px solid var(--divider);
 	}
 	.panel {
 		flex: 1;
@@ -239,11 +296,15 @@
 		overflow: hidden;
 		position: relative;
 	}
+	.panel.covered > :global(:not(.settings)) {
+		visibility: hidden;
+	}
 	.canvas {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+		border-left: 1px solid var(--divider);
 		background: var(--bg);
 		position: relative;
 	}

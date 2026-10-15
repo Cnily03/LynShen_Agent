@@ -379,18 +379,19 @@
 		font-size: var(--fs-lg);
 		letter-spacing: -0.01em;
 	}
+	/* The first-run title, a display moment (design.md, "Type"). */
 	h1 {
 		margin: 0;
+		font-family: var(--font-display);
 		font-size: var(--fs-2xl);
-		font-weight: 600;
-		letter-spacing: -0.025em;
-		line-height: 1.15;
+		font-weight: 500;
+		line-height: 36px;
 	}
 	.lede {
 		margin: 0;
 		color: var(--dim);
 		font-size: var(--fs-md);
-		line-height: 1.65;
+		line-height: 24px;
 	}
 	.hint {
 		margin: 12px 0 0;

@@ -162,7 +162,7 @@ const shell = {
 		showLess: '收起',
 		awaitShort: '待确认',
 		unread: '有新回复',
-		status: { approve: '待确认', answer: '待回答', running: '运行中', failed: '运行失败' },
+		status: { approve: '待确认', answer: '待回答', running: '运行中', failed: '运行失败', approveWhat: '等你批准：{what}', answerWhat: '等你回答：{what}' },
 		updateShort: '可更新',
 		newChat: '新对话',
 		home: {
@@ -1178,7 +1178,7 @@ const shell = {
 		showLess: 'Show less',
 		awaitShort: 'Needs you',
 		unread: 'New reply',
-		status: { approve: 'Approve', answer: 'Answer', running: 'Running', failed: 'Failed' },
+		status: { approve: 'Approve', answer: 'Answer', running: 'Running', failed: 'Failed', approveWhat: 'Waiting for your approval: {what}', answerWhat: 'Waiting for your answer: {what}' },
 		updateShort: 'Update',
 		newChat: 'New chat',
 		home: {

@@ -249,23 +249,27 @@
 		margin: 0 auto;
 		padding: 72px 32px 80px;
 	}
+	/* The empty-conversation greeting, a display moment (design.md, "Type"). */
 	h1 {
-		margin: 0 0 20px;
-		font-size: var(--fs-xl);
-		font-weight: 600;
-		letter-spacing: -0.01em;
+		margin: 0 0 24px;
+		font-family: var(--font-display);
+		font-size: var(--fs-2xl);
+		font-weight: 500;
+		line-height: 36px;
 		color: var(--text);
 		text-align: center;
 	}
+	/* The start box: --panel, a 1px --border, --r-lg. */
 	.start {
 		position: relative;
 		border: 1px solid var(--border);
 		border-radius: var(--r-lg);
 		background: var(--panel);
-		box-shadow: var(--shadow-sm, none);
+		box-shadow: var(--shadow-float);
+		transition: border-color var(--t-fast) var(--ease-base);
 	}
 	.start:focus-within {
-		border-color: var(--border-strong, var(--border));
+		border-color: var(--border-strong);
 	}
 	textarea {
 		display: block;
@@ -277,7 +281,7 @@
 		color: var(--text);
 		font: inherit;
 		font-size: var(--fs-md);
-		line-height: 1.5;
+		line-height: 24px;
 		resize: none;
 		outline: none;
 	}
@@ -298,20 +302,20 @@
 		align-items: center;
 		gap: 6px;
 		max-width: 320px;
-		height: 30px;
-		padding: 0 10px;
+		height: 28px;
+		padding: 0 8px;
 		border: none;
-		border-radius: var(--r-full);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		font: inherit;
-		font-size: var(--fs-sm);
+		font-size: var(--fs-xs);
 		cursor: pointer;
 		transition: background var(--t-fast) var(--ease-base), color var(--t-fast) var(--ease-base);
 	}
 	.model:hover,
 	.model.on {
-		background: var(--accent-soft);
+		background: var(--surface2);
 		color: var(--text);
 	}
 	.mname {
@@ -348,12 +352,13 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
 		border: none;
 		border-radius: var(--r-full);
-		background: var(--text);
-		color: var(--bg);
+		background: var(--accent);
+		color: var(--on-accent);
 		cursor: pointer;
 	}
 	.send:disabled {
@@ -371,9 +376,9 @@
 	}
 	h2 {
 		margin: 0;
-		font-size: var(--fs-sm);
+		font-size: var(--fs-xs);
 		font-weight: 600;
-		color: var(--dim);
+		color: var(--dim2);
 	}
 	.act {
 		display: inline-flex;
@@ -402,9 +407,9 @@
 		align-items: center;
 		gap: 10px;
 		min-width: 0;
-		padding: 12px 14px;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-md);
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
 		background: none;
 		color: var(--text);
 		font: inherit;
@@ -413,7 +418,7 @@
 		transition: background var(--t-fast) var(--ease-out);
 	}
 	.card:hover {
-		background: var(--surface);
+		background: var(--surface2);
 	}
 	.card.stale {
 		opacity: 0.55;
@@ -448,11 +453,11 @@
 	.item {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		min-height: 40px;
-		padding: 0 10px;
+		gap: 8px;
+		min-height: 32px;
+		padding: 0 8px;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--text);
 		font: inherit;
@@ -461,7 +466,10 @@
 		cursor: pointer;
 	}
 	.item:hover {
-		background: var(--surface);
+		background: var(--surface2);
+	}
+	.item:focus-visible {
+		outline-offset: -2px;
 	}
 	.item > :global(svg) {
 		flex-shrink: 0;

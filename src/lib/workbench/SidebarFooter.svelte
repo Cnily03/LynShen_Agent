@@ -102,7 +102,7 @@
 		const r = accountBtn.getBoundingClientRect();
 		const a = avatarSlot.getBoundingClientRect();
 		card = collapsed
-			? { left: a.right + 18, bottom: window.innerHeight - r.bottom, width: 292, side: 'right' }
+			? { left: a.right + 12, bottom: window.innerHeight - r.bottom, width: 292, side: 'right' }
 			: { left: r.left, bottom: window.innerHeight - r.top + 8, width: Math.min(320, Math.max(272, r.width)), side: 'top' };
 		if (loggedIn) load();
 	}
@@ -153,7 +153,7 @@
 	</button>
 	{#if updateAvailable}
 		<button class="upd" inert={collapsed} title={t('shell.updateAvailable')} aria-label={t('shell.updateAvailable')} onclick={onUpdate}>
-			<ArrowCircleDownIcon size={18} />
+			<ArrowCircleDownIcon size={16} />
 		</button>
 	{/if}
 </div>
@@ -200,12 +200,13 @@
 {/if}
 
 <style>
+	/* The account row (design.md, "Navigator"): a 28px avatar on the rail's
+	   centre line, the name and the balance. */
 	.sb-foot {
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		padding: 8px 10px 12px;
-		border-top: 1px solid var(--hairline);
+		padding: 6px 8px 8px;
 		flex-shrink: 0;
 	}
 	/* The row keeps its width while the sidebar collapses (the sidebar clips
@@ -217,10 +218,10 @@
 		min-width: 0;
 		display: flex;
 		align-items: center;
-		min-height: 48px;
-		padding: 0 10px 0 0;
+		min-height: 40px;
+		padding: 0 8px 0 0;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--text);
 		font: inherit;
@@ -232,7 +233,7 @@
 		position: absolute;
 		inset: 0;
 		z-index: -1;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		transition:
 			background var(--t-fast) var(--ease-out),
 			right var(--t-base) var(--ease-base);
@@ -249,16 +250,17 @@
 		outline-offset: -2px;
 	}
 	.collapsed .account::before {
-		right: calc(100% - 42px);
+		right: calc(100% - 32px);
 	}
 	.ico {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 42px;
-		height: 48px;
+		width: 32px;
+		height: 40px;
 		flex-shrink: 0;
+		margin-right: 6px;
 	}
 	.avatar {
 		display: inline-flex;
@@ -268,7 +270,7 @@
 		height: 28px;
 		border-radius: var(--r-full);
 		background: var(--surface2);
-		box-shadow: inset 0 0 0 1px var(--hairline);
+		box-shadow: inset 0 0 0 1px var(--border);
 		color: var(--text);
 		font-size: var(--fs-xs);
 		font-weight: 600;
@@ -287,10 +289,10 @@
 	/* An update waits: a dot on the avatar while the rail hides the button. */
 	.dot {
 		position: absolute;
-		top: 10px;
-		right: 7px;
-		width: 8px;
-		height: 8px;
+		top: 6px;
+		right: 2px;
+		width: 6px;
+		height: 6px;
 		border-radius: var(--r-full);
 		background: var(--accent);
 		box-shadow: 0 0 0 2px var(--sidebar);
@@ -317,7 +319,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-size: var(--fs-sm);
-		font-weight: 500;
+		line-height: 18px;
 	}
 	.bal {
 		display: inline-flex;
@@ -326,6 +328,7 @@
 		min-width: 0;
 		color: var(--dim);
 		font-size: var(--fs-xs);
+		line-height: 16px;
 		white-space: nowrap;
 	}
 	.bal > :global(svg) {
@@ -342,11 +345,12 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 36px;
-		height: 36px;
+		width: 28px;
+		height: 28px;
 		flex-shrink: 0;
+		padding: 0;
 		border: none;
-		border-radius: var(--r-md);
+		border-radius: var(--r-sm);
 		background: none;
 		color: var(--dim);
 		cursor: pointer;

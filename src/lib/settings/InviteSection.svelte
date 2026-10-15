@@ -234,7 +234,7 @@
 	}
 	.code {
 		font-family: var(--font-mono);
-		font-size: 22px;
+		font-size: var(--fs-xl);
 		font-weight: 600;
 		letter-spacing: 0.18em;
 	}
@@ -302,7 +302,8 @@
 		font-size: var(--fs-xs);
 	}
 	.num {
-		font-size: 20px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xl);
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
 	}

@@ -67,7 +67,6 @@
 	import { CHAT_PAD, CHAT_PAD_RAIL, CHAT_W_STANDARD, chatColumnPad, chatColumnWidth } from '$lib/chatWidth';
 	import { followTop, shortOfEnd } from '$lib/chatFollow';
 	import { t } from '$lib/i18n';
-	import { shortcutLabel } from '$lib/shortcuts';
 	import type { SessionStore } from '$lib/session.svelte';
 	import type { Session } from '$lib/types';
 	import { editorStore } from '$lib/editor/editorStore.svelte';
@@ -128,6 +127,7 @@
 		onOpenRequirement,
 		onOpenTrace,
 		onOpenTeam,
+		onOpenChanges,
 		onOpenSession
 	}: {
 		session: Session;
@@ -150,6 +150,8 @@
 		onOpenTrace?: () => void;
 		/** Opens the agent team's panel (task board, messages). */
 		onOpenTeam?: () => void;
+		/** Opens the Changes panel (a turn's change pill). */
+		onOpenChanges?: () => void;
 		/** Opens a conversation by its session id (where another
 		 *  conversation's message came from). */
 		onOpenSession?: (session: string) => void;
@@ -165,6 +167,8 @@
 	const willLink = $derived(!linked && session.requirement ? reqs.get(session.requirement) : undefined);
 	/** A draft made for a requirement shows its start card until started. */
 	const starting = $derived(session.draft && session.requirementStart ? willLink : undefined);
+	/** No message yet, nothing starting: the greeting over a centred composer. */
+	const fresh = $derived(chat.messages.length === 0 && !chat.busy && !(chat.booting && chat.engineState !== 'exited') && !starting);
 	/** The start's confirmation, once this session's turn has ended. */
 	const gate = $derived(linked?.status === 'confirm' && !chat.busy ? gateOf(linked, chat.sessionId) : undefined);
 	let confirming = $state(false);
@@ -568,6 +572,10 @@
 	function openTeam() {
 		store.activeId = session.id;
 		onOpenTeam?.();
+	}
+	function openChanges() {
+		store.activeId = session.id;
+		onOpenChanges?.();
 	}
 	// A finished attempt's worktree: the lines it adds and removes, read once
 	// (git diff there; files it created are not counted).
@@ -1354,7 +1362,7 @@
 
 <svelte:window onkeydown={onWindowKey} onfocus={refreshGitBranch} />
 
-<div class="chatpane" style:--chat-w="{chatW}px" style:--chat-pad="{chatPad}px">
+<div class="chatpane" class:fresh style:--chat-w="{chatW}px" style:--chat-pad="{chatPad}px">
 	{#if owner}
 		<div class="owner">
 			<AgentAvatar agent={owner} size={16} />
@@ -1403,7 +1411,7 @@
 	<div class="mainwrap" bind:clientWidth={wrapW}>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
-			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
+			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
 		</div>
 		{#if chat.booting && chat.engineState !== 'exited'}
 			<div class="welcome spawning">
@@ -1414,15 +1422,12 @@
 			<div class="welcome">
 				<RequirementStart requirement={starting} {session} />
 			</div>
-		{:else if chat.messages.length === 0 && !chat.busy}
-			<div class="welcome">
-				{#if session.draft && !project?.chats}<NewSessionPicker {store} {session} />{:else}<p class="welcome-tip">{t('shell.welcomeTip')}</p>{/if}
-				<div class="welcome-hints">
-					<span><kbd>/</kbd> {t('shell.hintCommand')}</span>
-					<span><kbd>@</kbd> {t('shell.hintRef')}</span>
-					{#if shortcutLabel('palette')}<span><kbd>{shortcutLabel('palette')}</kbd> {t('shell.hintPalette')}</span>{/if}
-					<span>{t('shell.hintImage')}</span>
-				</div>
+		{:else if fresh}
+			<!-- A conversation with no messages: the greeting one line above
+			     the composer, which sits in the middle of the pane. -->
+			<div class="welcome fresh">
+				<p class="greeting">{t('shell.home.greeting')}</p>
+				{#if session.draft && !project?.chats}<NewSessionPicker {store} {session} />{/if}
 			</div>
 		{/if}
 	</main>
@@ -1677,16 +1682,17 @@
 		left: 50%;
 		bottom: 132px; /* overridden inline to sit just above the composer */
 		transform: translateX(-50%);
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border-radius: var(--r-full);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		background: var(--panel);
-		border: 1px solid var(--border);
+		border: none;
 		color: var(--text);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+		box-shadow: var(--shadow-pop);
 		cursor: pointer;
 		z-index: 10;
 		animation: jump-in var(--t-med) var(--ease-out);
@@ -1707,9 +1713,8 @@
 		}
 	}
 	.jump:hover {
-		background: var(--surface2);
+		background: color-mix(in oklab, var(--panel) 94%, var(--text));
 		transform: translateX(-50%) translateY(-1px);
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
 	}
 	.jump:active {
 		transform: translateX(-50%) scale(0.92);
@@ -1845,28 +1850,27 @@
 		font-size: var(--fs-md);
 		color: var(--dim);
 	}
-	.welcome-hints {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
-		gap: 8px 16px;
-		margin-top: 6px;
-		font-size: var(--fs-xs);
-		color: var(--dim2);
+	/* A conversation with no messages (design.md, "Workbench canvas"): the
+	   transcript and the composer's area split the pane, so the composer's
+	   top sits on its middle and the greeting one line above it. After the
+	   first message the composer goes back to the bottom. */
+	.chatpane.fresh .mainwrap,
+	.chatpane.fresh .bottom {
+		flex: 1 1 0;
 	}
-	.welcome-hints span {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
+	.welcome.fresh {
+		margin: auto 0 0;
+		padding: 0 24px 4px;
+		gap: 12px;
 	}
-	.welcome-hints kbd {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--dim);
-		background: var(--surface2);
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-xs);
-		padding: 1px 6px;
+	/* The empty-conversation greeting, a display moment (design.md, "Type"). */
+	.greeting {
+		margin: 0;
+		color: var(--text);
+		font-family: var(--font-display);
+		font-size: var(--fs-2xl);
+		font-weight: 500;
+		line-height: 36px;
 	}
 
 	/* ---------- modals (trust / rewind) ---------- */

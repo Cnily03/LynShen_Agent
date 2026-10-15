@@ -41,10 +41,10 @@
 		transform: scale(0.9);
 	}
 	.md {
-		padding: 7px;
+		padding: 6px;
 	}
 	.sm {
-		padding: 5px;
+		padding: 4px;
 	}
 	.xs {
 		padding: 2px;

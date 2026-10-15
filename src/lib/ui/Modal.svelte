@@ -145,7 +145,7 @@
 		overflow: clip;
 		position: relative;
 		isolation: isolate;
-		border-radius: var(--r-xl);
+		border-radius: var(--r-lg);
 		box-shadow: var(--shadow-modal);
 		outline: none;
 	}
@@ -162,12 +162,13 @@
 		align-items: center;
 		gap: 10px;
 		color: var(--text);
-		font-size: var(--fs-md);
+		font-size: var(--fs-lg);
 		font-weight: 600;
+		line-height: 24px;
 	}
 	.x {
 		display: inline-flex;
-		padding: 6px;
+		padding: 4px;
 		border: none;
 		border-radius: var(--r-sm);
 		background: none;

@@ -32,8 +32,10 @@
 		border: 1px solid var(--border);
 		border-radius: var(--r-sm);
 		color: var(--text);
-		padding: 9px 11px;
+		min-height: 32px;
+		padding: 6px 10px;
 		font-size: var(--fs-sm);
+		line-height: 18px;
 		font-family: var(--font-sans);
 		outline: none;
 		transition: border-color var(--t-fast) var(--ease-out);
@@ -45,7 +47,7 @@
 		color: var(--dim2);
 	}
 	.tf:focus {
-		border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+		border-color: var(--border-strong);
 	}
 	.tf:disabled {
 		opacity: 0.55;
