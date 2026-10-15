@@ -60,7 +60,10 @@ export function quickList(items: PickItem[], opts: QuickOptions): QuickRow[] {
 		if (rows.length >= limit) taken.delete(rows.pop()!.item.key);
 		add(active, 'recent');
 	}
-	for (const key of opts.recent) add(byKey.get(key), 'recent');
+	for (const key of opts.recent) {
+		const item = byKey.get(key);
+		if (item && !item.drawsImages) add(item, 'recent');
+	}
 	const usable = items.filter((i) => i.health !== 'down' && !i.drawsImages);
 	for (const item of recommendedOrder(usable, !!opts.trial)) add(item, 'recommended');
 	if (!items.some((i) => i.recommended !== undefined)) for (const item of usable) add(item, 'recommended');

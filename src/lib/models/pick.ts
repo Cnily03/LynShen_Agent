@@ -16,10 +16,12 @@ export async function confirmPick(item: PickItem): Promise<boolean> {
 	});
 }
 
-/** Confirms `item` when it needs it, records it as used, then runs `apply`. */
-export async function pick(item: PickItem, apply: (item: PickItem) => void): Promise<boolean> {
+/** Confirms `item` when it needs it, records it as used (a model to chat
+ *  with; not `remember` for the compaction, title and image pickers), then
+ *  runs `apply`. */
+export async function pick(item: PickItem, apply: (item: PickItem) => void, remember = true): Promise<boolean> {
 	if (!(await confirmPick(item))) return false;
-	modelPicks.used(item.key);
+	if (remember && !item.drawsImages) modelPicks.used(item.key);
 	apply(item);
 	return true;
 }

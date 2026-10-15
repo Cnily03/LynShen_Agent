@@ -335,3 +335,12 @@ describe('browseLines', () => {
 		expect(lines.filter((l) => l.kind === 'more').length).toBe(4);
 	});
 });
+
+describe('recents', () => {
+	it('leave image models out of the quick list', () => {
+		const items = itemsFromRows(gatewayRows(SAMPLE_PLAIN_IDS), lookup);
+		const rows = quickList(items, { favorites: [], recent: ['monoize::gpt-image-2', 'monoize::kimi-k3'] });
+		expect(rows.some((r) => r.item.id === 'gpt-image-2')).toBe(false);
+		expect(rows[1]).toMatchObject({ section: 'recent', item: { id: 'kimi-k3' } });
+	});
+});

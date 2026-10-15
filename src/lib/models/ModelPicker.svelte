@@ -23,6 +23,7 @@
 		placeholder = '',
 		label,
 		disabled = false,
+		remember = true,
 		onChange
 	}: {
 		items: PickItem[];
@@ -33,6 +34,8 @@
 		/** The control's accessible name (the settings row's title). */
 		label: string;
 		disabled?: boolean;
+		/** A pick here is a model to chat with: it joins the recents. */
+		remember?: boolean;
 		onChange: (value: string) => void;
 	} = $props();
 
@@ -76,10 +79,14 @@
 		if (refocus) tick().then(() => button?.focus());
 	}
 	function choose(item: PickItem) {
-		void pick(item, (picked) => {
-			close();
-			onChange(picked.value);
-		});
+		void pick(
+			item,
+			(picked) => {
+				close();
+				onChange(picked.value);
+			},
+			remember
+		);
 	}
 	function chooseExtra(v: string) {
 		close();

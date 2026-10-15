@@ -21,6 +21,7 @@
 		pinned = false,
 		folded = false,
 		compact = false,
+		withProvider = false,
 		wrapFacts = false,
 		facts,
 		onPick,
@@ -38,6 +39,8 @@
 		folded?: boolean;
 		/** One line: the name and a short fact at the right (the quick switcher). */
 		compact?: boolean;
+		/** Another row has the same name: the compact line names the provider too. */
+		withProvider?: boolean;
 		/** The browser has room: the facts wrap instead of being cut. */
 		wrapFacts?: boolean;
 		facts: FactsOptions;
@@ -48,7 +51,9 @@
 		onHover?: () => void;
 	} = $props();
 
-	const parts = $derived(compact ? shortFactsOf(item, facts) : factsOf(item, facts));
+	const parts = $derived(
+		compact ? [...(withProvider && item.providerName ? [item.providerName] : []), ...shortFactsOf(item, facts)] : factsOf(item, facts)
+	);
 	const pinKey = comboLabel(PIN_COMBO);
 </script>
 

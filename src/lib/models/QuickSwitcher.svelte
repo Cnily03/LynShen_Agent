@@ -150,6 +150,13 @@
 		return prev?.kind === 'model' && prev.section === stop.section ? '' : t(`models.section.${stop.section}`);
 	};
 	const count = $derived(items.length);
+	/** Names two rows share (one model through two providers). */
+	const repeated = $derived.by(() => {
+		const seen = new Set<string>();
+		const twice = new Set<string>();
+		for (const r of rows) (seen.has(r.item.name) ? twice : seen).add(r.item.name);
+		return twice;
+	});
 </script>
 
 <div class="qs">
@@ -192,6 +199,7 @@
 					selected={i === sel}
 					pinned={modelPicks.isFavorite(stop.item.key)}
 					compact
+					withProvider={repeated.has(stop.item.name)}
 					{facts}
 					onPick={() => act(stop)}
 					onPin={(item) => pin(item.key)}
@@ -199,6 +207,7 @@
 					onHover={() => i !== sel && select(i)}
 				/>
 			{:else}
+				{#if !items.length}<div class="empty" role="presentation">{t('models.empty')}</div>{/if}
 				<div class="sep" role="presentation"></div>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<div class="pop-row all" class:sel={i === sel} role="option" tabindex="-1" id={idOf(i)} aria-selected="false" onclick={() => browse()} onmousemove={() => i !== sel && select(i)}>
@@ -272,5 +281,10 @@
 	}
 	.pop-check.off {
 		visibility: hidden;
+	}
+	.empty {
+		padding: 10px 12px;
+		color: var(--dim);
+		font-size: var(--fs-sm);
 	}
 </style>

@@ -1235,6 +1235,7 @@
 									items={chatItems(cfg.compact_model ?? '')}
 									value={cfg.compact_model ?? ''}
 									label={t('settings.behavior.compactModel')}
+									remember={false}
 									placeholder={t('settings.behavior.selectModel')}
 									onChange={(v) => (cfg.compact_model = v)}
 								/>
@@ -1253,6 +1254,7 @@
 									value={cfg.title_model ?? ''}
 									extras={[{ value: '', label: t('settings.behavior.followMainModel'), active: false }]}
 									label={t('settings.behavior.titleModel')}
+									remember={false}
 									onChange={(v) => (cfg.title_model = v)}
 								/>
 							</div>
@@ -1266,6 +1268,7 @@
 									value={cfg.image_model ?? ''}
 									extras={[{ value: '', label: t('settings.behavior.imageModelAuto'), active: false }]}
 									label={t('settings.behavior.imageModel')}
+									remember={false}
 									onChange={(v) => (cfg.image_model = v)}
 								/>
 							</div>
