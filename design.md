@@ -134,7 +134,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - A menu opens from its anchor (`drop-in` downward, `pop-in` upward, `--t-pop`) and stays inside the window: it flips to the side with room and scrolls its own rows when neither side holds it. A click outside, Escape or a selection closes it. [SHOULD]
 
 ### Status, attention and emphasis
-Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made". Implemented (0.8.0) in the session list's status marks (`SessionMark`, `Sidebar`) and the approval card. To be implemented in: the plan card's status tag and the progress tray (the right-side cards).
+Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made". Implemented (0.8.0) in the session list's status marks (`SessionMark`, `Sidebar`), the approval card, and the plan and subagents cards (`ProgressCards`), which replace the progress tray.
 - An item that waits for the reader (an approval, a question) shows a 6px `--warn` dot before its title. The reason is `--dim` text on the line below. A list of such items has a plain `--fs-xs` 600 `--dim2` heading with its count. The heading has no fill, border, glow or colored text. [SHOULD]
 - In the navigator a row keeps a 6px slot before its title for that dot, so titles line up; a failed conversation shows an `--err` dot there and an unread reply a `--text` dot. A conversation at work shows the `.spin` mark after its title, in `--dim`. [SHOULD] — Decision 2026-10-15: the dot replaces the breathing "待确认" pill and the colored failure icon.
 - Status, risk and scope inside a card are plain `--dim` text, joined with " · ". A status color appears only as one 6px dot, or as the text color of an error. [SHOULD]
@@ -165,6 +165,7 @@ Decision 2026-10-14 for this section. The owner's feedback was that a prototype 
 | Icon button | `IconButton` `size: xs｜sm｜md`, `label` | `src/lib/ui/IconButton.svelte` | Icon-only actions; pass a `label` | Implemented |
 | Segmented | `Segmented` `value` `options` `onChange` | `src/lib/ui/Segmented.svelte` | 2–4 exclusive options in a settings row | Implemented |
 | Switch, Checkbox, Select, TextField | same names | `src/lib/ui/` | Settings rows and forms | Implemented |
+| Model pickers | `ModelPicker` (`variant: field｜inline`, `extras`), `QuickSwitcher`, `ModelBrowser` (in a `Modal`), `ModelLine`; `gatewayCatalog` | `src/lib/models/`, `src/lib/composer/ModelMenu.svelte` | Every model choice: the composer's model menu, the settings model rows, the home start box, the first run. Not `Select` | Implemented |
 | Chip, Collapse | `Chip` (`selected`), `Collapse` (`open`) | `src/lib/ui/` | Toggle chips in pickers; animated disclosure | Implemented |
 | Notice | `Notice` `tone: error｜warn｜info`, `mono` | `src/lib/ui/Notice.svelte` | Inline messages inside panels and forms | Implemented |
 | Modal | `Modal` `placement: center｜top`, `width`, `footer` | `src/lib/ui/Modal.svelte` | Dialogs (frosted sheet on `--glass-strong`) | Implemented |
@@ -269,7 +270,7 @@ Extension boundary:
 - The phone remote page and the web chat are outside this file's scope and keep the type scale and radii they were made with: `app.css` restores them under `:root:has(.remote, .web, .signin)`.
 - Theme: `initTheme()` / `setTheme()` in `src/lib/theme.svelte.ts` set `data-theme` (`light｜dark`, resolved from `system｜light｜dark`) on `<html>`. Platform and preference attributes on `<html>`: `data-os`, `data-vibrancy`, `data-glass`, `data-canvas-bg` (`src/lib/prefs.svelte.ts`).
 - Icons: `phosphor-svelte`, defaults set by `IconContext` in `+layout.svelte` (regular weight, `aria-hidden`).
-- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`, `&collapsed`, `&home`, `&settings[=<section>]`, `&approval`, `&states`).
+- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`, `&collapsed`, `&home`, `&settings[=<section>]`, `&approval`, `&states`, `&cards`, `&tool`, `&textOnly`, `&models[=old]`; `?remote&cards` for the phone page).
 
 ## Glossary
 
@@ -290,6 +291,7 @@ Extension boundary:
 | Composer / mode menu | `Composer`, `ModeMenu` |
 | Approval card | `ApprovalCard` |
 | Plan card / subagents card | `ProgressCards`, `ProgressSheet` (phone page), `PlanPanel` |
+| Model quick switcher / model browser | `QuickSwitcher`, `ModelBrowser`, `ModelPicker` |
 | Plan proposal | `PlanCard`, `ProposalPane` |
 | File preview | `FilePreview` |
 | Page over the canvas | `HomePage`, `ProjectPage` |
