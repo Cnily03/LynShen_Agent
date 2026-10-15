@@ -97,9 +97,8 @@ describe('light theme surfaces', () => {
 		expect(r - b).toBeLessThanOrEqual(8);
 	});
 
-	it('the sidebar and the window chrome are each a visible step darker', () => {
+	it('the frame tone is one visible step darker', () => {
 		expect(L('--bg') - L('--sidebar')).toBeGreaterThanOrEqual(2);
-		expect(L('--sidebar') - L('--rail')).toBeGreaterThanOrEqual(2);
 	});
 
 	it('panels may be lighter than the canvas, up to L* 99: nothing is pure white', () => {
@@ -111,7 +110,41 @@ describe('light theme surfaces', () => {
 
 describe('dark theme', () => {
 	it('keeps its surfaces and text', () => {
-		expect(dark).toMatchObject({ '--bg': '#1a1a1a', '--sidebar': '#202020', '--rail': '#141414', '--panel': '#262626', '--text': '#ececec' });
+		expect(dark).toMatchObject({ '--bg': '#1a1a1a', '--sidebar': '#141414', '--rail': '#141414', '--divider': '#2a2a2a', '--panel': '#262626', '--text': '#ececec' });
+	});
+});
+
+// design.md §5, the token table.
+describe.each(Object.entries(themes))('the frame and the canvas (%s)', (_, theme) => {
+	it('the title bar, the navigator and the tab bars share one frame tone, darker than the canvas', () => {
+		expect(theme['--rail']).toBe(theme['--sidebar']);
+		expect(lightness(color(theme, '--bg')) - lightness(color(theme, '--rail'))).toBeGreaterThanOrEqual(2);
+	});
+
+	it('a divider shows on the canvas and on the frame', () => {
+		expect(contrast(color(theme, '--divider'), color(theme, '--bg'))).toBeGreaterThan(1.15);
+		expect(contrast(color(theme, '--divider'), color(theme, '--rail'))).toBeGreaterThan(1.15);
+	});
+});
+
+describe('type, radii and depth', () => {
+	it('the type scale and the radii are the design.md steps', () => {
+		const px = (names: string[]) => names.map((n) => dark[n]);
+		expect(px(['--fs-2xs', '--fs-xs', '--fs-sm', '--fs-md', '--fs-lg', '--fs-xl', '--fs-2xl'])).toEqual(['11px', '12px', '13px', '15px', '18px', '22px', '28px']);
+		expect(px(['--r-xs', '--r-sm', '--r-md', '--r-lg', '--r-xl', '--r-2xl', '--r-full'])).toEqual(['2px', '4px', '6px', '8px', '12px', '14px', '999px']);
+	});
+
+	it('the frame has no shadow, and the dark theme floats nothing on a blur', () => {
+		expect(dark['--shadow-canvas']).toBeUndefined();
+		expect(dark['--shadow-float']).toBe('none');
+		expect(dark['--shadow-float-strong']).toBe('none');
+		expect(light['--shadow-float']).toBe('0 2px 8px rgba(28, 25, 23, 0.05)');
+		for (const theme of [dark, light]) expect(theme['--shadow-pop']).toMatch(/^0 0 0 1px var\(--divider\), /);
+	});
+
+	it('the interface sets the system UI face first and the display face apart', () => {
+		expect(dark['--font-sans']).toMatch(/^-apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Inter Variable'/);
+		expect(dark['--font-display']).toBe("'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif");
 	});
 });
 

@@ -609,7 +609,7 @@ try {
   }));
   const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
   await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
-  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(32, 32, 32)', stored: [2, false], told: [false]});
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [2, false], told: [false]});
   // Turned on afterwards it is a choice: macOS frosts at once, and it is
   // still on after a restart.
   await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
@@ -639,7 +639,7 @@ try {
   await light.goto(base + '?shell&theme=light');
   await expect(light.locator('.composer')).toBeVisible({timeout:30000});
   const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
-  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(238, 236, 232)', 'rgb(251, 250, 248)']);
+  assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(240, 239, 235)', 'rgb(251, 250, 248)']);
   await light.close();
   // A message sent with a file shows what was typed and the file as a chip,
   // never the list the engine reads after the text; history from the

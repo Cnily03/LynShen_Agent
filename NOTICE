@@ -7,3 +7,7 @@ License; see src/lib/providers/models.dev.LICENSE.
 Model and vendor logos come from @lobehub/icons (MIT License). Product names
 and logos are trademarks of their respective owners and are used only to
 identify their products; their use implies no affiliation or endorsement.
+
+src/lib/fonts/noto-serif-sc-display.woff2 is a subset of Noto Serif SC
+(Copyright 2017-2024 Adobe, from github.com/google/fonts), licensed under the
+SIL Open Font License, Version 1.1; see src/lib/fonts/OFL.txt.
