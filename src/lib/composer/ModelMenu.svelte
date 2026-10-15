@@ -80,11 +80,15 @@
 		popLeft = Math.min(Math.max(r.right - popEl.offsetWidth, margin), window.innerWidth - popEl.offsetWidth - margin);
 		popTop = top >= margin ? top : Math.min(r.bottom + 8, window.innerHeight - popEl.offsetHeight - margin);
 	}
-	onMount(() => {
+	// Rows arrive after the catalog request; keep the menu anchored as it
+	// grows. The popover is drawn anew when the browser closes for a route
+	// page: the new one is observed.
+	$effect(() => {
+		const el = popEl;
+		if (!el) return;
 		tick().then(position);
-		// Rows arrive after the catalog request; keep the menu anchored as it grows.
 		const ro = new ResizeObserver(position);
-		if (popEl) ro.observe(popEl);
+		ro.observe(el);
 		return () => ro.disconnect();
 	});
 
