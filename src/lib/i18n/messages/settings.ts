@@ -205,6 +205,12 @@ const settings = {
 			untrusted: '这个项目里的风格要先信任项目（/trust）才会加载。',
 			folder: '自定义风格保存在 {path}，一个风格一个 Markdown 文件。',
 			problem: '{path}：{msg}',
+			problemKind: {
+				reserved: 'default 是“默认”的保留名，这个文件不会加载，换个文件名',
+				bad_name: '文件名不能作为风格 id（不能有空格和 / \\ : * ? " < > |，不能以 . 或 - 开头），不会加载',
+				empty: 'frontmatter 后面没有指令，不会加载',
+				unreadable: '读不了这个文件，不会加载'
+			},
 			errName: '填写名称',
 			errNameLong: '名称最多 40 个字符',
 			errDescriptionLong: '说明最多 200 个字符',
@@ -1183,6 +1189,12 @@ const settings = {
 			untrusted: 'This project’s styles load once you trust the project (/trust).',
 			folder: 'Custom styles are Markdown files in {path}, one per style.',
 			problem: '{path}: {msg}',
+			problemKind: {
+				reserved: '“default” is reserved for the default style: this file does not load; rename it',
+				bad_name: 'The file name cannot be a style id (no spaces or / \\ : * ? " < > |, not starting with . or -): it does not load',
+				empty: 'No instructions after the frontmatter: it does not load',
+				unreadable: 'The file cannot be read: it does not load'
+			},
 			errName: 'Enter a name',
 			errNameLong: 'A name has at most 40 characters',
 			errDescriptionLong: 'A description has at most 200 characters',

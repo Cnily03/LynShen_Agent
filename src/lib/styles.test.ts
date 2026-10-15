@@ -9,6 +9,7 @@ import {
 	nameOf,
 	parseReplyStyle,
 	parseStyleList,
+	problemText,
 	styleDescription,
 	styleDraftError,
 	styleHome,
@@ -57,7 +58,10 @@ describe('reply styles', () => {
 		expect(list.styles[1]).toMatchObject({ name: 'review', description: '', source: 'project', truncated: true });
 		expect(list.default).toBe(DEFAULT_STYLE);
 		expect(list.projectTrusted).toBe(false);
-		expect(list.problems).toHaveLength(1);
+		expect(list.problems).toEqual([{ path: '/Users/me/.lynshen/styles/a b.md', kind: '', message: 'bad name' }]);
+		setLocale('zh');
+		expect(problemText({ path: '/x', kind: 'empty', message: 'no instructions' }, t)).toBe('frontmatter 后面没有指令，不会加载');
+		expect(problemText(list.problems[0], t)).toBe('bad name');
 		expect(parseStyleList({}).styles).toEqual([]);
 		expect(styleHome(list)).toBe('/Users/me');
 		expect(styleHome({ dirs: [] })).toBe('');

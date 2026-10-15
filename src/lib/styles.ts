@@ -23,6 +23,9 @@ export interface ReplyStyle {
 
 export interface StyleProblem {
 	path: string;
+	/** `reserved` · `bad_name` · `empty` · `unreadable` ('' from an engine
+	 *  that names none). */
+	kind: string;
 	message: string;
 }
 
@@ -96,7 +99,7 @@ export function parseStyleList(reply: Record<string, unknown>): StyleList {
 		default: str(reply.default) || DEFAULT_STYLE,
 		dirs: records(reply.dirs).map((d) => ({ scope: str(d.scope), path: str(d.path) })),
 		projectTrusted: typeof reply.projectTrusted === 'boolean' ? reply.projectTrusted : null,
-		problems: records(reply.problems).map((p) => ({ path: str(p.path), message: str(p.message) }))
+		problems: records(reply.problems).map((p) => ({ path: str(p.path), kind: str(p.kind), message: str(p.message) }))
 	};
 }
 
@@ -156,6 +159,14 @@ export function copyDraft(style: ReplyStyle, t: Translate): StyleDraft {
 		description: styleDescription(style, t),
 		instructions: style.instructions
 	};
+}
+
+const PROBLEM_KINDS = ['reserved', 'bad_name', 'empty', 'unreadable'];
+
+/** Why a file does not load, in the app's language when the engine named
+ *  the kind; its own message otherwise. */
+export function problemText(problem: StyleProblem, t: Translate): string {
+	return PROBLEM_KINDS.includes(problem.kind) ? t(`settings.styles.problemKind.${problem.kind}`) : problem.message;
 }
 
 /** A personal style file the page may edit and delete. */

@@ -271,7 +271,7 @@ try {
   const stylePatches = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
   await expect.poll(stylePatches).toContain('{"reply_style":"concise"}');
   await expect(page.locator('.srow', {hasText:'发布说明'})).toContainText('项目');
-  await expect(page.getByText(/two words\.md：the file name cannot be a style id/)).toBeVisible();
+  await expect(page.getByText(/two words\.md：文件名不能作为风格 id/)).toBeVisible();
   const formal = page.locator('.srow', {hasText:'正式汇报'});
   await formal.hover();
   await formal.getByRole('button',{name:'查看'}).click();

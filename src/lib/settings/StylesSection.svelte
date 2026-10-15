@@ -22,7 +22,7 @@
 	import { t } from '$lib/i18n';
 	import { tildePath } from '$lib/skills';
 	import { replyStyles } from '$lib/styles.svelte';
-	import { copyDraft, editable, styleDescription, styleHome, styleName, type ReplyStyle, type StyleDraft } from '$lib/styles';
+	import { copyDraft, editable, problemText, styleDescription, styleHome, styleName, type ReplyStyle, type StyleDraft } from '$lib/styles';
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsRow from './SettingsRow.svelte';
 	import StyleDialog from './StyleDialog.svelte';
@@ -148,7 +148,7 @@
 			<div class="problems">
 				<Notice tone="warn">
 					{#each list.problems as p (p.path)}
-						<div>{t('settings.styles.problem', { path: tildePath(p.path, home), msg: p.message })}</div>
+						<div>{t('settings.styles.problem', { path: tildePath(p.path, home), msg: problemText(p, t) })}</div>
 					{/each}
 				</Notice>
 			</div>

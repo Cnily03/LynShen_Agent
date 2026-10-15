@@ -110,7 +110,7 @@ export const daemonState = {
 			{ scope: 'project', path: `${project}/.lynshen/styles` }
 		],
 		projectTrusted: true,
-		problems: [{ path: `${styleDir}/two words.md`, message: 'the file name cannot be a style id' }]
+		problems: [{ path: `${styleDir}/two words.md`, kind: 'bad_name', message: 'the file name cannot be a style id' }]
 	} as Frame,
 	claude: {
 		backend: 'claude',
