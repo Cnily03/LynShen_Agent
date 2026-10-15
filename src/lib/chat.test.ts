@@ -1501,6 +1501,15 @@ describe('ChatState: the LynShen sandbox', () => {
 		if (last?.kind === 'escalation') expect(last.record).toMatchObject({ command: 'brew install jq', by: 'mode' });
 	});
 
+	it('keeps the reply style the engine says the conversation uses', () => {
+		const c = new ChatState();
+		expect(c.replyStyle).toBeNull();
+		c.handle({ type: 'reply_style', style: 'concise', name: '简洁', source: 'builtin', chosen: true, missing: false });
+		expect(c.replyStyle).toEqual({ style: 'concise', name: '简洁', source: 'builtin', chosen: true, missing: false });
+		c.handle({ type: 'reply_style', style: 'terse', name: 'terse', source: 'missing', chosen: false, missing: true });
+		expect(c.replyStyle).toMatchObject({ style: 'terse', source: 'missing', missing: true, chosen: false });
+	});
+
 	it('shows a crossing the transcript keeps', () => {
 		const c = new ChatState();
 		c.handle({ type: 'transcript', items: [{ role: 'user', content: '装 jq' }, { role: 'escalated', kind: 'escalation', command: 'brew install jq', by: 'classifier' }] });

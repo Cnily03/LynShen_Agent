@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	import type { ReplyStyle as Style } from '$lib/styles';
+
+	/** The "+" menu's reply styles (see `styleMenu`). */
+	export interface StyleMenu {
+		styles: Style[];
+		/** The id this conversation uses. */
+		current: string;
+		onSelect: (id: string) => void;
+	}
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { prefs } from '$lib/prefs.svelte';
@@ -49,6 +61,7 @@
 	import { commandsIsolated, onWindows } from '$lib/sandbox/request';
 	import ShieldSlashIcon from 'phosphor-svelte/lib/ShieldSlashIcon';
 	import { caps, BACKEND_LABELS, type BackendId } from '$lib/backends';
+	import { styleDescription, styleName } from '$lib/styles';
 
 	let {
 		chat,
@@ -85,8 +98,13 @@
 		onApproval,
 		onRespond,
 		foot,
-		onContextBreakdown
+		onContextBreakdown,
+		styleMenu
 	}: {
+		/** The reply styles in the "+" menu (LynShen): every style, the one
+		 *  this conversation uses (marked), and what picking one does.
+		 *  Undefined hides the section. */
+		styleMenu?: StyleMenu;
 		/** Extra controls on the strip under the card (right side). */
 		foot?: Snippet;
 		/** Asks the engine what its context holds, by category (engines that can say). */
@@ -438,6 +456,7 @@
 			});
 		}
 		const sections = [add];
+		const styles = styleMenu ? styleSection(styleMenu) : null;
 		if (bcaps.approvalModes && bcaps.planMode && !chat.agent) {
 			sections.push({
 				label: t('chat.modeSection'),
@@ -455,6 +474,7 @@
 				]
 			});
 		}
+		if (styles) sections.push(styles);
 		// Picking any row closes the tray first.
 		return sections.map((sec) => ({
 			...sec,
@@ -467,6 +487,23 @@
 			}))
 		}));
 	});
+	// The reply styles, the current one checked. A style that is gone shows
+	// under its id, checked and not pickable: the conversation runs with none.
+	function styleSection(menu: StyleMenu): TraySection {
+		const items: TrayItem[] = menu.styles.map((style) => ({
+			id: `style:${style.id}`,
+			title: styleName(style, t),
+			desc: styleDescription(style, t),
+			checked: style.id === menu.current,
+			onSelect: () => {
+				el?.focus();
+				if (style.id !== menu.current) menu.onSelect(style.id);
+			}
+		}));
+		if (!menu.styles.some((style) => style.id === menu.current))
+			items.push({ id: `style:${menu.current}`, title: menu.current, desc: t('chat.styleMissing'), checked: true, disabled: true, onSelect: () => {} });
+		return { label: t('chat.styleSection'), items };
+	}
 	// Shift+Tab (in the editor or the open menu): the next mode, as in Claude
 	// Code, skipping one the engine refused.
 	function cycleApproval() {

@@ -36,6 +36,7 @@ import { parseMcpServersEvent, type McpServerView } from './mcp';
 import { parseSubagentResult } from './agents/subagentResult';
 import { parseDelivery } from './delivery';
 import { sentLabel } from './attachments';
+import { parseReplyStyle, type ReplyStyleState } from './styles';
 import {
 	matchMessage,
 	parseSessionMessage,
@@ -847,6 +848,10 @@ export class ChatState {
 	/** What this session's commands may do, as the engine last said
 	 *  (`sandbox`); null until it says (an engine before the contract never does). */
 	sandbox = $state<SandboxState | null>(null);
+	/** The reply style this conversation uses, as the engine last said
+	 *  (`reply_style`); null until it says (an engine before reply styles
+	 *  never does). */
+	replyStyle = $state<ReplyStyleState | null>(null);
 	/** A sandbox request just answered here: an engine that cannot take the
 	 *  answer (a directory that does not exist, a scope it does not offer)
 	 *  says so in an `error` and keeps the request waiting, so its card comes
@@ -2269,6 +2274,9 @@ export class ChatState {
 			}
 			case 'sandbox':
 				this.sandbox = parseSandboxState(ev as Record<string, unknown>);
+				break;
+			case 'reply_style':
+				this.replyStyle = parseReplyStyle(ev as Record<string, unknown>);
 				break;
 			case 'escalated':
 				this.messages.push({ kind: 'escalation', record: parseEscalation(ev as Record<string, unknown>) });

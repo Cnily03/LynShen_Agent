@@ -4,7 +4,7 @@ import { chatFolderName } from './chatFolder';
 import { savedEmpty } from './savedEmpty';
 import { DaemonError, type EngineSpec } from './daemon';
 import { canHandOffToTui, isValidResumeSessionId } from './tuiHandoff';
-import { normalizeBackendId, type BackendId } from './backends';
+import { caps, normalizeBackendId, type BackendId } from './backends';
 import { createLynShenAdapter } from './backends/lynshen';
 import { clearDraft, dispatch, dropHeldOps, holdOps, ioFor, markDraft, peekHeldOps, registerAdapter, startDraft, unregisterAdapter } from './backends/router';
 import { buildBackendOpts, defaultBackendFor } from './backends/settings';
@@ -477,10 +477,13 @@ export class SessionStore {
 		if (s.backendId === 'acp' && s.acpAgent) project.lastAcpAgent = s.acpAgent;
 		const pick = s.draftPick;
 		s.draftPick = undefined;
+		const style = s.draftStyle;
+		s.draftStyle = undefined;
 		const model = pick?.model || s.chat.model;
-		// The model and effort picked while a draft go first; the held first
-		// message follows.
+		// The reply style, model and effort picked while a draft go first; the
+		// held first message follows.
 		const applyPick = () => {
+			if (style && caps(s.chat).replyStyles) dispatch(s.id, { op: 'set_style', style });
 			if (!pick || !model) return;
 			const effort = pick.effort ?? '';
 			dispatch(s.id, { op: 'command', input: effort ? `/model ${model} ${effort}` : `/model ${model}` });
@@ -566,6 +569,7 @@ export class SessionStore {
 		s.adapter = adapter;
 		s.acpAgent = agent;
 		s.draftPick = undefined;
+		s.draftStyle = undefined;
 		this.#makeDraft(s);
 	}
 

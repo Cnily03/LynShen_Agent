@@ -73,7 +73,9 @@
 	import type { SessionStore } from '$lib/session.svelte';
 	import type { Session } from '$lib/types';
 	import { editorStore } from '$lib/editor/editorStore.svelte';
-	import Composer from '$lib/Composer.svelte';
+	import Composer, { type StyleMenu } from '$lib/Composer.svelte';
+	import { replyStyles } from '$lib/styles.svelte';
+	import { currentStyle } from '$lib/styles';
 	import MessageList from '$lib/MessageList.svelte';
 	import TurnRail from '$lib/TurnRail.svelte';
 	import StatusStrip from '$lib/composer/StatusStrip.svelte';
@@ -166,6 +168,28 @@
 	/** The long-lived agent this session belongs to. */
 	const owner = $derived(chat.agent ? agentDirectory.agents.find((a) => a.id === chat.agent) : undefined);
 	const project = $derived(store.projects.find((p) => p.sessions.some((s) => s.id === session.id)));
+
+	// Reply styles (LynShen): the "+" menu lists them once the engine has
+	// said which one this conversation uses (an older engine never does); a
+	// draft has no engine yet and shows the default, or its own pick. A chat
+	// has no project styles.
+	const styleCwd = $derived(chat.isChatMode ? '' : project?.path || chat.cwd || '');
+	const stylesOn = $derived(caps(chat).replyStyles && (!!session.draft || chat.replyStyle !== null));
+	$effect(() => {
+		const cwd = styleCwd;
+		if (stylesOn) untrack(() => replyStyles.ensure(cwd));
+	});
+	const styleMenu = $derived.by((): StyleMenu | undefined => {
+		const list = stylesOn ? replyStyles.list(styleCwd) : null;
+		const current = list && currentStyle(!!session.draft, session.draftStyle, chat.replyStyle, list);
+		return list && current ? { styles: list.styles, current, onSelect: setStyle } : undefined;
+	});
+	// A draft only records the pick: it goes to the engine before the first
+	// message (SessionStore #startDraft).
+	function setStyle(id: string) {
+		if (session.draft) session.draftStyle = id;
+		else send({ op: 'set_style', style: id });
+	}
 	// The requirement this session works on (or, a draft, will once it starts).
 	const reqs = useRequirements();
 	const linked = $derived(chat.sessionId ? reqs.bySession.get(chat.sessionId) : undefined);
@@ -1610,6 +1634,7 @@
 			onSwitch={setSwitch}
 			effortDisabled={!!pendingModel || chat.switching}
 			onApproval={setApprovalMode}
+			{styleMenu}
 			onRespond={respondApproval}
 		/>
 	</div>

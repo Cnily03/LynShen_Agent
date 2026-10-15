@@ -31,7 +31,8 @@ export const CLAUDE_CAPS: BackendCaps = {
 	sideQuestions: true, // side_question control request
 	agentTrace: true, // system/task_* + the session's saved workflows/subagents files
 	contextBreakdown: true, // get_context_usage
-	sandbox: false // Claude Code's own permission modes
+	sandbox: false, // Claude Code's own permission modes
+	replyStyles: false // Claude Code's own output styles
 };
 
 export const CODEX_CAPS: BackendCaps = {
@@ -59,7 +60,8 @@ export const CODEX_CAPS: BackendCaps = {
 	sideQuestions: false,
 	agentTrace: true, // subagent threads, read back with thread/turns/list
 	contextBreakdown: false, // the app server reports a total only
-	sandbox: false // Codex's own sandbox and approval policy
+	sandbox: false, // Codex's own sandbox and approval policy
+	replyStyles: false
 };
 
 export const ACP_CAPS: BackendCaps = {
@@ -87,5 +89,6 @@ export const ACP_CAPS: BackendCaps = {
 	sideQuestions: false,
 	agentTrace: false,
 	contextBreakdown: false,
-	sandbox: false
+	sandbox: false,
+	replyStyles: false
 };

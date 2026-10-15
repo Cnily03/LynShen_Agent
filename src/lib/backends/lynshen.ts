@@ -37,7 +37,10 @@ export const LYNSHEN_CAPS: BackendCaps = {
 	// An older engine refuses context_usage: the panel shows the total only.
 	contextBreakdown: true,
 	// An older engine sends no sandbox fields: the card stays the plain one.
-	sandbox: true
+	sandbox: true,
+	// An older engine never reports `reply_style`: the composer shows no
+	// style rows then.
+	replyStyles: true
 };
 
 /** Wire protocol version this desktop speaks (`hello.protocol`). */
