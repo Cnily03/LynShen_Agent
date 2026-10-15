@@ -36,7 +36,7 @@ export interface SkippedGroup {
 	count: number;
 	/** A whole store (a database) could not be read. */
 	whole: boolean;
-	/** Why, with how many where more than one. */
+	/** Why; with several reasons, how many each. */
 	reasons: string[];
 }
 
@@ -48,7 +48,7 @@ export function skippedBySource(skipped: ImportSkipped[]): SkippedGroup[] {
 			source,
 			count: items.reduce((n, s) => n + s.count, 0),
 			whole: items.some((s) => s.count === 0),
-			reasons: items.map((s) => (s.count > 1 ? `${s.reason} (${s.count})` : s.reason))
+			reasons: items.map((s) => (s.count > 1 && items.length > 1 ? `${s.reason} (${s.count})` : s.reason))
 		};
 	}).filter((g) => g.reasons.length > 0);
 }

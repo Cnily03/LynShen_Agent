@@ -175,6 +175,9 @@ describe('what the scan could not read', () => {
 				reasons: ['opencode.db cannot be read (file is not a database)', 'session file is not valid JSON']
 			}
 		]);
+		expect(skippedBySource([{ source: 'omp', count: 4, reason: 'no session header' }])).toEqual([
+			{ source: 'omp', count: 4, whole: false, reasons: ['no session header'] }
+		]);
 		expect(skippedBySource([])).toEqual([]);
 	});
 
