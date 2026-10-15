@@ -99,7 +99,9 @@ export function foldFamily(members: PickItem[]): { shown: PickItem[]; more: Pick
 	const known = sorted.some((m) => m.legacy !== undefined);
 	let shown = known ? sorted.filter((m) => !m.legacy) : sorted.slice(0, 1);
 	if (!shown.length) shown = sorted.slice(0, 1);
-	return { shown, more: sorted.filter((m) => !shown.includes(m)) };
+	const more = sorted.filter((m) => !shown.includes(m));
+	// A current version that does not work goes after the ones that do.
+	return { shown: [...shown.filter((m) => !down(m)), ...shown.filter(down)], more };
 }
 
 function sectionOrder(sections: BrowseSection[], trial: boolean, best: (s: BrowseSection) => number): BrowseSection[] {
@@ -134,6 +136,7 @@ export function browseSections(items: PickItem[], opts: { trial?: boolean } = {}
 	}
 	const rec = (f: BrowseFamily) => Math.min(...f.shown.map((i) => i.recommended ?? 1e9));
 	for (const section of sections.values()) {
+		// A family none of whose versions works goes last (its first shown is then down).
 		section.families.sort(
 			(a, b) =>
 				down(a.shown[0]) - down(b.shown[0]) ||

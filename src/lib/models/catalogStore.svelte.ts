@@ -38,9 +38,12 @@ class GatewayCatalogStore {
 		return this.#pending;
 	}
 
-	/** Reads it again when the copy is older than a minute. */
-	refreshIfStale(): Promise<GatewayCatalog | null> {
-		return Date.now() - this.#fetchedAt < FRESH_MS ? Promise.resolve(this.data) : this.refresh();
+	/** Reads it again when the copy is older than a minute, or when the plan's
+	 *  funding changed since (it decides what the plan covers). */
+	refreshIfStale(funding?: 'plan' | 'balance' | null): Promise<GatewayCatalog | null> {
+		const plan = this.data?.plan;
+		const moved = !!funding && !!plan && plan.funding !== funding;
+		return !moved && Date.now() - this.#fetchedAt < FRESH_MS ? Promise.resolve(this.data) : this.refresh();
 	}
 
 	async #load(): Promise<GatewayCatalog | null> {

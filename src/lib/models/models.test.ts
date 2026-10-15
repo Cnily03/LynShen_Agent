@@ -76,6 +76,15 @@ describe('parseCatalog', () => {
 		expect(lookup('glm-5.3')?.requestModel).toBe('ZhipuAi/GLM-5.3');
 	});
 
+	it('reads image models by their kind, whatever their name', () => {
+		const drawn = parseCatalog({
+			...SAMPLE_CATALOG,
+			models: [{ ...SAMPLE_CATALOG.models[1], id: 'seed-paint-3', display_name: 'Seed Paint 3', kind: 'image' }, { ...SAMPLE_CATALOG.models[1], id: 'image-reader', kind: 'chat' }]
+		})!;
+		expect(drawn.models.map((m) => m.drawsImages)).toEqual([true, false]);
+		expect(catalog.models.find((m) => m.id === 'gpt-image-2')?.drawsImages).toBe(true);
+	});
+
 	it('refuses what is not a v1 catalog', () => {
 		expect(parseCatalog({ data: [] })).toBeNull();
 		expect(parseCatalog({ schema_version: 2, models: [] })).toBeNull();
@@ -229,12 +238,12 @@ describe('browseSections', () => {
 	it('folds legacy versions under the current one', () => {
 		expect(family('claude-opus-4-8').shown.map((i) => i.id)).toEqual(['claude-opus-5-5']);
 		expect(family('claude-opus-4-8').more.map((i) => i.id)).toEqual(['claude-opus-5', 'claude-opus-4-8']);
-		// Two current versions both show; the unavailable one still sorts by version inside its family.
-		expect(family('gpt-6-sol').shown.map((i) => i.id)).toEqual(['gpt-6.1-sol', 'gpt-6-sol']);
+		// Two current versions both show; the unavailable one after the one that works.
+		expect(family('gpt-6-sol').shown.map((i) => i.id)).toEqual(['gpt-6-sol', 'gpt-6.1-sol']);
 	});
 	it('puts families that do not work last in their section', () => {
 		const openai = sections.find((s) => s.vendor === 'openai')!;
-		expect(openai.families.map((f) => f.shown[0].id)).toEqual(['gpt-image-2', 'gpt-6.1-sol', 'gpt-5.5']);
+		expect(openai.families.map((f) => f.shown[0].id)).toEqual(['gpt-6-sol', 'gpt-image-2', 'gpt-5.5']);
 	});
 	it('folds by version without a lifecycle', () => {
 		const derived = itemsFromRows(gatewayRows(SAMPLE_PLAIN_IDS), none);

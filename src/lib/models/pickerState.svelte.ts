@@ -16,6 +16,12 @@ export function factsOptions(): FactsOptions {
 	};
 }
 
+/** Reads the catalog again when it is stale (a minute) or the plan's funding
+ *  changed: a picker opening calls it. */
+export function refreshCatalog(): void {
+	void gatewayCatalog.refreshIfStale(trial.funding);
+}
+
 /** The account is on the trial plan: the catalog says so, else the trial claim
  *  (a plan without `trial: false` from an older gateway is the trial). */
 export function onTrial(): boolean {

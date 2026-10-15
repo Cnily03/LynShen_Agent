@@ -1214,9 +1214,10 @@ try {
     // The long name in the browser: one row, full text.
     assert.equal(await cutOff(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.name')), false, `${theme}: the long name is cut in the browser`);
     await expect(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.facts')).toHaveText('不稳定 · 1M 上下文 · ¥21.3 / ¥107 每百万 · 看图 · 思考');
-    // An unavailable model: last in its section, its dot, picked after a confirmation.
+    // An unavailable model: after the working ones, its dot, picked after a confirmation.
     const openai = await dlg.locator('.mline').evaluateAll((rows) => rows.map((r) => r.querySelector('.name').textContent).filter((n) => /^GPT/.test(n)));
-    assert.deepEqual(openai, ['GPT Image 2', 'GPT-6.1 Sol', 'GPT-6 Sol', 'GPT-5.5']);
+    // A chat picker lists no image model (GPT Image 2).
+    assert.deepEqual(openai, ['GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-5.5']);
     const down = row(dlg, 'GPT-6.1 Sol');
     await expect(down.locator('.dot.err')).toHaveCount(1);
     await expect(down.locator('.facts')).toContainText('暂不可用');

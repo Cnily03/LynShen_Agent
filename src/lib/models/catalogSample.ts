@@ -45,6 +45,7 @@ interface Row {
 	price: ReturnType<typeof cny> | null;
 	covered: boolean;
 	auto?: string;
+	kind?: 'chat' | 'image';
 }
 const row = (r: Row) => ({
 	id: r.id,
@@ -56,6 +57,7 @@ const row = (r: Row) => ({
 	lifecycle: r.lifecycle ?? 'current',
 	recommended: r.recommended ?? false,
 	cataloged: r.vendor !== null,
+	kind: r.kind ?? 'chat',
 	auto_target: r.auto ?? null,
 	aliases: r.aliases ?? [],
 	capabilities: r.caps,
@@ -84,7 +86,7 @@ export const SAMPLE_CATALOG = {
 		row({ id: 'gpt-6-sol', name: 'GPT-6 Sol', vendor: OPENAI, family: 'GPT Sol', order: 6000, recommended: true, caps: caps(1050000, true, true), health: health('ok'), price: cny(8.9, 71), covered: false }),
 		row({ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', vendor: OPENAI, family: 'GPT Sol', order: 5600, lifecycle: 'legacy', caps: caps(1050000, true, true), health: health('ok'), price: cny(8.9, 71), covered: false }),
 		row({ id: 'gpt-5.5', name: 'GPT-5.5', vendor: OPENAI, family: 'GPT', order: 5500, lifecycle: 'legacy', caps: caps(400000, true, true), health: health('unavailable', 547, 0), price: cny(8.9, 71), covered: false }),
-		row({ id: 'gpt-image-2', name: 'GPT Image 2', vendor: OPENAI, family: 'GPT Image', order: 2000, caps: caps(0, true, false), health: health('ok'), price: null, covered: false }),
+		row({ id: 'gpt-image-2', name: 'GPT Image 2', vendor: OPENAI, family: 'GPT Image', order: 2000, kind: 'image', caps: caps(0, true, false), health: health('ok'), price: null, covered: false }),
 		row({ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', vendor: ['deepseek', 'DeepSeek'], family: 'DeepSeek V4', order: 4100, recommended: true, aliases: ['DeepSeek-V4.1-Flash', 'deepseek-v4.1-flash-0910'], caps: caps(384000, false, true), health: health('ok', 658, 656), price: cny(1, 2), covered: true }),
 		row({ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', vendor: ['deepseek', 'DeepSeek'], family: 'DeepSeek V4', order: 4000, lifecycle: 'legacy', aliases: ['deepseek-v4-pro-0813'], caps: caps(128000, false, true), health: health('ok'), price: cny(4, 16), covered: true }),
 		row({ id: 'glm-5.3', name: 'GLM-5.3', vendor: ['zhipu', '智谱'], family: 'GLM', order: 5300, recommended: true, request: 'ZhipuAi/GLM-5.3', aliases: ['ZhipuAi/GLM-5.3'], caps: caps(128000, false, true), health: health('ok'), price: cny(4, 16), covered: true }),

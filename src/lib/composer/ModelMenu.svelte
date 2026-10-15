@@ -10,7 +10,7 @@
 	import ModelBrowser from '$lib/models/ModelBrowser.svelte';
 	import { itemsFromRows } from '$lib/models/items';
 	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
-	import { factsOptions, onTrial } from '$lib/models/pickerState.svelte';
+	import { factsOptions, onTrial, refreshCatalog } from '$lib/models/pickerState.svelte';
 	import { pick } from '$lib/models/pick';
 	import type { PickItem } from '$lib/models/catalog';
 	import { acpAgentsList, checkBackend, type AcpAgent } from '$lib/protocol';
@@ -147,10 +147,12 @@
 	let browsing = $state<string | null>(null);
 	// The rows as the model components list them, described by the gateway
 	// catalog where it knows the model (read again when older than a minute).
-	const items = $derived(itemsFromRows(rows, gatewayCatalog.lookup));
+	// A chat picker lists models that chat: image models are set in
+	// Settings → 图片生成 (one already in use still shows).
+	const items = $derived(itemsFromRows(rows, gatewayCatalog.lookup).filter((i) => !i.drawsImages || i.active));
 	const facts = $derived(factsOptions());
 	const trial = $derived(onTrial());
-	onMount(() => void gatewayCatalog.refreshIfStale());
+	onMount(refreshCatalog);
 	const rowOf = (item: PickItem) => rows.find((r) => r.command === item.value);
 	function pickItem(item: PickItem) {
 		void pick(item, (picked) => {

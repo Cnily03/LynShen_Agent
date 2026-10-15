@@ -96,6 +96,8 @@ function modelOf(raw: unknown, recommendedAt: number | undefined): CatalogModel 
 		aliases,
 		keywords: [str(vendor?.name), str(o.family)].filter(Boolean),
 		domestic: VENDORS[vendorKey]?.domestic ?? derived.domestic,
+		// `kind`: image when the first route is an image API; chat pickers list chat rows only.
+		drawsImages: o.kind === 'image' ? true : o.kind === 'chat' ? false : derived.drawsImages,
 		vision: typeof caps.image_input === 'boolean' ? caps.image_input : derived.vision,
 		reasoning: typeof caps.reasoning === 'boolean' ? caps.reasoning : derived.reasoning,
 		...(context ? { context } : {}),

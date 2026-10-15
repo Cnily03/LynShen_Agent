@@ -14,7 +14,7 @@
 	import ModelBrowser from './ModelBrowser.svelte';
 	import QuickSwitcher, { type PickExtra } from './QuickSwitcher.svelte';
 	import { pick } from './pick';
-	import { factsOptions, onTrial } from './pickerState.svelte';
+	import { factsOptions, onTrial, refreshCatalog } from './pickerState.svelte';
 
 	let {
 		items,
@@ -74,7 +74,7 @@
 	async function show() {
 		if (disabled) return;
 		open = true;
-		void gatewayCatalog.refreshIfStale();
+		refreshCatalog();
 		await tick();
 		place();
 	}
