@@ -733,6 +733,22 @@ export const fetchDevices = () => gatewayCall<DeviceOverview>('monoize_devices')
 export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) =>
 	gatewayCall<{ balance_nano_usd: string }>('monoize_buy_seat', { kind, days, requestId });
 
+/** Buying a plan or balance in the app (gateway desktop-purchase.spec.md;
+ *  src/lib/purchase.ts reads the answers). A refusal is a GatewayError; 404
+ *  without a code: a gateway that does not sell to the app yet. */
+export const fetchStoreCatalog = () => gatewayCall<unknown>('monoize_store_catalog');
+/** The account's recent orders, newest first. */
+export const fetchStoreOrders = (limit: number) => gatewayCall<unknown>('monoize_store_orders', { limit });
+/** Creates an order (CNY); `requestId` makes a retry return the same order. */
+export const createStoreOrder = (productId: string, channelId: string, customMinor: string | null, requestId: string) =>
+	gatewayCall<unknown>('monoize_store_order', { productId, channelId, customMinor, requestId });
+/** Starts paying an order with `method` (`wxpay`, `alipay`, `card`): a QR
+ *  code or a payment page. `requestId` makes a retry return the same one. */
+export const payStoreOrder = (orderId: string, method: string | null, requestId: string) =>
+	gatewayCall<unknown>('monoize_store_pay', { orderId, method, requestId });
+/** The order now; the gateway asks the payment provider when it is unpaid. */
+export const queryStoreOrder = (orderId: string) => gatewayCall<unknown>('monoize_store_query', { orderId });
+
 /** This installation's id (DA-4a), which the trial claim is keyed by; null
  *  when it could not be stored. */
 export const desktopInstallationId = () => invoke<string | null>('desktop_installation_id');
