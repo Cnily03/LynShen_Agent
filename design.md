@@ -136,7 +136,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 Decision 2026-10-14 for this section. The owner's feedback was that a prototype with glowing groups, glyph bullets, pills and shortcut chips everywhere "looks machine-made". To be implemented in: the session list's waiting mark, the approval card's head icon, tag and inner block fills, the plan card's status tag, the progress tray.
 - An item that waits for the reader (an approval, a question) shows a 6px `--warn` dot before its title. The reason is `--dim` text on the line below. A list of such items has a plain `--fs-xs` 600 `--dim2` heading with its count. The heading has no fill, border, glow or colored text. [SHOULD]
 - Status, risk and scope inside a card are plain `--dim` text, joined with " · ". A status color appears only as one 6px dot, or as the text color of an error. [SHOULD]
-- A multi-step task shows its progress as one line of text in the conversation column, on the composer's top edge: the plan label, the count and the current step, for example "计划 3/7 · 跑单元测试". The line has no ring, segmented bar or colored beads. Opening it shows the checklist as the plan tool panel (`plan`, tab 计划) in the right leaf, beside the changes panel (`changes`, tab 改动), placed by the tool panel rule in §3. The checklist does not expand in place as a card or tray. A bar shows only byte or time progress. [SHOULD] — Decision 2026-10-14 (owner): the conversation keeps one quiet line; the checklist is a tool beside it. Today `ProgressTray` still opens upward as a tray.
+- While a turn has a to-do list or runs subagents, the chat leaf shows a column of cards at its top right. The plan card shows the label, the count and the current step ("计划 3/7 · 跑单元测试"), then the checklist. The subagents card shows one row per agent: role, a 6px state dot, the current action and the elapsed time; a click opens that agent's conversation. Each card collapses to its title line. The cards sit beside the transcript column when the chat leaf leaves at least 280px to its right; otherwise each card shows only its title line at the top right, and a click opens it as a solid popover (`.pop`) over the transcript, closed by Escape or a click outside. Nothing about plans or subagents sits on the composer's top edge, and no tray opens upward from it. The cards have no ring, segmented bar or colored beads. A bar shows only byte or time progress. [SHOULD] — Decision 2026-10-14 (owner, stated several times): plan and subagents are cards on the right. Today `ProgressTray` opens upward as a tray above the composer.
 - In the transcript, only the item that needs the reader's action is raised (`--panel` + `--shadow-float`). Earlier turns, summaries and finished cards sit flat on `--bg`. Blocks inside a raised item use a `--surface` fill, never a second shadow or border. [SHOULD]
 - A view region has one primary button. Secondary actions are `secondary` or `ghost` buttons, or a menu. [SHOULD]
 
@@ -175,7 +175,7 @@ Decision 2026-10-14 for this section. The owner's feedback was that a prototype 
 | Top strips | owner line `.owner`, `TaskStrip`, `FindBar` | `src/lib/ChatPane.svelte`, `src/lib/TaskStrip.svelte`, `src/lib/shell/FindBar.svelte` | Above the transcript | Implemented |
 | Composer | `Composer`, `ModeMenu` (`items` `current` `onSelect` `onCycle`; `ModeItem.tone: 'warn'`), `ComposerTray` | `src/lib/Composer.svelte`, `src/lib/composer/` | The chat input | Implemented |
 | Approval card | `ApprovalCard` | `src/lib/ApprovalCard.svelte` | A request that waits for the reader | Implemented |
-| Plan progress | one progress line; `PlanPanel` (`plan`) in the side leaf | `src/lib/agents/ProgressTray.svelte` (today), `src/lib/PlanPanel.svelte` | Multi-step task progress | Line: to be implemented |
+| Plan and subagents cards | top-right card column of the chat leaf (plan card, subagents card) | `src/lib/agents/ProgressTray.svelte` (today, tray), `src/lib/PlanPanel.svelte` | A turn with to-dos or subagents | To be implemented |
 | File preview | `FilePreview` (`path` `root`); panel `preview:<path>` (`previewPanel`) | `src/lib/preview/` | A file opened from a message | Implemented |
 | Session title | `shownTitle(title)` | `src/lib/chat.svelte.ts` | Show any session title (translates the placeholder) | Implemented |
 
@@ -283,7 +283,7 @@ Extension boundary:
 | Top strips | `.owner`, `TaskStrip`, `FindBar` |
 | Composer / mode menu | `Composer`, `ModeMenu` |
 | Approval card | `ApprovalCard` |
-| Progress line / plan tool panel | `ProgressTray` (today), `PlanPanel` |
+| Plan card / subagents card | `ProgressTray` (today), `PlanPanel` |
 | Plan proposal | `PlanCard`, `ProposalPane` |
 | File preview | `FilePreview` |
 | Page over the canvas | `HomePage`, `ProjectPage` |
