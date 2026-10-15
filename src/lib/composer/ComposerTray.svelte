@@ -136,9 +136,10 @@
 </div>
 
 <style>
+	/* Inside the composer's box, above the text. */
 	.tray {
-		margin: -4px -6px 8px;
-		padding-bottom: 6px;
+		margin-right: -10px;
+		padding: 6px 6px 6px;
 		border-bottom: 1px solid var(--hairline);
 		animation: rise var(--t-med) var(--ease-out);
 	}
@@ -176,18 +177,16 @@
 	.sec-label {
 		padding: 4px 8px 3px;
 		color: var(--dim2);
-		font-size: var(--fs-2xs);
+		font-size: var(--fs-xs);
 		font-weight: 600;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
 	}
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		width: 100%;
-		min-height: 34px;
-		padding: 4px 10px;
+		min-height: 28px;
+		padding: 4px 8px;
 		border: none;
 		border-radius: var(--r-sm);
 		background: none;
