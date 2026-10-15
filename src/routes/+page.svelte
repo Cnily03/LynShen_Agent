@@ -1770,6 +1770,7 @@
 													onOpenRequirement={openRequirements}
 													onOpenTrace={() => openPanelTile('agents')}
 													onOpenTeam={() => openPanelTile('team')}
+													onOpenChanges={() => openPanelTile('changes')}
 													onOpenSession={openSessionById}
 												/>
 												{#snippet failed(error, reset)}

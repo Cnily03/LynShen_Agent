@@ -128,6 +128,7 @@
 		onOpenRequirement,
 		onOpenTrace,
 		onOpenTeam,
+		onOpenChanges,
 		onOpenSession
 	}: {
 		session: Session;
@@ -150,6 +151,8 @@
 		onOpenTrace?: () => void;
 		/** Opens the agent team's panel (task board, messages). */
 		onOpenTeam?: () => void;
+		/** Opens the Changes panel (a turn's change pill). */
+		onOpenChanges?: () => void;
 		/** Opens a conversation by its session id (where another
 		 *  conversation's message came from). */
 		onOpenSession?: (session: string) => void;
@@ -568,6 +571,10 @@
 	function openTeam() {
 		store.activeId = session.id;
 		onOpenTeam?.();
+	}
+	function openChanges() {
+		store.activeId = session.id;
+		onOpenChanges?.();
 	}
 	// A finished attempt's worktree: the lines it adds and removes, read once
 	// (git diff there; files it created are not counted).
@@ -1403,7 +1410,7 @@
 	<div class="mainwrap" bind:clientWidth={wrapW}>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
-			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} />
+			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
 		</div>
 		{#if chat.booting && chat.engineState !== 'exited'}
 			<div class="welcome spawning">
@@ -1677,16 +1684,17 @@
 		left: 50%;
 		bottom: 132px; /* overridden inline to sit just above the composer */
 		transform: translateX(-50%);
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border-radius: var(--r-full);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		background: var(--panel);
-		border: 1px solid var(--border);
+		border: none;
 		color: var(--text);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+		box-shadow: var(--shadow-pop);
 		cursor: pointer;
 		z-index: 10;
 		animation: jump-in var(--t-med) var(--ease-out);
@@ -1707,9 +1715,8 @@
 		}
 	}
 	.jump:hover {
-		background: var(--surface2);
+		background: color-mix(in oklab, var(--panel) 94%, var(--text));
 		transform: translateX(-50%) translateY(-1px);
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
 	}
 	.jump:active {
 		transform: translateX(-50%) scale(0.92);

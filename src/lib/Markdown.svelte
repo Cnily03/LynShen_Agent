@@ -63,12 +63,13 @@
 <div class="md" class:more onclick={onClick}>{@html html}</div>
 
 <style>
+	/* Conversation text: 24px lines at --fs-md (1.6), paragraphs 12px apart. */
 	.md {
-		line-height: 1.65;
+		line-height: 1.6;
 		word-break: break-word;
 	}
 	.md :global(p) {
-		margin: 0 0 10px;
+		margin: 0 0 12px;
 	}
 	/* The document's last element has no space after it. A chunk with more
 	   of the document after it keeps that space at its top level, so chunks
@@ -102,7 +103,7 @@
 	}
 	.md :global(ul),
 	.md :global(ol) {
-		margin: 0 0 10px;
+		margin: 0 0 12px;
 		padding-left: 22px;
 	}
 	.md :global(li) {
@@ -140,7 +141,7 @@
 		font-weight: 700;
 	}
 	.md :global(blockquote) {
-		margin: 0 0 10px;
+		margin: 0 0 12px;
 		padding: 2px 0 2px 12px;
 		border-left: 2px solid var(--border);
 		color: var(--dim);
@@ -152,27 +153,33 @@
 	}
 	.md :global(code) {
 		font-family: var(--font-mono);
-		font-size: 0.88em;
+		font-size: 0.87em;
 		background: var(--surface2);
 		border-radius: var(--r-xs);
 		padding: 1px 5px;
 	}
+	/* A code block (design.md, "Workbench canvas"): --surface, a --hairline
+	   edge, --r-md; mono at 0.87em of the body with 20px lines, under a 28px
+	   header line (the language, the copy action). */
 	.md :global(pre) {
 		margin: 0 0 12px;
-		padding: 12px 14px;
+		padding: 10px 12px;
 		background: var(--surface);
+		border: 1px solid var(--hairline);
 		border-radius: var(--r-md);
 		overflow-x: auto;
+		tab-size: 4;
 	}
 	.md :global(pre code) {
 		background: none;
 		border: none;
 		padding: 0;
-		font-size: var(--fs-sm);
-		line-height: 1.55;
+		font-size: 0.87em;
+		line-height: 20px;
 	}
 	.md :global(.codeblock) {
 		margin: 0 0 12px;
+		border: 1px solid var(--hairline);
 		border-radius: var(--r-md);
 		overflow: hidden;
 		background: var(--surface);
@@ -187,27 +194,28 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 4px 8px 4px 12px;
+		height: 28px;
+		padding: 0 6px 0 12px;
 		border-bottom: 1px solid var(--hairline);
-		background: var(--surface2);
+		line-height: 16px;
 	}
 	.md :global(.cb-lang) {
 		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--dim2);
+		font-size: var(--fs-xs);
+		color: var(--dim);
 	}
 	.md :global(.cb-copy) {
 		border: none;
 		background: none;
 		color: var(--dim);
-		font-size: var(--fs-2xs);
+		font-size: var(--fs-xs);
 		cursor: pointer;
-		padding: 2px 7px;
+		padding: 2px 6px;
 		border-radius: var(--r-sm);
-		transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+		transition: background var(--t-fast) var(--ease-base), color var(--t-fast) var(--ease-base);
 	}
 	.md :global(.cb-copy:hover) {
-		background: var(--panel);
+		background: var(--surface2);
 		color: var(--text);
 	}
 	/* Tables: compact cells on hairlines, a tinted header, zebra rows; a wide
