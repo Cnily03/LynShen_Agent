@@ -51,6 +51,8 @@ describe('SessionStore × backends', () => {
 		store.projects.push(p);
 		const id = store.addSession(p, undefined, 'claude');
 		expect(p.lastBackend).toBeUndefined(); // a draft belongs to no backend yet
+		// Sent as the composer sends it: shown at once, then to the engine.
+		p.sessions[0].chat.optimisticUser('hi');
 		begin(id);
 		await flush();
 		expect(hostSession).toHaveBeenCalledWith(id, p.path, undefined, undefined, false, {

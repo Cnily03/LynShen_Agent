@@ -139,6 +139,10 @@ Object.assign(window, {
         ]};
         // A sent file's preview (?shell&preview, previewFiles.ts).
         case 'preview_file': return previewFacts(args.path, args.maxBytes);
+        // Conversations outside a project (?newchat): the workspace dir, and
+        // the folder a first message makes there.
+        case 'default_workspace_dir': return '/Users/me/Documents/LynShen';
+        case 'create_chat_dir': return `${args.root}/${args.name}`;
         default: return null;
       }
     }

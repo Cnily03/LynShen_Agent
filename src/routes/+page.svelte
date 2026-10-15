@@ -587,7 +587,13 @@
 	 *  installed and signed in. */
 	let tuiBackends = $state<BackendId[]>(['lynshen']);
 	function newSession(p: Project) {
-		if (prefs.defaultSurface !== 'tui' || p.chats) return store.addSession(p);
+		if (prefs.defaultSurface !== 'tui' || p.chats) {
+			const id = store.addSession(p);
+			// It may be the new conversation already waiting there, and shown.
+			showHome = false;
+			projectPageId = null;
+			return id;
+		}
 		tuiPick = p;
 		const paths = loadBackendSettings().paths;
 		for (const id of ['claude', 'codex'] as const)

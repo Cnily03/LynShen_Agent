@@ -11,7 +11,7 @@
 	import { t } from '$lib/i18n';
 	import { shownTitle } from '$lib/chat.svelte';
 	import { listedSessions } from '$lib/session.svelte';
-	import { lastActive, type Project, type Session } from '$lib/types';
+	import { lastActive, type Project } from '$lib/types';
 	import type { AgentView } from '$lib/agents.svelte';
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
 	import SessionMark from '$lib/SessionMark.svelte';
@@ -127,7 +127,7 @@
 		if (hours < 24) return t('shell.home.hoursAgo', { n: hours });
 		return new Date(at).toLocaleDateString();
 	}
-	const count = (p: Project) => p.sessions.filter((s: Session) => !s.archived).length;
+	const count = (p: Project) => listedSessions(p).length;
 </script>
 
 <div class="home-page" out:paneOut|global>
