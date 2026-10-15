@@ -53,6 +53,31 @@
 
 	const away = scrimClick(() => dismissible && onClose());
 
+	// The head and footer get a divider while the body has more above or
+	// below, so a field cut at an edge reads as scrollable rather than broken.
+	let above = $state(false);
+	let more = $state(false);
+	function overflowEdge(node: HTMLElement) {
+		const check = () => {
+			above = node.scrollTop > 1;
+			more = node.scrollHeight - node.scrollTop - node.clientHeight > 1;
+		};
+		const sizes = new ResizeObserver(check);
+		sizes.observe(node);
+		for (const child of node.children) sizes.observe(child);
+		const content = new MutationObserver(check);
+		content.observe(node, { childList: true, subtree: true });
+		node.addEventListener('scroll', check, { passive: true });
+		check();
+		return {
+			destroy() {
+				sizes.disconnect();
+				content.disconnect();
+				node.removeEventListener('scroll', check);
+			}
+		};
+	}
+
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape' && dismissible) {
 			e.stopPropagation();
@@ -85,13 +110,13 @@
 		use:focusTrap
 	>
 		{#if title}
-			<div class="head">
+			<div class="head" class:above>
 				<span class="title">{#if icon}{@render icon()}{/if}{title}</span>
 				<button class="x" aria-label={t('common.close')} disabled={!dismissible} onclick={onClose}><XIcon size={18} /></button>
 			</div>
 		{/if}
-		<div class="body" class:padded>{@render children()}</div>
-		{#if footer}<div class="foot">{@render footer()}</div>{/if}
+		<div class="body" class:padded use:overflowEdge>{@render children()}</div>
+		{#if footer}<div class="foot" class:more>{@render footer()}</div>{/if}
 	</div>
 </div>
 </div>
@@ -194,5 +219,13 @@
 		justify-content: flex-end;
 		gap: 8px;
 		padding: 0 22px 20px;
+	}
+	.head.above {
+		border-bottom: 1px solid var(--hairline);
+		padding-bottom: 12px;
+	}
+	.foot.more {
+		border-top: 1px solid var(--hairline);
+		padding-top: 12px;
 	}
 </style>

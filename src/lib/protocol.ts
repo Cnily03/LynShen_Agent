@@ -242,9 +242,12 @@ export interface ImportMcp {
 }
 /** Conversations of one tool the scan found but could not read, for one
  *  reason (`count` 0: a whole store, such as a database, did not open). */
+/** Why conversations were left out; `reason` is the engine's English detail for the log. */
+export type ImportSkipKind = 'unreadable' | 'unrecognised' | 'no_folder' | 'compressed';
 export interface ImportSkipped {
 	source: ImportSource;
 	count: number;
+	kind: ImportSkipKind;
 	reason: string;
 }
 export interface ImportScan {

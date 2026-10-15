@@ -226,7 +226,12 @@
 								what: g.count
 									? t('settings.import.unreadable', { n: g.count })
 									: t('settings.import.unreadableStore'),
-								why: g.reasons.join('; ')
+								why: g.whys
+									.map((w) => {
+										const why = t(`settings.import.skip.${w.why}`);
+										return w.count > 1 && g.whys.length > 1 ? t('settings.import.skipCount', { why, n: w.count }) : why;
+									})
+									.join(t('settings.import.skipSep'))
 							})}
 						</div>
 					{/each}

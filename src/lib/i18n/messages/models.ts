@@ -6,7 +6,7 @@ const models = {
 		searchAll: '搜索全部模型',
 		searchHint: '名称、版本、厂商，或“便宜”“国产”“看图”',
 		all: '全部模型…',
-		allCount: '{n} 个',
+		allCount: '共 {n} 个',
 		browserTitle: '选择模型',
 		section: { favorite: '收藏', recent: '最近使用', recommended: '推荐' },
 		more: '更多版本 · {n}',

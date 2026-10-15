@@ -156,27 +156,36 @@ describe('what the scan could not read', () => {
 	it('groups it per tool, a store that did not open included', () => {
 		expect(
 			skippedBySource([
-				{ source: 'opencode', count: 0, reason: 'opencode.db cannot be read (file is not a database)' },
-				{ source: 'claude', count: 2, reason: 'not a session file (no JSON rows)' },
-				{ source: 'claude', count: 1, reason: 'no working folder recorded' },
-				{ source: 'opencode', count: 1, reason: 'session file is not valid JSON' }
+				{ source: 'opencode', count: 0, kind: 'unreadable', reason: 'opencode.db cannot be read (file is not a database)' },
+				{ source: 'claude', count: 2, kind: 'unrecognised', reason: 'not a session file (no JSON rows)' },
+				{ source: 'claude', count: 1, kind: 'no_folder', reason: 'no working folder recorded' },
+				{ source: 'claude', count: 1, kind: 'unreadable', reason: 'file cannot be opened (denied)' },
+				{ source: 'claude', count: 1, kind: 'unreadable', reason: 'a project folder cannot be read' },
+				{ source: 'opencode', count: 1, kind: 'unrecognised', reason: 'session file is not valid JSON' }
 			])
 		).toEqual([
 			{
 				source: 'claude',
-				count: 3,
+				count: 5,
 				whole: false,
-				reasons: ['not a session file (no JSON rows) (2)', 'no working folder recorded']
+				whys: [
+					{ why: 'unrecognised', count: 2 },
+					{ why: 'no_folder', count: 1 },
+					{ why: 'unreadable', count: 2 }
+				]
 			},
 			{
 				source: 'opencode',
 				count: 1,
 				whole: true,
-				reasons: ['opencode.db cannot be read (file is not a database)', 'session file is not valid JSON']
+				whys: [
+					{ why: 'store', count: 0 },
+					{ why: 'unrecognised', count: 1 }
+				]
 			}
 		]);
-		expect(skippedBySource([{ source: 'omp', count: 4, reason: 'no session header' }])).toEqual([
-			{ source: 'omp', count: 4, whole: false, reasons: ['no session header'] }
+		expect(skippedBySource([{ source: 'omp', count: 4, kind: 'unrecognised', reason: 'no session header' }])).toEqual([
+			{ source: 'omp', count: 4, whole: false, whys: [{ why: 'unrecognised', count: 4 }] }
 		]);
 		expect(skippedBySource([])).toEqual([]);
 	});

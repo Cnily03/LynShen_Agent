@@ -22,7 +22,7 @@
 //! zcode: `~/.zcode/cli/db/db.sqlite` (`$ZCODE_SESSION_DB_PATH`), opencode's
 //! tables plus `sequence`, `task_type` and `title_source`.
 
-use super::sessions::{converted_imported, Conversation, Found, Report, Turn};
+use super::sessions::{converted_imported, Conversation, Found, Report, SkipKind, Turn};
 use super::Roots;
 use crate::claude_history::truncate_chars;
 use crate::native_import::{ImportRecord, MAX_TITLE_CHARS};
@@ -617,9 +617,9 @@ pub(super) fn convert_v2(messages: &[(String, Value, u64)]) -> Vec<(u64, Turn)> 
 
 // --- the JSON files of opencode 1.1 and earlier ------------------------------
 
-fn read_json_file(path: &Path) -> Result<Value, &'static str> {
-    let text = fs::read_to_string(path).map_err(|_| "cannot be read")?;
-    serde_json::from_str::<Value>(&text).ok().filter(Value::is_object).ok_or("is not valid JSON")
+fn read_json_file(path: &Path) -> Result<Value, (SkipKind, &'static str)> {
+    let text = fs::read_to_string(path).map_err(|_| (SkipKind::Unreadable, "cannot be read"))?;
+    serde_json::from_str::<Value>(&text).ok().filter(Value::is_object).ok_or((SkipKind::Unrecognised, "is not valid JSON"))
 }
 
 /// The JSON objects in `dir`, each with its id (the file name), sorted by
@@ -663,13 +663,13 @@ fn list_json(storage: &Path, source: &str, report: &mut Report) -> Vec<Listed> {
     for path in json_session_files(storage) {
         let info = match read_json_file(&path) {
             Ok(info) => info,
-            Err(why) => {
-                report.skip(source, format!("session file {why}"));
+            Err((kind, why)) => {
+                report.skip(source, kind, format!("session file {why}"));
                 continue;
             }
         };
         let (Some(id), Some(cwd)) = (info["id"].as_str().filter(|i| plain_id(i)), info["directory"].as_str()) else {
-            report.skip(source, "session file without an id or folder");
+            report.skip(source, SkipKind::Unrecognised, "session file without an id or folder");
             continue;
         };
         if info["parentID"].as_str().is_some_and(|p| !p.is_empty()) {
@@ -713,7 +713,7 @@ fn load_json(storage: &Path, id: &str) -> Result<Option<Conversation>, String> {
     else {
         return Ok(None);
     };
-    let info = read_json_file(&path).map_err(|why| format!("{} {why}", path.display()))?;
+    let info = read_json_file(&path).map_err(|(_, why)| format!("{} {why}", path.display()))?;
     let messages = json_messages(storage, id);
     let parts: HashMap<String, Vec<Value>> =
         messages.iter().filter(|(mid, _)| plain_id(mid)).map(|(mid, _)| (mid.clone(), json_parts(storage, mid))).collect();
@@ -921,7 +921,15 @@ mod tests {
         let s = &found[0];
         assert_eq!((s.id.as_str(), s.title.as_str(), s.cwd.as_str(), s.messages), ("ses_json", "Port the parser", r"C:\Users\demo\oc", 2));
         assert_eq!(s.updated_at_ms, 1_780_000_009_000);
-        assert_eq!(report.skipped, vec![Skipped { source: "opencode".into(), count: 1, reason: "session file is not valid JSON".into() }]);
+        assert_eq!(
+            report.skipped,
+            vec![Skipped {
+                source: "opencode".into(),
+                count: 1,
+                kind: SkipKind::Unrecognised,
+                reason: "session file is not valid JSON".into()
+            }]
+        );
         assert_eq!(
             turns(load(&roots, Tool::Opencode, "ses_json").unwrap()),
             vec![

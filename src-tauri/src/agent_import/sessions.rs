@@ -50,12 +50,28 @@ pub struct Found {
     pub imported: bool,
 }
 
+/// Why conversations were left out, as the page names it (the English
+/// `reason` goes to the log).
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipKind {
+    /// A file, folder or database cannot be opened or read.
+    Unreadable,
+    /// Not in a form this version knows (not JSON, no header, no id).
+    Unrecognised,
+    /// No working folder recorded.
+    NoFolder,
+    /// Compressed (.jsonl.zst).
+    Compressed,
+}
+
 /// Conversations of one tool a scan found but could not read, for one reason.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Skipped {
     pub source: String,
     /// How many; 0 when a whole store (a database) could not be read.
     pub count: usize,
+    pub kind: SkipKind,
     pub reason: String,
 }
 
@@ -69,24 +85,24 @@ pub struct Report {
 }
 
 impl Report {
-    pub(super) fn skip(&mut self, source: &str, reason: impl Into<String>) {
-        self.skip_n(source, 1, reason);
+    pub(super) fn skip(&mut self, source: &str, kind: SkipKind, reason: impl Into<String>) {
+        self.skip_n(source, 1, kind, reason);
     }
 
-    pub(super) fn skip_n(&mut self, source: &str, count: usize, reason: impl Into<String>) {
+    pub(super) fn skip_n(&mut self, source: &str, count: usize, kind: SkipKind, reason: impl Into<String>) {
         let reason = reason.into();
         if count == 0 {
             return;
         }
         match self.skipped.iter_mut().find(|s| s.source == source && s.reason == reason && s.count > 0) {
             Some(s) => s.count += count,
-            None => self.skipped.push(Skipped { source: source.into(), count, reason }),
+            None => self.skipped.push(Skipped { source: source.into(), count, kind, reason }),
         }
     }
 
     /// A whole store (a database) could not be read.
     pub(super) fn store_failed(&mut self, source: &str, reason: impl Into<String>) {
-        self.skipped.push(Skipped { source: source.into(), count: 0, reason: reason.into() });
+        self.skipped.push(Skipped { source: source.into(), count: 0, kind: SkipKind::Unreadable, reason: reason.into() });
     }
 
     pub(super) fn note(&mut self, source: &str, text: impl AsRef<str>) {
@@ -191,8 +207,8 @@ fn first_line_of(text: &str) -> String {
 /// Reads a Claude Code session file in one pass. Only rows that can matter
 /// are parsed: files reach 100 MB and most of it is tool output. An error
 /// says why the file cannot be read as a session.
-pub(super) fn read_claude(path: &Path) -> Result<ClaudeFile, String> {
-    let file = fs::File::open(path).map_err(|e| format!("file cannot be opened ({e})"))?;
+pub(super) fn read_claude(path: &Path) -> Result<ClaudeFile, (SkipKind, String)> {
+    let file = fs::File::open(path).map_err(|e| (SkipKind::Unreadable, format!("file cannot be opened ({e})")))?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     let (mut lines, mut parsed) = (0usize, 0usize);
@@ -204,7 +220,7 @@ pub(super) fn read_claude(path: &Path) -> Result<ClaudeFile, String> {
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => break,
             Ok(_) => {}
-            Err(e) => return Err(format!("file cannot be read ({e})")),
+            Err(e) => return Err((SkipKind::Unreadable, format!("file cannot be read ({e})"))),
         }
         let text = String::from_utf8_lossy(&line);
         let text = text.trim();
@@ -266,7 +282,7 @@ pub(super) fn read_claude(path: &Path) -> Result<ClaudeFile, String> {
         }
     }
     if lines > 0 && parsed == 0 {
-        return Err("not a session file (no JSON rows)".to_string());
+        return Err((SkipKind::Unrecognised, "not a session file (no JSON rows)".to_string()));
     }
     let title = [custom, ai, first].into_iter().find(|t| !t.is_empty()).unwrap_or_default();
     Ok(ClaudeFile { cwd: relocated.or(cwd), prompts, title })
@@ -283,7 +299,7 @@ fn scan_claude(roots: &Roots, registry: &[ImportRecord], report: &mut Report) ->
     let (mut files, mut empty) = (0, 0);
     for dir in dirs.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
         let Ok(entries) = fs::read_dir(&dir) else {
-            report.skip("claude", "a project folder cannot be read");
+            report.skip("claude", SkipKind::Unreadable, "a project folder cannot be read");
             continue;
         };
         for path in entries.flatten().map(|e| e.path()) {
@@ -301,8 +317,8 @@ fn scan_claude(roots: &Roots, registry: &[ImportRecord], report: &mut Report) ->
             files += 1;
             let info = match read_claude(&path) {
                 Ok(info) => info,
-                Err(reason) => {
-                    report.skip("claude", reason);
+                Err((kind, reason)) => {
+                    report.skip("claude", kind, reason);
                     continue;
                 }
             };
@@ -311,7 +327,7 @@ fn scan_claude(roots: &Roots, registry: &[ImportRecord], report: &mut Report) ->
                 continue;
             }
             let Some(cwd) = info.cwd else {
-                report.skip("claude", "no working folder recorded");
+                report.skip("claude", SkipKind::NoFolder, "no working folder recorded");
                 continue;
             };
             out.push(Found {
@@ -353,9 +369,9 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> 
     let known: HashSet<&Path> = threads.values().flatten().map(|s| s.path.as_path()).collect();
     let files = rollout_files(&roots.codex);
     let headless = files.iter().filter(|p| !known.contains(p.as_path()) && fs::metadata(p).is_ok_and(|m| m.len() > 0)).count();
-    report.skip_n("codex", headless, "no session header (session_meta)");
+    report.skip_n("codex", headless, SkipKind::Unrecognised, "no session header (session_meta)");
     let compressed = compressed_rollouts(&roots.codex);
-    report.skip_n("codex", compressed, "compressed (.jsonl.zst), which this version cannot read");
+    report.skip_n("codex", compressed, SkipKind::Compressed, "compressed (.jsonl.zst), which this version cannot read");
     report.note("codex", format!("{} rollout files, {} threads in {}", files.len(), threads.len(), roots.codex.display()));
     if threads.is_empty() {
         return Vec::new();
@@ -371,7 +387,7 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> 
             continue;
         }
         let Some(cwd) = segs[0].meta["cwd"].as_str() else {
-            report.skip("codex", "no working folder recorded");
+            report.skip("codex", SkipKind::NoFolder, "no working folder recorded");
             continue;
         };
         let live: Vec<_> = segs.iter().filter(|s| !s.archived).collect();
@@ -714,8 +730,8 @@ fn omp_files(roots: &Roots) -> Vec<PathBuf> {
 /// A session file: an optional fixed-width `title` slot, the `session`
 /// header, then the entries. `Ok(None)`: a sub-agent's or a fork's session,
 /// which is part of the conversation it came from.
-fn read_omp(path: &Path) -> Result<Option<OmpFile>, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("file cannot be read ({e})"))?;
+fn read_omp(path: &Path) -> Result<Option<OmpFile>, (SkipKind, String)> {
+    let text = fs::read_to_string(path).map_err(|e| (SkipKind::Unreadable, format!("file cannot be read ({e})")))?;
     let mut slot_title = String::new();
     let mut header: Option<Value> = None;
     let mut entries = Vec::new();
@@ -728,7 +744,7 @@ fn read_omp(path: &Path) -> Result<Option<OmpFile>, String> {
             _ => {}
         }
     }
-    let header = header.ok_or("no session header")?;
+    let header = header.ok_or((SkipKind::Unrecognised, "no session header".to_string()))?;
     if header["parentSession"].as_str().is_some_and(|p| !p.is_empty()) {
         return Ok(None);
     }
@@ -738,7 +754,7 @@ fn read_omp(path: &Path) -> Result<Option<OmpFile>, String> {
         .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
         .unwrap_or_default();
     let (Some(id), Some(cwd)) = (header["id"].as_str(), header["cwd"].as_str()) else {
-        return Err("session header without an id or folder".to_string());
+        return Err((SkipKind::Unrecognised, "session header without an id or folder".to_string()));
     };
     Ok(Some(OmpFile { id: id.to_string(), cwd: cwd.to_string(), title, entries }))
 }
@@ -839,8 +855,8 @@ fn scan_omp(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> Ve
         let file = match read_omp(path) {
             Ok(Some(file)) => file,
             Ok(None) => continue,
-            Err(reason) => {
-                report.skip("omp", reason);
+            Err((kind, reason)) => {
+                report.skip("omp", kind, reason);
                 continue;
             }
         };
@@ -1059,8 +1075,10 @@ mod tests {
         assert_eq!(read_claude(&path).unwrap().prompts, 2);
         // Not a session file.
         testutil::write(&path, "garbage\nmore garbage\n");
-        assert!(read_claude(&path).unwrap_err().contains("not a session file"));
-        assert_eq!(read_claude(&roots.home.join("missing.jsonl")).unwrap_err().split(' ').next(), Some("file"));
+        let (kind, reason) = read_claude(&path).unwrap_err();
+        assert!(kind == SkipKind::Unrecognised && reason.contains("not a session file"), "{kind:?} {reason}");
+        let (kind, reason) = read_claude(&roots.home.join("missing.jsonl")).unwrap_err();
+        assert!(kind == SkipKind::Unreadable && reason.starts_with("file "), "{kind:?} {reason}");
     }
 
     #[test]
@@ -1159,7 +1177,10 @@ mod tests {
         let mut ids: Vec<&str> = found.iter().map(|f| f.id.as_str()).collect();
         ids.sort();
         assert_eq!(ids, ["one", "two"]);
-        assert_eq!(report.skipped, vec![Skipped { source: "omp".into(), count: 1, reason: "no session header".into() }]);
+        assert_eq!(
+            report.skipped,
+            vec![Skipped { source: "omp".into(), count: 1, kind: SkipKind::Unrecognised, reason: "no session header".into() }]
+        );
     }
 
     #[test]

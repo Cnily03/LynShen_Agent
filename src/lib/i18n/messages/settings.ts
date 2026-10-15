@@ -138,7 +138,16 @@ const settings = {
 			foldersAdded: '已加到侧栏',
 			unreadable: '{n} 个会话无法读取',
 			unreadableStore: '会话无法读取',
-			unreadableLine: '{tool}：{what}（{why}）'
+			unreadableLine: '{tool}：{what}（{why}）',
+			skip: {
+				unreadable: '文件打不开',
+				unrecognised: '格式无法识别',
+				no_folder: '没有记录工作目录',
+				compressed: '压缩格式，这个版本还不支持',
+				store: '数据库打不开'
+			},
+			skipCount: '{why} {n} 个',
+			skipSep: '；'
 		},
 		section: {
 			general: '通用',
@@ -1040,7 +1049,16 @@ const settings = {
 			foldersAdded: 'Added to the sidebar',
 			unreadable: '{n} conversations could not be read',
 			unreadableStore: 'Conversations could not be read',
-			unreadableLine: '{tool}: {what} ({why})'
+			unreadableLine: '{tool}: {what} ({why})',
+			skip: {
+				unreadable: 'file cannot be opened',
+				unrecognised: 'format not recognised',
+				no_folder: 'no working folder recorded',
+				compressed: 'compressed, not supported in this version yet',
+				store: 'database cannot be opened'
+			},
+			skipCount: '{why}: {n}',
+			skipSep: '; '
 		},
 		section: {
 			general: 'General',
