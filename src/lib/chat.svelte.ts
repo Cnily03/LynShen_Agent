@@ -174,6 +174,10 @@ export interface ModelOption {
 	context_window: number;
 	max_output_tokens: number;
 	reasoning_efforts: string[];
+	/** What the model takes as input ("text", "image"); absent from older engines. */
+	input_modalities?: string[];
+	/** false: configured not to think (config.json `reasoning`). */
+	reasoning?: boolean;
 	/** false: not in the engine's catalog, only marking what runs. */
 	listed?: boolean;
 }
@@ -761,6 +765,10 @@ export class ChatState {
 	sessionId = $state('');
 	effort = $state('');
 	efforts = $state<string[]>([]);
+	/** What the running model takes as input, as the engine reports it
+	 *  (`model_status.input_modalities`); null: not reported (a draft, an
+	 *  older engine, another backend). */
+	inputModalities = $state<string[] | null>(null);
 	/** Claude Code: ultracode (standing Workflow orchestration) is on, and
 	 *  this model offers it. */
 	ultracode = $state(false);
@@ -1806,6 +1814,7 @@ export class ChatState {
 				this.modelLabel = str(ev.model_label);
 				this.effort = str(ev.reasoning_effort);
 				this.efforts = arr<string>(ev.reasoning_efforts);
+				this.inputModalities = Array.isArray(ev.input_modalities) ? arr<string>(ev.input_modalities) : null;
 				this.ultracode = ev.ultracode === true;
 				this.ultracodeAvailable = ev.ultracode_available === true;
 				this.fast = ev.fast === true;

@@ -25,6 +25,8 @@
 	//   &cards                  a turn at work with a plan and three subagents of
 	//                           LynShen's agent team (the plan and subagents cards)
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
+	//   &textOnly               the engine reports a model that takes no images
+	//                           and does not think (`window.__chat` attaches files)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it); `window.__shellChat` the conversation's
 	// chat (to send it more events), `window.__opened` what the chat asked the
@@ -239,6 +241,9 @@
 		if (request) untrack(() => opened.push(`agent:${request.agentId}:${request.place}`));
 	});
 
+	if (mode.has('textOnly'))
+		feed({ type: 'model_status', provider: 'my-llm', model: 'my-small-model', reasoning_effort: 'medium', reasoning_efforts: [], input_modalities: ['text'], context_window: 64000, context_limit: 48000, max_output_tokens: 8192, state: 'ready' });
+
 	// The canvas of ?shell&preview: the conversation, and a tab beside it
 	// for each file a chip opens (as +page.svelte places it). ?shell&tool:
 	// the plan panel open beside it.
@@ -267,7 +272,7 @@
 		const backdrop = mode.get('backdrop');
 		if (backdrop) document.documentElement.style.background = backdrop === 'black' ? '#000' : '#fff';
 		prefs.init();
-		Object.assign(window, { __prefs: prefs });
+		Object.assign(window, { __prefs: prefs, __chat: session.chat });
 		// As +page.svelte does once the sign-in is known.
 		if (mode.has('trial')) Object.assign(window, { __trial: trial, __trialDone: trial.signedIn() });
 	});

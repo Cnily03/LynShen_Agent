@@ -78,6 +78,7 @@
 	import { t, setLocale, getLocale, LOCALES, LOCALE_LABELS } from '$lib/i18n';
 	import { ASR_PROVIDERS, asrProvider, resolveAsrSettings, type AsrSettings } from '$lib/audio';
 	import { PROVIDER_CATALOG, providerFormPrefill, type CatalogProvider } from '$lib/providers/catalog';
+	import { modelEfforts, type ProviderModel } from './providerFields';
 	import Vendor from '$lib/Vendor.svelte';
 	import OverviewPanel from '$lib/OverviewPanel.svelte';
 	import { cloudSync } from '$lib/cloudSync.svelte';
@@ -254,13 +255,7 @@
 	}
 
 	// ---------- engine config + providers ----------
-	interface ModelCfg {
-		name: string;
-		display_name?: string | null;
-		context_window?: number;
-		max_output_tokens?: number;
-		reasoning_efforts?: string[];
-	}
+	type ModelCfg = ProviderModel;
 	interface Provider {
 		id: string;
 		name?: string;
@@ -286,17 +281,18 @@
 
 	// inline editor state
 	// A provider id (its card open), or a step of the add dialog: '__catalog__'
-	// (pick), '__key__' (key for a built-in, `keyTarget`), '__new__' (form).
+	// (pick), '__key__' (key for a built-in, `keyTarget`), '__new__' (form),
+	// or '__edit__' (the form for `editTarget`, a provider the user added).
 	let editing = $state<string | null>(null);
 	let keyTarget = $state<Provider | null>(null);
 	let keyInput = $state('');
 	let form = $state<{ id: string; base_url: string; format: string; key: string; models: ModelCfg[] }>({ id: '', base_url: '', format: 'responses', key: '', models: [] });
 	let selectedCatalog = $state<CatalogProvider | null>(null);
-	let mName = $state('');
-	let mCtx = $state<number | undefined>();
+	let editTarget = $state<Provider | null>(null);
+	let providerForm = $state<{ submit: () => void } | undefined>();
 
 	const models = $derived<ModelCfg[]>(Array.isArray(cfg.models) ? cfg.models : []);
-	const efforts = $derived(models.find((m) => m.name === cfg.model)?.reasoning_efforts ?? []);
+	const efforts = $derived(modelEfforts(models.find((m) => m.name === cfg.model)));
 	const fmt = (n?: number) => (!n ? '' : n >= 1_000_000 ? `${(n / 1e6).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
 	const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -390,7 +386,7 @@
 
 	// Keep reasoning effort valid for the selected model.
 	function normalizeEffort() {
-		const efs = models.find((m) => m.name === cfg.model)?.reasoning_efforts ?? [];
+		const efs = modelEfforts(models.find((m) => m.name === cfg.model));
 		if (efs.length && !efs.includes(cfg.reasoning_effort)) cfg.reasoning_effort = efs.includes('high') ? 'high' : efs[Math.floor(efs.length / 2)];
 	}
 	$effect(normalizeEffort);
@@ -519,8 +515,13 @@
 		editing = '__new__';
 		selectedCatalog = null;
 		form = { id: '', base_url: '', format: 'responses', key: '', models: [] };
-		mName = '';
-		mCtx = undefined;
+	}
+	/** The form for a provider the user added (custom or from the catalog). */
+	function openEdit(p: Provider) {
+		editTarget = p;
+		selectedCatalog = null;
+		form = { id: p.id, base_url: p.base_url, format: p.format, key: '', models: p.models.map((m) => ({ ...m })) };
+		editing = '__edit__';
 	}
 	function selectCatalogProvider(provider: CatalogProvider) {
 		// A built-in provider only needs its key.
@@ -534,8 +535,6 @@
 		selectedCatalog = provider;
 		form = providerFormPrefill(provider);
 		editing = '__new__';
-		mName = '';
-		mCtx = undefined;
 	}
 	function persistCustom() {
 		localStorage.setItem(CUSTOM_KEY, JSON.stringify(custom));
@@ -556,35 +555,37 @@
 		loadBalances();
 		onAuthChange?.();
 	}
-	function addFormModel() {
-		if (!mName.trim()) return;
-		form.models = [...form.models, { name: mName.trim(), context_window: Number(mCtx) || 128000, max_output_tokens: 8192, reasoning_efforts: [] }];
-		mName = '';
-		mCtx = undefined;
-	}
-	async function createProvider() {
-		const id = form.id.trim();
-		if (!id || !form.base_url.trim() || form.models.length === 0 || (selectedCatalog && !form.key.trim())) return;
-		custom = [
-			...custom.filter((c) => c.id !== id),
-			{
-				id,
-				name: selectedCatalog?.name,
-				base_url: form.base_url.trim(),
-				format: form.format,
-				models: form.models,
-				builtin: false,
-				source: selectedCatalog ? 'catalog' : 'custom'
-			}
-		];
+	// The form has checked the fields (providerFields.validateProvider).
+	async function saveProvider(f: typeof form) {
+		const id = f.id.trim();
+		const previous = editTarget && editTarget.id === id ? editTarget : null;
+		const entry: Provider = {
+			id,
+			name: previous ? previous.name : selectedCatalog?.name,
+			base_url: f.base_url.trim(),
+			format: f.format,
+			models: f.models,
+			builtin: false,
+			source: previous ? previous.source : selectedCatalog ? 'catalog' : 'custom'
+		};
+		custom = [...custom.filter((c) => c.id !== id), entry];
 		persistCustom();
-		if (form.key.trim()) {
-			await setAuthKey(id, form.key.trim());
-			keyed = await readAuthProviders();
-			onAuthChange?.();
+		// The default provider's copy in config.json is what the engine runs.
+		if (cfg.provider === id) {
+			cfg.base_url = entry.base_url;
+			cfg.protocol = entry.format;
+			cfg.models = entry.models;
+			if (!entry.models.some((m) => m.name === cfg.model)) cfg.model = entry.models[0]?.name ?? '';
+			normalizeEffort();
 		}
+		if (f.key.trim()) {
+			await setAuthKey(id, f.key.trim());
+			keyed = await readAuthProviders();
+		}
+		onAuthChange?.();
 		editing = null;
 		selectedCatalog = null;
+		editTarget = null;
 	}
 	function deleteProvider(id: string) {
 		custom = custom.filter((c) => c.id !== id);
@@ -1132,6 +1133,7 @@
 								onLogout={logout}
 								onSaveKey={saveKey}
 								onSetDefault={selectProvider}
+								onEdit={openEdit}
 								onDelete={deleteProvider}
 								onRefreshModels={refreshMonoizeModels}
 								onOpenMonoizeLogin={() => {
@@ -1143,8 +1145,42 @@
 						{/each}
 						<button class="addrow" id="set-provider-add" onclick={openCreate}><PlusIcon size={16} /> {t('settings.custom.add')}</button>
 					</SettingsSection>
-					{#if editing === '__catalog__' || editing === '__key__' || editing === '__new__'}
-						<Modal title={t('settings.custom.add')} width={540} padded={false} onClose={() => (editing = null)}>
+					{#snippet formFooter()}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => {
+								if (editing === '__edit__') {
+									editing = null;
+									editTarget = null;
+								} else editing = '__catalog__';
+							}}>{editing === '__edit__' ? t('common.cancel') : t('settings.page.back')}</Button
+						>
+						<Button variant="primary" size="sm" onclick={() => providerForm?.submit()}
+							>{editing === '__edit__'
+								? t('settings.custom.save')
+								: selectedCatalog
+									? t('settings.catalog.addProvider')
+									: t('settings.custom.create')}</Button
+						>
+					{/snippet}
+					{#if editing === '__catalog__' || editing === '__key__' || editing === '__new__' || editing === '__edit__'}
+						<Modal
+							title={editing === '__edit__' && editTarget
+								? t('settings.custom.editTitle', { provider: editTarget.name ?? cap(editTarget.id) })
+								: editing === '__new__'
+									? selectedCatalog
+										? t('settings.catalog.connect', { provider: selectedCatalog.name })
+										: t('settings.custom.title')
+									: t('settings.custom.add')}
+							width={editing === '__new__' || editing === '__edit__' ? 600 : 540}
+							padded={false}
+							footer={editing === '__new__' || editing === '__edit__' ? formFooter : undefined}
+							onClose={() => {
+								editing = null;
+								editTarget = null;
+							}}
+						>
 							{#if editing === '__catalog__'}
 								<ProviderCatalogPicker
 									providers={addable}
@@ -1167,19 +1203,16 @@
 										<Button variant="primary" size="sm" disabled={!keyInput.trim()} onclick={() => keyTarget && saveKey(keyTarget.id)}>{t('settings.catalog.addProvider')}</Button>
 									</div>
 								</div>
-							{:else if editing === '__new__'}
+							{:else if editing === '__new__' || editing === '__edit__'}
 								<CustomProviderForm
+									bind:this={providerForm}
 									bind:form
-									bind:mName
-									bind:mCtx
 									formats={FORMATS}
-									{fmt}
-									title={selectedCatalog ? t('settings.catalog.connect', { provider: selectedCatalog.name }) : undefined}
-									submitLabel={selectedCatalog ? t('settings.catalog.addProvider') : undefined}
-									createDisabled={!!selectedCatalog && !form.key.trim()}
-									onAddModel={addFormModel}
-									onCreate={createProvider}
-									onCancel={() => (editing = '__catalog__')}
+									mode={editing === '__edit__' ? 'edit' : 'create'}
+									taken={allProviders.map((p) => p.id)}
+									keyRequired={editing === '__new__' && !!selectedCatalog}
+									keyed={!!editTarget && keyed.includes(editTarget.id)}
+									onSubmit={saveProvider}
 								/>
 							{/if}
 						</Modal>
