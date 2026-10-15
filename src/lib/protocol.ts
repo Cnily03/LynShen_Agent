@@ -240,8 +240,16 @@ export interface ImportMcp {
 	/** The `mcp_servers` entry to add. */
 	entry: McpServerEntry;
 }
+/** Conversations of one tool the scan found but could not read, for one
+ *  reason (`count` 0: a whole store, such as a database, did not open). */
+export interface ImportSkipped {
+	source: ImportSource;
+	count: number;
+	reason: string;
+}
 export interface ImportScan {
 	sessions: ImportSession[];
+	skipped: ImportSkipped[];
 	skills: ImportSkill[];
 	mcp: ImportMcp[];
 }

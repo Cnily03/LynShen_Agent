@@ -113,7 +113,7 @@ Object.assign(window, {
         // Only the agent-UX pages have a (stand-in) daemon.
         case 'daemon_endpoint': return ['skills', 'market', 'plugins', 'sidebar', 'shell', 'agents'].some((k) => new URL(location.href).searchParams.has(k)) ? {url: 'ws://fake-daemon', token: 'test'} : null;
         // Plugins of other agents, as the import scan finds them.
-        case 'import_scan': return {sessions: [], skills: [
+        case 'import_scan': return {sessions: [], skipped: [], skills: [
           {source:'claude', name:'docx', description:'', path:'/p/document-skills/docx', plugin:'document-skills', present:false},
           {source:'claude', name:'xlsx', description:'', path:'/p/document-skills/xlsx', plugin:'document-skills', present:false},
           {source:'claude', name:'frontend-design', description:'', path:'/p/frontend-design/skills/frontend-design', plugin:'frontend-design', present:true},

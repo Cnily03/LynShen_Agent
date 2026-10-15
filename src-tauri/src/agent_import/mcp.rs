@@ -278,7 +278,7 @@ pub fn scan(roots: &Roots) -> Vec<Found> {
     // (source, from, name, raw server, plugin folder)
     let mut all: Vec<(&'static str, String, String, Raw, Option<std::path::PathBuf>)> = Vec::new();
 
-    let claude = crate::read_json(&roots.home.join(".claude.json"));
+    let claude = crate::read_json(&roots.claude_json);
     for (name, v) in claude["mcpServers"].as_object().into_iter().flatten() {
         all.push(("claude", String::new(), name.clone(), standard(v), None));
     }

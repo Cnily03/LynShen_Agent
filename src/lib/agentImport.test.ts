@@ -5,10 +5,12 @@ import {
 	defaultPicks,
 	folderName,
 	importedFolders,
+	isPath,
 	mcpKey,
 	planMcp,
 	sessionKey,
 	skillKey,
+	skippedBySource,
 	summarize
 } from './agentImport';
 import type { ImportMcp, ImportOutcome, ImportSession, ImportSkill } from './protocol';
@@ -89,6 +91,7 @@ describe('defaultPicks', () => {
 	it('skips what was imported, what LynShen has, and what comes with a plugin', () => {
 		const picks = defaultPicks({
 			sessions: [session(), session({ id: 'done', imported: true })],
+			skipped: [],
 			skills: [skill(), skill({ name: 'had', path: '/x', present: true }), skill({ name: 'pdf', path: '/y', plugin: 'pdf' })],
 			mcp: [server(), server({ name: 'had', present: true }), server({ name: 'notion', from: 'notion' })]
 		});
@@ -146,5 +149,42 @@ describe('summarize', () => {
 				outcome({ kind: 'skill', cwd: null })
 			])
 		).toEqual(['/p/a', '/p/b']);
+	});
+});
+
+describe('what the scan could not read', () => {
+	it('groups it per tool, a store that did not open included', () => {
+		expect(
+			skippedBySource([
+				{ source: 'opencode', count: 0, reason: 'opencode.db cannot be read (file is not a database)' },
+				{ source: 'claude', count: 2, reason: 'not a session file (no JSON rows)' },
+				{ source: 'claude', count: 1, reason: 'no working folder recorded' },
+				{ source: 'opencode', count: 1, reason: 'session file is not valid JSON' }
+			])
+		).toEqual([
+			{
+				source: 'claude',
+				count: 3,
+				whole: false,
+				reasons: ['not a session file (no JSON rows) (2)', 'no working folder recorded']
+			},
+			{
+				source: 'opencode',
+				count: 1,
+				whole: true,
+				reasons: ['opencode.db cannot be read (file is not a database)', 'session file is not valid JSON']
+			}
+		]);
+		expect(skippedBySource([{ source: 'omp', count: 4, reason: 'no session header' }])).toEqual([
+			{ source: 'omp', count: 4, whole: false, reasons: ['no session header'] }
+		]);
+		expect(skippedBySource([])).toEqual([]);
+	});
+
+	it('tells project folders from plugin names on every OS', () => {
+		for (const path of ['/Users/me/app', 'C:\\Users\\me\\app', 'D:/work/app', '\\\\server\\share']) {
+			expect(isPath(path), path).toBe(true);
+		}
+		for (const name of ['figma', 'document-skills', 'c:plugin']) expect(isPath(name), name).toBe(false);
 	});
 });

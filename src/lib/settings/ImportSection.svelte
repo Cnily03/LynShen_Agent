@@ -25,10 +25,12 @@
 		defaultPicks,
 		folderName,
 		importedFolders,
+		isPath,
 		mcpKey,
 		planMcp,
 		sessionKey,
 		skillKey,
+		skippedBySource,
 		summarize,
 		type McpResult,
 		type RunSummary
@@ -56,9 +58,13 @@
 	let foldersAdded = $state(false);
 
 	const sessionGroups = $derived(found ? bySource(found.sessions) : []);
+	// Conversations that are there but could not be read, per tool.
+	const skippedGroups = $derived(found ? skippedBySource(found.skipped ?? []) : []);
 	const skillGroups = $derived(found ? bySource(found.skills) : []);
 	const mcpGroups = $derived(found ? bySource(found.mcp) : []);
-	const empty = $derived(!!found && !found.sessions.length && !found.skills.length && !found.mcp.length);
+	const empty = $derived(
+		!!found && !found.sessions.length && !skippedGroups.length && !found.skills.length && !found.mcp.length
+	);
 
 	// Skills and servers LynShen already has cannot be picked.
 	const sessionKeys = (list: ImportSession[]) => list.map(sessionKey);
@@ -182,7 +188,7 @@
 	{/if}
 {/snippet}
 
-{#if found && found.sessions.length}
+{#if found && (found.sessions.length || skippedGroups.length)}
 	<SettingsSection title={t('settings.import.sessions')} description={t('settings.import.sessionsHint')}>
 		{#snippet action()}{@render selectAll(sessionKeys(found!.sessions))}{/snippet}
 		{#each sessionGroups as g (g.source)}
@@ -210,6 +216,23 @@
 				</Collapse>
 			</div>
 		{/each}
+		{#if skippedGroups.length}
+			<div class="pad skipped">
+				<Notice tone="warn">
+					{#each skippedGroups as g (g.source)}
+						<div class="why">
+							{t('settings.import.unreadableLine', {
+								tool: label(g.source),
+								what: g.count
+									? t('settings.import.unreadable', { n: g.count })
+									: t('settings.import.unreadableStore'),
+								why: g.reasons.join('; ')
+							})}
+						</div>
+					{/each}
+				</Notice>
+			</div>
+		{/if}
 	</SettingsSection>
 {/if}
 
@@ -252,7 +275,7 @@
 								<span class="iname mono">{m.name}</span>
 							</Checkbox>
 							<span class="chip">{m.transport}</span>
-							{#if m.from}<span class="chip">{m.from.startsWith('/') ? folderName(m.from) : t('settings.import.plugin', { name: m.from })}</span>{/if}
+							{#if m.from}<span class="chip">{isPath(m.from) ? folderName(m.from) : t('settings.import.plugin', { name: m.from })}</span>{/if}
 							<span class="idesc mono">{what}</span>
 							{#if !m.entry.enabled}<span class="tag">{t('settings.import.off')}</span>{/if}
 							{#if m.present}<span class="tag">{t('settings.import.present')}</span>{/if}
@@ -442,6 +465,9 @@
 		color: var(--accent);
 		flex-shrink: 0;
 		white-space: nowrap;
+	}
+	.why {
+		overflow-wrap: anywhere;
 	}
 	.result {
 		display: flex;

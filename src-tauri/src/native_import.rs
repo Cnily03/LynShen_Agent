@@ -31,7 +31,7 @@
 //! `~/.lynshen/native-imports.json` records each import, so a copy is not
 //! listed as a native session of its own and re-importing opens the copy.
 
-use crate::claude_history::{self, is_session_id, preview_of, project_dir, truncate_chars};
+use crate::claude_history::{self, is_session_id, preview_of, project_dirs, truncate_chars};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -75,17 +75,20 @@ pub struct Homes {
 }
 
 pub(crate) fn homes() -> Homes {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default();
     Homes {
         claude: claude_history::claude_home(),
-        codex: std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".codex")),
-        registry: home.join(".lynshen").join("native-imports.json"),
+        codex: codex_home(&claude_history::process_env, cfg!(windows)),
+        // The registry Settings → 导入 keeps too (agent_import).
+        registry: crate::lynshen_dir().join("native-imports.json"),
     }
+}
+
+/// `$CODEX_HOME`, else `.codex` in the home folder Codex uses (on Windows the
+/// profile folder, as `dirs::home_dir()` finds it).
+pub(crate) fn codex_home(env: claude_history::Env, windows: bool) -> PathBuf {
+    env("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| claude_history::user_home(env, windows).join(".codex"))
 }
 
 const MAX_LISTED: usize = 50;
@@ -184,8 +187,24 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 // --- Claude Code -------------------------------------------------------------
 
+/// Where Claude Code would write session `id` of `cwd`.
+#[cfg(test)]
 pub(crate) fn claude_copy_path(h: &Homes, cwd: &str, id: &str) -> PathBuf {
-    project_dir(&h.claude, cwd).join(format!("{id}.jsonl"))
+    claude_history::project_dir(&h.claude, cwd).join(format!("{id}.jsonl"))
+}
+
+/// Where Claude Code keeps session `id` of `cwd`: in a folder it keeps that
+/// folder's sessions in (claude_history::project_dirs), else in whichever
+/// project folder has it (a session relocated to another folder, or a folder
+/// named from a path written another way).
+pub(crate) fn claude_session_file(h: &Homes, cwd: &str, id: &str) -> Option<PathBuf> {
+    if !is_session_id(id) {
+        return None;
+    }
+    let file = format!("{id}.jsonl");
+    project_dirs(&h.claude, cwd).into_iter().map(|dir| dir.join(&file)).find(|p| p.is_file()).or_else(|| {
+        fs::read_dir(h.claude.join("projects")).ok()?.flatten().map(|e| e.path().join(&file)).find(|p| p.is_file())
+    })
 }
 
 fn list_claude(h: &Homes, cwd: &str) -> Result<Vec<NativeSession>, String> {
@@ -199,7 +218,7 @@ fn list_claude(h: &Homes, cwd: &str) -> Result<Vec<NativeSession>, String> {
         .into_iter()
         .filter(|s| !copies.contains(s.id.as_str()))
         .map(|s| NativeSession {
-            imported: existing_copy(&registry, "claude", &s.id, |to| claude_copy_path(h, cwd, to).exists()),
+            imported: existing_copy(&registry, "claude", &s.id, |to| claude_session_file(h, cwd, to).is_some()),
             title: s.preview,
             mtime_ms: s.mtime_ms,
             origin: "Claude Code".to_string(),
@@ -292,17 +311,17 @@ pub(crate) fn import_claude(h: &Homes, cwd: &str, id: &str) -> Result<ImportedSe
     if !is_session_id(id) {
         return Err(format!("invalid session id: {id}"));
     }
-    let src = claude_copy_path(h, cwd, id);
-    if !src.exists() {
-        return Err(format!("Claude Code session {id} not found for {cwd}"));
-    }
+    let src = claude_session_file(h, cwd, id).ok_or_else(|| format!("Claude Code session {id} not found for {cwd}"))?;
+    // The copy goes next to the original: the folder Claude Code keeps that
+    // project's sessions in, which `--resume` looks in.
+    let dir = src.parent().map(Path::to_path_buf).unwrap_or_default();
     let title = preview_of(&src);
     let mut registry = load_registry(&h.registry);
-    if let Some(to) = existing_copy(&registry, "claude", id, |to| claude_copy_path(h, cwd, to).exists()) {
+    if let Some(to) = existing_copy(&registry, "claude", id, |to| dir.join(format!("{to}.jsonl")).is_file()) {
         return Ok(ImportedSession { id: to, title });
     }
     let to = uuid_v4()?;
-    let dst = claude_copy_path(h, cwd, &to);
+    let dst = dir.join(format!("{to}.jsonl"));
     let tmp = dst.with_extension("jsonl.tmp");
     clean_claude(&src, &tmp, &to).inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
@@ -332,7 +351,7 @@ fn first_line(path: &Path) -> Option<Value> {
     serde_json::from_str(&line).ok()
 }
 
-fn rollout_files(codex: &Path) -> Vec<PathBuf> {
+pub(crate) fn rollout_files(codex: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![codex.join("sessions"), codex.join("archived_sessions")];
     while let Some(dir) = stack.pop() {
@@ -749,6 +768,39 @@ mod tests {
         // A deleted copy is imported afresh.
         fs::remove_file(claude_copy_path(&h, cwd, &first.id)).unwrap();
         assert_ne!(import_claude(&h, cwd, OLD).unwrap().id, first.id);
+    }
+
+    #[test]
+    fn claude_sessions_of_windows_folders_and_moved_files_are_found() {
+        let h = fixture("claude-win");
+        // Claude Code on Windows names `C:\Users\demo\proj` `C--Users-demo-proj`.
+        let cwd = r"C:\Users\demo\proj";
+        let dir = h.claude.join("projects").join("C--Users-demo-proj");
+        let row = json!({"type": "user", "uuid": "u1", "sessionId": OLD, "cwd": cwd, "message": {"role": "user", "content": "hi"}});
+        write_lines(&dir.join(format!("{OLD}.jsonl")), std::slice::from_ref(&row));
+        assert_eq!(list_claude(&h, cwd).unwrap().len(), 1);
+        let got = import_claude(&h, cwd, OLD).unwrap();
+        assert!(dir.join(format!("{}.jsonl", got.id)).is_file(), "the copy sits next to the original");
+        // A file in a folder named some other way is still found by its id.
+        let other = "bbbbbbbb-2222-4222-8222-222222222222";
+        let elsewhere = h.claude.join("projects").join("-somewhere-else");
+        write_lines(&elsewhere.join(format!("{other}.jsonl")), &[row]);
+        let moved = import_claude(&h, cwd, other).unwrap();
+        assert!(elsewhere.join(format!("{}.jsonl", moved.id)).is_file());
+        assert!(claude_session_file(&h, cwd, "../x").is_none());
+    }
+
+    #[test]
+    fn codex_home_follows_codex_home_and_the_profile() {
+        let env = |key: &str| match key {
+            "HOME" => Some(std::ffi::OsString::from("/msys/home/demo")),
+            "USERPROFILE" => Some(std::ffi::OsString::from(r"C:\Users\demo")),
+            _ => None,
+        };
+        assert_eq!(codex_home(&env, true), PathBuf::from(r"C:\Users\demo").join(".codex"));
+        assert_eq!(codex_home(&env, false), PathBuf::from("/msys/home/demo/.codex"));
+        let set = |key: &str| (key == "CODEX_HOME").then(|| std::ffi::OsString::from("/srv/codex"));
+        assert_eq!(codex_home(&set, true), PathBuf::from("/srv/codex"));
     }
 
     #[test]

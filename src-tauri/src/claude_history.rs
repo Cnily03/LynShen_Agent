@@ -2,16 +2,20 @@
 //! a project's native Claude Code conversations (native_import).
 //!
 //! Claude Code stores one JSONL file per session under
-//! `~/.claude/projects/<munged-cwd>/<session-id>.jsonl`, where the cwd is
-//! munged by replacing every non-ASCII-alphanumeric character with `-`
-//! (verified live against claude 2.1.208: `/`, `.` and `_` all become `-`,
-//! case is preserved).
+//! `<config>/projects/<folder>/<session-id>.jsonl`. `<config>` is
+//! `$CLAUDE_CONFIG_DIR`, else `~/.claude` (`%USERPROFILE%\.claude` on
+//! Windows). `<folder>` is the real path of the cwd with every UTF-16 unit
+//! that is not an ASCII letter or digit replaced by `-`; a name longer than
+//! 200 characters is cut there and gets `-<hash>` appended (read from Claude
+//! Code 2.1.296: `/`, `\`, `:`, `.` and `_` all become `-`, case is kept, so
+//! `C:\Users\me\x` is `C--Users-me-x`).
 //!
 //! Everything here is strictly read-only and bounded: session listing caps the
 //! directory scan and per-file preview reads. The claude home is injectable
 //! so tests run against a fixture directory.
 
 use serde::Serialize;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -36,31 +40,138 @@ const MAX_DIR_ENTRIES: usize = 2000;
 const MAX_PREVIEW_SCAN: u64 = 256 * 1024;
 /// Preview length (characters).
 const MAX_PREVIEW_CHARS: usize = 80;
+/// Longest project folder name Claude Code writes before it adds a hash.
+const MAX_FOLDER_NAME: usize = 200;
+
+/// An environment lookup (injectable so tests need not touch the process
+/// environment). Empty values count as unset.
+pub(crate) type Env<'a> = &'a dyn Fn(&str) -> Option<OsString>;
+
+pub(crate) fn process_env(key: &str) -> Option<OsString> {
+    std::env::var_os(key).filter(|v| !v.is_empty())
+}
+
+/// The user's home folder as the other tools find it. Node's `os.homedir()`
+/// and Rust's `dirs::home_dir()` use the profile folder (`USERPROFILE`) on
+/// Windows, whatever `HOME` a Git Bash or MSYS setup put there; elsewhere
+/// they use `HOME`.
+pub(crate) fn user_home(env: Env, windows: bool) -> PathBuf {
+    let (first, second) = if windows { ("USERPROFILE", "HOME") } else { ("HOME", "USERPROFILE") };
+    env(first).or_else(|| env(second)).map(PathBuf::from).unwrap_or_default()
+}
+
+/// `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+pub(crate) fn claude_home_in(env: Env, windows: bool) -> PathBuf {
+    env("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home(env, windows).join(".claude"))
+}
+
+/// Claude Code's config folder on this machine.
+pub fn claude_home() -> PathBuf {
+    claude_home_in(&process_env, cfg!(windows))
+}
+
+/// A path without the `\\?\` prefix Windows' `canonicalize` adds (Node's
+/// realpath, which Claude Code uses, has none).
+pub(crate) fn strip_verbatim(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+}
+
+/// `cwd` resolved the way Claude Code resolves it: a symlinked path (macOS
+/// `/tmp` → `/private/tmp`) becomes the real one.
+fn real_cwd(cwd: &str) -> String {
+    Path::new(cwd)
+        .canonicalize()
+        .map(|path| strip_verbatim(&path.to_string_lossy()))
+        .unwrap_or_else(|_| cwd.to_string())
+}
+
+/// Java's `String.hashCode` over UTF-16 units, the hash Claude Code appends
+/// to a long folder name (as `Math.abs(h).toString(36)`).
+fn java_hash(text: &str) -> i32 {
+    text.encode_utf16().fold(0i32, |h, unit| h.wrapping_mul(31).wrapping_add(i32::from(unit)))
+}
+
+fn base36(mut n: u64) -> String {
+    let digits = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut out = Vec::new();
+    loop {
+        out.push(digits[(n % 36) as usize]);
+        n /= 36;
+        if n == 0 {
+            break;
+        }
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// The project folder name Claude Code gives a path (see the module docs).
+pub(crate) fn folder_name(path: &str) -> String {
+    let mut name = String::with_capacity(path.len());
+    for c in path.chars() {
+        if c.is_ascii_alphanumeric() {
+            name.push(c);
+        } else {
+            // A JS regex without the `u` flag sees a surrogate pair as two units.
+            name.extend(std::iter::repeat_n('-', c.len_utf16()));
+        }
+    }
+    if name.len() <= MAX_FOLDER_NAME {
+        return name;
+    }
+    let hash = i64::from(java_hash(path)).unsigned_abs();
+    format!("{}-{}", &name[..MAX_FOLDER_NAME], base36(hash))
+}
 
 /// Claude Code's cwd → project-directory-name munging (see module docs).
-/// Claude names the directory after its real cwd, so a symlinked path
-/// (macOS `/tmp` → `/private/tmp`) is resolved first.
 fn munge_cwd(cwd: &str) -> String {
-    let real = Path::new(cwd)
-        .canonicalize()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| cwd.to_string());
-    real.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+    folder_name(&real_cwd(cwd))
 }
 
-/// `~/.claude` (the production base; tests inject a fixture dir instead).
-pub fn claude_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".claude")
-}
-
+/// The folder Claude Code names after `cwd` (it may not exist).
+#[cfg(test)]
 pub(crate) fn project_dir(home: &Path, cwd: &str) -> PathBuf {
     home.join("projects").join(munge_cwd(cwd))
+}
+
+/// The folders Claude Code may keep `cwd`'s sessions in, found the way Claude
+/// Code looks for them: the one named after the path; else, where paths
+/// ignore case (Windows, macOS), one whose name differs only in case; and for
+/// a long path every folder with the same cut name (another build may have
+/// hashed it differently).
+pub(crate) fn project_dirs(home: &Path, cwd: &str) -> Vec<PathBuf> {
+    let projects = home.join("projects");
+    let name = munge_cwd(cwd);
+    let exact = projects.join(&name);
+    let mut out = Vec::new();
+    if exact.is_dir() {
+        out.push(exact.clone());
+    }
+    let long = name.len() > MAX_FOLDER_NAME;
+    let folds = cfg!(any(windows, target_os = "macos"));
+    if !long && (!out.is_empty() || !folds) {
+        return out;
+    }
+    let norm = |s: &str| if folds { s.to_ascii_lowercase() } else { s.to_string() };
+    let wanted = norm(&name);
+    let prefix = format!("{}-", &wanted[..wanted.len().min(MAX_FOLDER_NAME)]);
+    let Ok(entries) = fs::read_dir(&projects) else { return out };
+    for entry in entries.flatten().take(MAX_DIR_ENTRIES) {
+        let path = entry.path();
+        if path == exact || !path.is_dir() {
+            continue;
+        }
+        let other = norm(&entry.file_name().to_string_lossy());
+        if if long { other.starts_with(&prefix) } else { other == wanted } {
+            out.push(path);
+        }
+    }
+    out
 }
 
 /// Session ids are UUID-ish (alphanumeric + dashes) — same shape the spawn
@@ -111,14 +222,17 @@ pub(crate) fn row_text(v: &serde_json::Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// Best-effort preview: the `ai-title` row wins, else the first real user
-/// message. Reads at most `MAX_PREVIEW_SCAN` bytes.
+/// Best-effort preview: the name the user gave it (`custom-title`, the last
+/// one), else the `ai-title` row, else the first real user message. Reads at
+/// most `MAX_PREVIEW_SCAN` bytes.
 pub(crate) fn preview_of(path: &Path) -> String {
     let Ok(file) = fs::File::open(path) else {
         return String::new();
     };
     let mut reader = BufReader::new(file).take(MAX_PREVIEW_SCAN);
     let mut first_user = String::new();
+    let mut ai_title = String::new();
+    let mut custom_title = String::new();
     let mut line = String::new();
     loop {
         line.clear();
@@ -130,11 +244,14 @@ pub(crate) fn preview_of(path: &Path) -> String {
             continue;
         };
         match v["type"].as_str() {
-            Some("ai-title") => {
-                if let Some(t) = v["aiTitle"].as_str() {
-                    if !t.trim().is_empty() {
-                        return truncate_chars(t.trim(), MAX_PREVIEW_CHARS);
-                    }
+            Some("custom-title") => {
+                if let Some(t) = v["customTitle"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                    custom_title = truncate_chars(t, MAX_PREVIEW_CHARS);
+                }
+            }
+            Some("ai-title") if ai_title.is_empty() => {
+                if let Some(t) = v["aiTitle"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                    ai_title = truncate_chars(t, MAX_PREVIEW_CHARS);
                 }
             }
             Some("user") if first_user.is_empty() && !is_synthetic(&v) => {
@@ -145,18 +262,16 @@ pub(crate) fn preview_of(path: &Path) -> String {
             _ => {}
         }
     }
-    first_user
+    [custom_title, ai_title, first_user].into_iter().find(|t| !t.is_empty()).unwrap_or_default()
 }
 
 /// Lists the resumable sessions persisted for `cwd`, newest first. A missing
 /// project directory is not an error — it just means "no history yet".
 pub fn list_sessions(home: &Path, cwd: &str) -> Result<Vec<ClaudeSessionEntry>, String> {
-    let dir = project_dir(home, cwd);
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return Ok(Vec::new());
-    };
     let mut files: Vec<(String, u64, PathBuf)> = Vec::new();
-    for entry in entries.flatten().take(MAX_DIR_ENTRIES) {
+    let dirs = project_dirs(home, cwd);
+    let entries = dirs.iter().filter_map(|dir| fs::read_dir(dir).ok()).flat_map(|read| read.flatten().take(MAX_DIR_ENTRIES));
+    for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
@@ -209,6 +324,71 @@ mod tests {
         let path = dir.join(format!("{id}.jsonl"));
         fs::write(&path, lines.join("\n")).unwrap();
         path
+    }
+
+    #[test]
+    fn folder_names_match_claude_code() {
+        // Expected values from Claude Code 2.1.296's own function (see
+        // folder_name), run under node.
+        assert_eq!(folder_name(r"C:\Users\demo\proj"), "C--Users-demo-proj");
+        assert_eq!(folder_name("/Users/demo/a.b_c"), "-Users-demo-a-b-c");
+        assert_eq!(folder_name("/tmp/\u{1F600}x"), "-tmp---x", "a surrogate pair is two dashes");
+        let deep = format!(r"C:\Users\demo\{}proj", r"deep\".repeat(45));
+        let name = folder_name(&deep);
+        assert_eq!(name.len(), 207);
+        assert!(name.starts_with("C--Users-demo-deep-deep-"));
+        assert!(name.ends_with("-d-pkfbl9"), "{name}");
+        assert!(folder_name(&format!("/x/{}", "y".repeat(250))).ends_with("yyy-ldyyx2"));
+    }
+
+    #[test]
+    fn verbatim_prefixes_are_dropped() {
+        assert_eq!(strip_verbatim(r"\\?\C:\Users\demo"), r"C:\Users\demo");
+        assert_eq!(strip_verbatim(r"\\?\UNC\server\share\x"), r"\\server\share\x");
+        assert_eq!(strip_verbatim("/Users/demo"), "/Users/demo");
+    }
+
+    #[test]
+    fn homes_follow_the_platform_and_claude_config_dir() {
+        let vars = |pairs: &'static [(&'static str, &'static str)]| {
+            move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| OsString::from(v))
+        };
+        let both = vars(&[("HOME", "/msys/home/demo"), ("USERPROFILE", r"C:\Users\demo")]);
+        assert_eq!(user_home(&both, true), PathBuf::from(r"C:\Users\demo"), "Windows: the profile, not a Git Bash HOME");
+        assert_eq!(user_home(&both, false), PathBuf::from("/msys/home/demo"));
+        let only_profile = vars(&[("USERPROFILE", r"C:\Users\demo")]);
+        assert_eq!(user_home(&only_profile, false), PathBuf::from(r"C:\Users\demo"));
+        assert_eq!(claude_home_in(&both, true), PathBuf::from(r"C:\Users\demo").join(".claude"));
+        let custom = vars(&[("USERPROFILE", r"C:\Users\demo"), ("CLAUDE_CONFIG_DIR", r"D:\claude-work")]);
+        assert_eq!(claude_home_in(&custom, true), PathBuf::from(r"D:\claude-work"));
+    }
+
+    #[test]
+    fn an_existing_folder_is_named_from_its_real_path() {
+        let dir = fixture("real");
+        let name = munge_cwd(&dir.to_string_lossy());
+        let real = dir.canonicalize().unwrap();
+        assert_eq!(name, folder_name(&strip_verbatim(&real.to_string_lossy())));
+        // Windows: `C--Users-…`, as Claude Code writes it, not `----C--…`
+        // from the `\\?\` prefix `canonicalize` adds.
+        if cfg!(windows) {
+            assert!(name.as_bytes()[0].is_ascii_alphabetic() && &name[1..3] == "--", "{name}");
+        }
+    }
+
+    #[test]
+    fn long_paths_are_found_by_their_cut_name() {
+        let home = fixture("long");
+        let cwd = format!("/never/{}", "long-folder-name/".repeat(14));
+        let name = munge_cwd(&cwd);
+        assert!(name.len() > MAX_FOLDER_NAME);
+        // Written by a build that hashed the path another way.
+        let other = home.join("projects").join(format!("{}-zzzz", &name[..MAX_FOLDER_NAME]));
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("dddddddd-4444-4444-8444-444444444444.jsonl"), "{}").unwrap();
+        fs::create_dir_all(home.join("projects").join("-never-else")).unwrap();
+        assert_eq!(project_dirs(&home, &cwd), vec![other]);
+        assert_eq!(list_sessions(&home, &cwd).unwrap().len(), 1);
     }
 
     #[test]

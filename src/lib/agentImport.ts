@@ -3,7 +3,7 @@
 // MCP servers still need adding, and the summary of a run. Framework-free so
 // it is unit-testable.
 
-import type { ImportMcp, ImportOutcome, ImportScan, ImportSession, ImportSkill, ImportSource } from './protocol';
+import type { ImportMcp, ImportOutcome, ImportScan, ImportSession, ImportSkill, ImportSkipped, ImportSource } from './protocol';
 
 export const SOURCES: ImportSource[] = ['claude', 'codex', 'opencode', 'zcode', 'omp'];
 
@@ -22,6 +22,35 @@ export const mcpKey = (m: ImportMcp) => `mcp:${m.source}:${m.from}:${m.name}`;
 /** Last path component (either separator). */
 export function folderName(path: string): string {
 	return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
+
+/** An absolute path (a project folder), not a plugin name: `/x`, `C:\x`,
+ *  `C:/x` or `\\server\share`. */
+export function isPath(text: string): boolean {
+	return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(text);
+}
+
+export interface SkippedGroup {
+	source: ImportSource;
+	/** Conversations left out. */
+	count: number;
+	/** A whole store (a database) could not be read. */
+	whole: boolean;
+	/** Why; with several reasons, how many each. */
+	reasons: string[];
+}
+
+/** What the scan could not read, per tool in SOURCES order. */
+export function skippedBySource(skipped: ImportSkipped[]): SkippedGroup[] {
+	return SOURCES.map((source) => {
+		const items = skipped.filter((s) => s.source === source);
+		return {
+			source,
+			count: items.reduce((n, s) => n + s.count, 0),
+			whole: items.some((s) => s.count === 0),
+			reasons: items.map((s) => (s.count > 1 && items.length > 1 ? `${s.reason} (${s.count})` : s.reason))
+		};
+	}).filter((g) => g.reasons.length > 0);
 }
 
 export interface ProjectGroup {
