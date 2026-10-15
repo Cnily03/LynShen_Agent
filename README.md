@@ -81,6 +81,7 @@ LynShen 账号在 [LynShen Console](https://www.lynshen.org)（LynShen 官网）
 **模型、技能和其他**
 
 - 模型来源：LynShen 网关（登录 LynShen 账号）、你自己的 API Key，或智能体自己的登录。在「设置 → 提供商」里管理。
+- 自己的服务商：「设置 → 提供商 → 添加 Provider → 手动配置」，或在已添加的服务商卡片上点「编辑」。可以填 Base URL，并为每个模型设置上下文窗口、最大输出（可写 `200k`、`1M`）、是否支持思考、可选的思考强度（关闭、Low、Medium、High、XHigh、Max、Ultra）和输入类型（文本、图片）。上下文窗口决定什么时候自动压缩，最大输出作为请求的输出上限发出，思考强度决定输入框里能选哪几档，不接受图片的模型不能添加图片附件。Ultra 沿用 GPT 的叫法，发请求时换成这个模型的最高其他档位。请求里不带思考参数（不思考的模型）、Ultra 换档和去掉发给不接受图片的模型的图片，要随应用附带的 LynShen CLI 支持 `reasoning` 和 `input_modalities` 字段（见 CLI 仓库 README 的「自己的服务商和模型」）；旧版 CLI 忽略这两个字段，按原来的方式发请求。
 - 生图：智能体可以画图和改图。在模型菜单里选一个生图模型（名字带 image 之类的），它就成为生图模型，对话模型不变。
 - 技能市场：「设置 → 技能市场」，从 Anthropic 和社区仓库（Ikaleio、Superpowers、Composio）安装技能。Claude Code 会话装到 `~/.claude/skills`，其他会话装到 `~/.lynshen/skills`。
 - MCP 服务器：「设置 → MCP 服务器」。
@@ -208,6 +209,8 @@ Up to 0.5.x the app was called LynShen Desktop. Only the app's name changed: the
 **Install.** Get the macOS and Windows installers from the [download page](https://www.lynshen.org/download), or any platform (Linux included) from [GitHub Releases](https://github.com/Libra1337/LynShen_Agent/releases). The builds are not notarized or code-signed, so macOS and Windows block the first launch. [docs/install.md](docs/install.md) shows how to open the app. After that, the app updates itself.
 
 **First launch.** A setup guide checks Node.js and Git, signs you in to LynShen through the browser (or takes your own API key), and asks for a default agent and model. The app gets a 30-day credential for this device, not your password. Claude Code and Codex are optional and install from their official sources.
+
+**Your own provider.** Settings → Providers → Add provider → Set up manually (or Edit on a provider you added) takes the base URL and, per model, the context window, the max output (`200k`, `1M` work), whether it thinks, the effort levels it accepts (Off, Low, Medium, High, XHigh, Max, Ultra) and its input kinds (text, images). The window sets when the conversation is compacted, the max output is sent as the request's cap, the effort levels are what the composer offers, and a model without images takes no image attachments. Ultra follows GPT's naming; requests send the model's highest other level. Requests without reasoning settings for a model that does not think, the Ultra mapping, and images left out for a text-only model need a bundled LynShen CLI that reads `reasoning` and `input_modalities` (see "自己的服务商和模型" in the CLI README); older CLIs ignore the two fields and send requests as before.
 
 **What you get.** Sessions on several agents, plan mode, approvals with keyboard shortcuts, files, git (with pull requests and worktree tasks), a terminal, a browser whose elements you can reference in a message, image generation, a skills marketplace, MCP servers, voice and screen capture, and a one-step import of conversations, skills and MCP servers from Claude Code, Codex, opencode, zcode and omp (Settings → Import from other tools). Every session runs in the local `lynshen daemon`, so it keeps going when the window closes. You can follow and drive it from your phone through an end-to-end encrypted relay (Settings → Remote access).
 

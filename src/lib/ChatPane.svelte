@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import type { WebRef } from '$lib/browser.svelte';
+	import type { ProviderModel } from '$lib/settings/providerFields';
 	import type { PlanAction as PaneAction } from '$lib/PlanCard.svelte';
 
 	/** Configured provider (builtin or custom) with its model list — the page
@@ -10,7 +11,7 @@
 		name?: string;
 		base_url: string;
 		format: string;
-		models: { name: string; display_name?: string | null; context_window?: number; reasoning_efforts?: string[] }[];
+		models: ProviderModel[];
 	}
 
 	/** Imperative surface the page reaches through its pane registry: global
@@ -92,6 +93,7 @@
 	import Modal from '$lib/ui/Modal.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
+	import { acceptsImages } from '$lib/settings/providerFields';
 	import { planPages } from '$lib/planPages.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import Picker from '$lib/shell/Picker.svelte';
@@ -417,9 +419,15 @@
 					active: name === current,
 					context_window: typeof m.context_window === 'number' ? m.context_window : (prev?.context_window ?? 0),
 					max_output_tokens: typeof m.max_output_tokens === 'number' ? m.max_output_tokens : (prev?.max_output_tokens ?? 0),
-					reasoning_efforts: Array.isArray(m.reasoning_efforts)
-						? (m.reasoning_efforts as string[])
-						: (prev?.reasoning_efforts ?? [])
+					// A model configured not to think offers no tiers.
+					reasoning_efforts:
+						m.reasoning === false
+							? []
+							: Array.isArray(m.reasoning_efforts)
+								? (m.reasoning_efforts as string[])
+								: (prev?.reasoning_efforts ?? []),
+					...(m.reasoning === false ? { reasoning: false } : {}),
+					...(Array.isArray(m.input_modalities) ? { input_modalities: m.input_modalities as string[] } : {})
 				};
 			});
 	}
@@ -504,6 +512,21 @@
 	});
 
 	const isImage = (p: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(p);
+	// Whether the model takes images: what the engine reports for the running
+	// model, else (a draft, an older engine) its catalog or provider entry.
+	const takesImages = $derived.by(() => {
+		if (!session.draft && chat.inputModalities) return chat.inputModalities.includes('image');
+		const listed =
+			chat.modelCatalog.find((m) => m.model === chat.model)?.input_modalities ??
+			providersList.find((p) => p.id === chat.provider)?.models.find((m) => m.name === chat.model)?.input_modalities;
+		return acceptsImages({ input_modalities: listed });
+	});
+	/** Refuses an image for a model that takes none; true when it may attach. */
+	function imageAllowed(path: string): boolean {
+		if (takesImages) return true;
+		toast.error(t('chat.imageNotAccepted', { model: chat.modelLabel || chat.model, name: base(path) }));
+		return false;
+	}
 	const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 	// The agent trace (AgentRunsPanel, a workbench panel) of this session.
 	const traceable = $derived(caps(chat).agentTrace && !!onOpenTrace);
@@ -780,7 +803,7 @@
 		else if (!attachments.some((a) => a.path === path)) attachments.push({ path, image: false });
 	}
 	function addImage(path: string) {
-		if (images.some((i) => i.path === path)) return;
+		if (images.some((i) => i.path === path) || !imageAllowed(path)) return;
 		const n = ++imageSeq;
 		images.push({ n, path });
 		const token = `[图片 #${n}]`;
@@ -797,7 +820,8 @@
 	// show the result and errors surface immediately. 重试 looks for ffmpeg
 	// again (process_video): installed meanwhile, it is found without a restart.
 	async function attachVideo(path: string) {
-		if (videos.some((v) => v.path === path)) return;
+		// A video goes to the model as keyframe images.
+		if (videos.some((v) => v.path === path) || !imageAllowed(path)) return;
 		try {
 			const info = await processVideo(path);
 			videos.push({ path: info.path, frames: info.frames, duration: info.duration });
@@ -990,7 +1014,8 @@
 			const entry = chat.modelCatalog.find((m) => m.model === name);
 			chat.model = name;
 			chat.modelLabel = entry?.label ?? '';
-			if (entry?.reasoning_efforts?.length) {
+			if (entry?.reasoning === false) chat.efforts = [];
+			else if (entry?.reasoning_efforts?.length) {
 				chat.efforts = entry.reasoning_efforts;
 				if (!chat.efforts.includes(chat.effort)) chat.effort = defaultEffort(chat.efforts);
 			}

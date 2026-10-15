@@ -15,6 +15,8 @@
 	//                           (previewFiles.ts stands in for the files)
 	//   &trial[=used|404]       signed in; the first-use trial claim as the app
 	//                           runs it, with its grant card (main.ts answers it)
+	//   &textOnly               the engine reports a model that takes no images
+	//                           and does not think (`window.__chat` attaches files)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it).
 	import { onMount, untrack } from 'svelte';
@@ -134,6 +136,9 @@
 		feed({ type: 'status', message: 'ready' });
 	}
 
+	if (mode.has('textOnly'))
+		feed({ type: 'model_status', provider: 'my-llm', model: 'my-small-model', reasoning_effort: 'medium', reasoning_efforts: [], input_modalities: ['text'], context_window: 64000, context_limit: 48000, max_output_tokens: 8192, state: 'ready' });
+
 	// The canvas of ?shell&preview: the conversation, and a tab beside it
 	// for each file a chip opens (as +page.svelte places it).
 	let tiles = $state<TileLayout>(singleLeafLayout([chatTab(session.id)]));
@@ -157,7 +162,7 @@
 		const backdrop = mode.get('backdrop');
 		if (backdrop) document.documentElement.style.background = backdrop === 'black' ? '#000' : '#fff';
 		prefs.init();
-		Object.assign(window, { __prefs: prefs });
+		Object.assign(window, { __prefs: prefs, __chat: session.chat });
 		// As +page.svelte does once the sign-in is known.
 		if (mode.has('trial')) Object.assign(window, { __trial: trial, __trialDone: trial.signedIn() });
 	});

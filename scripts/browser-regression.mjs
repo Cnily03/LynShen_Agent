@@ -37,6 +37,72 @@ try {
   await page.getByRole('button',{name:'在浏览器中授权 ChatGPT / Codex'}).click();
   await expect(page.getByRole('button',{name:'重新打开授权页面'})).toBeVisible();
   assert.ok(await page.evaluate(() => window.__calls.some(c => c.command === 'provider_oauth_start' && c.args.provider === 'openai-codex')));
+  // A provider of one's own (提供商 → 添加 → 手动配置): the form checks the
+  // base URL, token counts and input kinds; each model keeps its window,
+  // output cap, thinking, effort tiers and input kinds; 编辑 reopens them.
+  await page.goto(base);
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  const providerForm = page.getByRole('dialog');
+  const field = (name) => providerForm.getByRole('textbox',{name,exact:true});
+  const tick = (name) => providerForm.getByRole('checkbox',{name,exact:true});
+  await field('Provider ID').fill('my-llm');
+  await field('Base URL').fill('llm.example.com/v1');
+  await field('模型名').fill('my-model');
+  await field('上下文窗口').fill('16k');
+  await field('最大输出').fill('32k');
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm.getByText('最大输出不能大于上下文窗口。')).toBeVisible();
+  await field('上下文窗口').fill('200k');
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await field('模型名').fill('my-small-model');
+  await field('上下文窗口').fill('64k');
+  await tick('图片').uncheck({force:true});
+  await tick('文本').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await expect(providerForm.getByText('至少勾选一种输入。')).toBeVisible();
+  await tick('文本').check({force:true});
+  await tick('支持思考（推理）').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm.getByText(/以 http:\/\/ 或 https:\/\/ 开头/)).toBeVisible();
+  await field('Base URL').fill('https://llm.example.com/v1');
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  const storedModels = () => page.evaluate(() => JSON.parse(localStorage.getItem('lynshen-custom-providers')).find((p) => p.id === 'my-llm').models
+    .map((m) => [m.name, m.context_window, m.max_output_tokens, m.reasoning, m.reasoning_efforts.join(' '), m.input_modalities.join(' ')]));
+  assert.deepEqual(await storedModels(), [
+    ['my-model', 200000, 32000, true, 'none low medium high xhigh', 'text image'],
+    ['my-small-model', 64000, 8192, false, 'none', 'text']
+  ]);
+  await page.locator('#pcard-my-llm .pcard-main').click();
+  await page.locator('#pcard-my-llm').getByRole('button',{name:'编辑',exact:true}).click();
+  await expect(field('Provider ID')).toBeDisabled();
+  await expect(field('Base URL')).toHaveValue('https://llm.example.com/v1');
+  await providerForm.getByRole('button',{name:'编辑 my-model'}).click();
+  await expect(field('上下文窗口')).toHaveValue('200k');
+  await field('上下文窗口').fill('1M');
+  await tick('关闭').uncheck({force:true});
+  await tick('Ultra').check({force:true});
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  assert.deepEqual((await storedModels())[0], ['my-model', 1000000, 32000, true, 'low medium high xhigh ultra', 'text image']);
+  // A model that takes no images and does not think: the composer refuses
+  // an image and shows no effort; one that takes images attaches it.
+  await page.goto(base + '?shell&textOnly');
+  await page.waitForFunction(() => window.__chat, null, {timeout:30000});
+  await expect(page.locator('.fbtn.effort')).toHaveCount(0);
+  await page.evaluate(() => { window.__chat.pendingAttach = ['/Users/me/Desktop/shot.png']; });
+  await expect(page.getByText('my-small-model 不接受图片输入，没有添加 shot.png。', {exact:false})).toBeVisible();
+  await expect(page.getByText('图片 #1')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__chat.handle({type:'model_status', provider:'my-llm', model:'my-model', reasoning_effort:'high', reasoning_efforts:['low','high'], input_modalities:['text','image'], context_window:200000, context_limit:150000, max_output_tokens:32000, state:'ready'});
+    window.__chat.pendingAttach = ['/Users/me/Desktop/shot.png'];
+  });
+  await expect(page.getByText('图片 #1')).toBeVisible();
+  await expect(page.locator('.fbtn.effort')).toHaveText('High');
   // Opening a panel beside a tab mounted the tab again (a TUI went blank).
   await page.goto(base + '?mosaic');
   const probe = page.locator('[data-probe="t0"]');

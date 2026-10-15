@@ -3,6 +3,7 @@
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
 	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
 	import TrashIcon from 'phosphor-svelte/lib/TrashIcon';
+	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimpleIcon';
 	import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircleIcon';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
 	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
@@ -15,13 +16,9 @@
 	import Button from '$lib/ui/Button.svelte';
 	import TextField from '$lib/ui/TextField.svelte';
 	import type { AccountInfo, DeepseekBalance } from '$lib/protocol';
+	import type { ProviderModel } from './providerFields';
 
-	interface ModelCfg {
-		name: string;
-		context_window?: number;
-		max_output_tokens?: number;
-		reasoning_efforts?: string[];
-	}
+	type ModelCfg = ProviderModel;
 	interface Provider {
 		id: string;
 		name?: string;
@@ -53,6 +50,7 @@
 		onLogout,
 		onSaveKey,
 		onSetDefault,
+		onEdit,
 		onDelete,
 		onRefreshModels,
 		onOpenMonoizeLogin,
@@ -79,6 +77,8 @@
 		onLogout: (id: string) => void;
 		onSaveKey: (id: string) => void;
 		onSetDefault: (p: Provider) => void;
+		/** Opens the provider's form (base URL, models); providers the user added. */
+		onEdit?: (p: Provider) => void;
 		onDelete: (id: string) => void;
 		onRefreshModels: () => void;
 		onOpenMonoizeLogin: () => void;
@@ -178,6 +178,7 @@
 				{#if authed || !provider.builtin}
 				<div class="erow end">
 					{#if authed && !isDefault}<Button variant="secondary" size="sm" onclick={() => onSetDefault(provider)}>{t('settings.account.setDefault')}</Button>{/if}
+					{#if !provider.builtin && onEdit}<Button variant="secondary" size="sm" onclick={() => onEdit(provider)}><PencilSimpleIcon size={13} /> {t('settings.account.editProvider')}</Button>{/if}
 					{#if authed}<Button variant="ghost" size="sm" onclick={() => onLogout(provider.id)}><SignOutIcon size={13} /> {t('settings.account.clearKey')}</Button>{/if}
 					{#if !provider.builtin}<Button variant="danger" size="sm" onclick={() => onDelete(provider.id)}><TrashIcon size={13} /> {t('common.delete')}</Button>{/if}
 				</div>

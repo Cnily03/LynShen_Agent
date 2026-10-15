@@ -16,6 +16,7 @@ import { toast } from './ui/toast.svelte';
 import { telemetry } from './telemetry.svelte';
 import { normalizeColor, parseTabIcon, type TabIcon } from './workbench/tabChrome';
 import { CHATS_ENABLED, lastActive, type Project, type Session, type WorktreeMeta } from './types';
+import { modelEfforts } from '$lib/settings/providerFields';
 
 /** Optional per-tab chrome persisted alongside the session id + title. */
 export interface SavedTabChrome {
@@ -1007,14 +1008,14 @@ export class SessionStore {
 	 */
 	async switchProvider(
 		id: string,
-		provider: { id: string; base_url: string; format: string; models: { name: string; reasoning_efforts?: string[] }[] },
+		provider: { id: string; base_url: string; format: string; models: { name: string; reasoning?: boolean; reasoning_efforts?: string[] }[] },
 		model: string,
 		/** Explicit effort pick (popover chip); must be one of the model's efforts. */
 		effort?: string
 	) {
 		const s = this.allSessions.find((x) => x.id === id);
 		if (!s) return;
-		const efforts = provider.models.find((m) => m.name === model)?.reasoning_efforts ?? [];
+		const efforts = modelEfforts(provider.models.find((m) => m.name === model));
 		const patch: Record<string, unknown> = {
 			provider: provider.id,
 			base_url: provider.base_url,
