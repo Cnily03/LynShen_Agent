@@ -3944,6 +3944,7 @@ pub fn run() {
             #[cfg(desktop)]
             autostart::autostart_set,
             native_import::import_native_session,
+            native_import::record_opencode_copy,
             agent_import::import_scan,
             agent_import::import_apply,
             pty_open,

@@ -15,7 +15,8 @@
 	import type { PickItem } from '$lib/models/catalog';
 	import { acpAgentsList, checkBackend, type AcpAgent } from '$lib/protocol';
 	import { loadBackendSettings, versionLabel } from '$lib/backends/settings';
-	import { CAPS, NATIVE_BACKEND_IDS, BACKEND_LABELS, type BackendId } from '$lib/backends';
+	import { isOpencodeAgent } from '$lib/backends/acp-agents';
+	import { CAPS, NATIVE_BACKEND_IDS, BACKEND_LABELS, type AcpAgentRef, type BackendId } from '$lib/backends';
 	import { t } from '$lib/i18n';
 	import type { ChatState } from '$lib/chat.svelte';
 	import { stripGroupSuffix, type ModelRow } from './modelRows';
@@ -45,7 +46,8 @@
 		onEffort,
 		onSwitch,
 		onBackend,
-		onRefreshModels
+		onRefreshModels,
+		gateway = null
 	}: {
 		chat: ChatState;
 		/** The engine has a model catalog (not ACP agents). */
@@ -62,9 +64,12 @@
 		onSelect: (command: string) => void;
 		onEffort: (effort: string) => void;
 		onSwitch: (name: SessionSwitch, on: boolean) => void;
-		onBackend?: (b: BackendId, acpAgent?: { id: string; name: string }) => void | Promise<void>;
+		onBackend?: (b: BackendId, acpAgent?: AcpAgentRef) => void | Promise<void>;
 		/** Re-request the model catalog (after an agent switch). */
 		onRefreshModels: () => void;
+		/** An OpenCode session: whether it runs on the LynShen gateway (null:
+		 *  no gateway switch here). */
+		gateway?: boolean | null;
 	} = $props();
 
 	// Opens above the model button, right edges aligned (the button sits at the
@@ -136,7 +141,7 @@
 		if (switching || (chat.backendId === 'acp' && chat.acpAgentId === agent.id)) return;
 		switching = true;
 		try {
-			await onBackend?.('acp', { id: agent.id, name: agent.name });
+			await onBackend?.('acp', { id: agent.id, name: agent.name, ...(isOpencodeAgent(agent) ? { opencode: true } : {}) });
 		} finally {
 			switching = false;
 		}
@@ -250,7 +255,7 @@
 		</section>
 
 
-		<SessionSwitches {chat} {onSwitch} thinking={false} />
+		<SessionSwitches {chat} {onSwitch} thinking={false} {gateway} />
 
 		{#if chat.backendId === 'lynshen' && chat.provider === 'lynshen' && chat.model}
 			{#key chat.model}<GroupPicker model={chat.model} />{/key}

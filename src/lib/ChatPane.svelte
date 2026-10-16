@@ -342,11 +342,21 @@
 
 	// The project history picker's sources: LynShen's own conversations, or the
 	// ones Claude Code / Codex saved in their own apps (picking one imports it).
-	const historySources = [
+	// OpenCode's, once an OpenCode agent is registered: picking one continues
+	// it in OpenCode, on a copy.
+	let opencodeListed = $state(false);
+	const historySources = $derived([
 		{ value: 'lynshen', label: 'LynShen' },
 		{ value: 'claude', label: 'Claude Code' },
-		{ value: 'codex', label: 'Codex' }
-	];
+		{ value: 'codex', label: 'Codex' },
+		...(opencodeListed ? [{ value: 'opencode', label: 'OpenCode' }] : [])
+	]);
+	/** OpenCode conversation → the daemon session its copy continues in. */
+	const opencodeCopies = new Map<string, string>();
+	$effect(() => {
+		if (chat.picker?.kind !== 'resume' || !chat.picker.history) return;
+		untrack(() => store.opencodeAgent().then((agent) => (opencodeListed = !!agent)));
+	});
 	// The selected tab follows the list shown (each opening starts on LynShen);
 	// a switch applies only if it is still the latest and the picker is open.
 	let historyTab = $state('lynshen');
@@ -359,12 +369,15 @@
 		if (!proj) return;
 		const req = ++historyReq;
 		const current = () => req === historyReq && chat.picker?.kind === 'resume' && !!chat.picker.history;
-		const from = source === 'claude' || source === 'codex' ? source : 'lynshen';
+		const from = source === 'claude' || source === 'codex' || source === 'opencode' ? source : 'lynshen';
 		try {
 			const items =
 				from === 'lynshen'
 					? await store.historyItems(proj, chat)
-					: (await nativeSessions(from, proj.path)).map((s) => ({
+					: (await nativeSessions(from, proj.path)).map((s) => {
+							if (from === 'opencode' && s.imported) opencodeCopies.set(s.id, s.imported);
+							return s;
+						}).map((s) => ({
 							id: s.id,
 							label: s.title || s.id.slice(0, 8),
 							detail: [s.origin, new Date(s.mtime_ms).toLocaleString(), s.imported ? t('shell.historySource.imported') : '']
@@ -372,7 +385,8 @@
 								.join(' · '),
 							active: false
 						}));
-			if (current()) chat.picker = { kind: 'resume', history: true, source: from, backend: from, items };
+			if (current())
+				chat.picker = { kind: 'resume', history: true, source: from, backend: from === 'opencode' ? 'acp' : from, items };
 		} catch (e) {
 			if (!current()) return;
 			toast.error(t('shell.historyFail', { msg: String(e) }));
@@ -1111,6 +1125,23 @@
 			chat.closePicker();
 			// A Claude Code / Codex conversation continues from a cleaned copy.
 			const source = picker?.source;
+			// An OpenCode one in OpenCode, on a copy OpenCode makes (opened
+			// again once there is one).
+			if (source === 'opencode') {
+				const proj = project;
+				const title = item?.label ?? '';
+				void store.opencodeAgent().then((entry) => {
+					if (!entry) {
+						toast.error(t('shell.historySource.opencodeMissing'));
+						return;
+					}
+					const agent = { id: entry.id, name: entry.name, opencode: true };
+					const copy = opencodeCopies.get(sid);
+					if (copy) store.openSaved(proj, copy, title, 'acp', agent);
+					else store.openForked(proj, sid, title, agent);
+				});
+				return;
+			}
 			if (source === 'claude' || source === 'codex') {
 				const proj = project;
 				const title = item?.label ?? '';
@@ -1171,8 +1202,13 @@
 		thinkingAsked = want;
 		untrack(() => send({ op: 'command', input: `/thinking ${want ? 'on' : 'off'}` }));
 	});
-	// Claude Code's session switches (SessionSwitches).
+	// Claude Code's session switches (SessionSwitches); an OpenCode session's
+	// gateway switch starts it again on the other provider.
 	function setSwitch(name: SessionSwitch, on: boolean) {
+		if (name === 'gateway') {
+			void store.applyToolProfile(session.id, on ? 'lynshen' : 'system');
+			return;
+		}
 		const command = name === 'ultracode' ? '/effort ultracode' : `/${name}`;
 		send({ op: 'command', input: `${command} ${on ? 'on' : 'off'}` });
 	}
@@ -1632,6 +1668,7 @@
 		bind:pickerSelIdx={selIdx}
 			onEffort={setEffort}
 			onSwitch={setSwitch}
+			gateway={chat.backendId === 'acp' && chat.acpOpencode ? !!session.gateway : null}
 			effortDisabled={!!pendingModel || chat.switching}
 			onApproval={setApprovalMode}
 			{styleMenu}

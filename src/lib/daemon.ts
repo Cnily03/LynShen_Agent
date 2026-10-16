@@ -91,6 +91,8 @@ export class DaemonClient {
 	#toDaemon = new Map<string, string>();
 	#toDesktop = new Map<string, string>();
 	#usage = new Map<string, UsageRefresh>();
+	/** Sessions watched here without a desktop tab (`copyAcp`), by id. */
+	#peeks = new Map<string, (frame: Frame) => void>();
 
 	constructor(
 		private endpoint: () => Promise<DaemonEndpoint>,
@@ -140,6 +142,41 @@ export class DaemonClient {
 		this.#toDaemon.set(desktopId, session);
 		this.#toDesktop.set(session, desktopId);
 		this.#write({ op: 'watch', session });
+	}
+
+	/** Has an ACP agent copy one of its conversations into a new daemon
+	 *  session (`engine.options.fork`), without a tab: waits until the agent
+	 *  has opened the copy (its `startup`), then closes the session, which
+	 *  the daemon keeps for a client to open. Returns its id. A copy that
+	 *  fails is hidden from the session lists and the error thrown. */
+	async copyAcp(cwd: string, engine: EngineSpec, title: string, timeoutMs = 120_000): Promise<string> {
+		await this.connect();
+		const reply = await this.request({ op: 'session_create', cwd, ...engine });
+		const session = String(reply.session);
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const done = (error?: Error) => {
+					clearTimeout(timer);
+					this.#peeks.delete(session);
+					if (error) reject(error);
+					else resolve();
+				};
+				const timer = setTimeout(() => done(new Error('the agent did not open the copy in time')), timeoutMs);
+				this.#peeks.set(session, (frame) => {
+					if (frame.type === 'error') done(new Error(String(frame.message)));
+					else if (frame.type === 'startup') done();
+				});
+				this.#write({ op: 'watch', session });
+			});
+			if (title) await this.post({ op: 'session_meta', session, title }).catch(() => {});
+			return session;
+		} catch (e) {
+			await this.post({ op: 'session_meta', session, hidden: true }).catch(() => {});
+			throw e;
+		} finally {
+			this.#write({ op: 'unwatch', session });
+			this.#write({ op: 'session_close', session });
+		}
 	}
 
 	/** Detaches every session: their desktop tabs are gone (the page was torn
@@ -281,6 +318,7 @@ export class DaemonClient {
 		}
 		const session = typeof frame.session === 'string' ? frame.session : undefined;
 		if (!session) return;
+		this.#peeks.get(session)?.(frame);
 		const desktopId = this.#toDesktop.get(session);
 		if (frame.type === 'session_closed') {
 			this.#forgetUsage(session);

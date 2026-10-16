@@ -199,8 +199,9 @@ export type Picker =
 			backend?: BackendId;
 			/** The project's history picker (source tabs), not an engine's /resume. */
 			history?: boolean;
-			/** Whose saved conversations are listed; claude / codex ones import. */
-			source?: 'lynshen' | 'claude' | 'codex';
+			/** Whose saved conversations are listed; claude / codex ones import,
+			 *  opencode ones continue in OpenCode on a copy. */
+			source?: 'lynshen' | 'claude' | 'codex' | 'opencode';
 	  }
 	| { kind: 'checkpoint'; items: ResumeItem[] }
 	| null;
@@ -751,6 +752,10 @@ export class ChatState {
 	 *  (shown instead of the generic ACP label). Set once at session creation. */
 	acpAgentId = '';
 	acpAgentName = '';
+	/** The ACP agent is OpenCode (`isOpencodeAgent`): approval modes and the
+	 *  LynShen gateway switch (`caps()` gives it OpenCode's). Known from the
+	 *  agent picked, else from its registry entry when the session starts. */
+	acpOpencode = $state(false);
 
 	messages = $state<Msg[]>([]);
 	provider = $state('');

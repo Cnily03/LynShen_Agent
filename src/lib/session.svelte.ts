@@ -1,14 +1,15 @@
 import { AUTO_CONTINUE, ChatState, UNTITLED } from './chat.svelte';
-import { acpAgentsList, closeSession, createChatDir, daemon, hostSession, listDir, sessionMeta, sessionHistory, defaultWorkspaceDir, writeConfig, git, type FsEntry, type HistoryItem } from './protocol';
+import { acpAgentsList, closeSession, recordOpencodeCopy, createChatDir, daemon, hostSession, listDir, sessionMeta, sessionHistory, defaultWorkspaceDir, writeConfig, git, type AcpAgent, type FsEntry, type HistoryItem } from './protocol';
 import { chatFolderName } from './chatFolder';
 import { savedEmpty } from './savedEmpty';
 import { DaemonError, type EngineSpec } from './daemon';
 import { canHandOffToTui, isValidResumeSessionId } from './tuiHandoff';
-import { caps, normalizeBackendId, type BackendId } from './backends';
+import { caps, normalizeBackendId, type AcpAgentRef, type BackendId } from './backends';
 import { createLynShenAdapter } from './backends/lynshen';
 import { clearDraft, dispatch, dropHeldOps, holdOps, ioFor, markDraft, peekHeldOps, registerAdapter, startDraft, unregisterAdapter } from './backends/router';
 import { buildBackendOpts, defaultBackendFor } from './backends/settings';
-import { agentEnv } from './backends/acp-agents';
+import { agentEnv, isOpencodeAgent } from './backends/acp-agents';
+import { checkOpencode, gatewayByDefault, opencodeAgent } from './backends/opencode';
 import { toEngineMode } from './approval';
 import { getLocale, t } from '$lib/i18n';
 import { prefs } from './prefs.svelte';
@@ -40,7 +41,7 @@ export interface SavedProject extends SavedTabChrome {
 		title: string;
 		backend?: string;
 		/** backend 为 'acp' 时：驱动该会话的 registry agent（重启动/恢复时必需）。 */
-		acpAgent?: { id: string; name: string };
+		acpAgent?: AcpAgentRef;
 		archived?: boolean;
 		pinned?: boolean;
 		/** The conversation was handed to the native TUI (resume by `sid`).
@@ -58,7 +59,7 @@ export interface SavedProject extends SavedTabChrome {
 	/** 本项目最近一次新建会话所用的引擎后端（缺省 = lynshen）。 */
 	lastBackend?: string;
 	/** lastBackend 为 'acp' 时：上次选择的 ACP agent。 */
-	lastAcpAgent?: { id: string; name: string };
+	lastAcpAgent?: AcpAgentRef;
 	/** 对话分组（见 Project.chats）。 */
 	chats?: boolean;
 	/** 不属于任何项目的对话（见 Project.home）。 */
@@ -224,13 +225,14 @@ export class SessionStore {
 	 *  registry agent backs the session, for spawn opts and display. `reuseId`
 	 *  re-applies a persisted desktop id (layout chat tiles key on it) unless
 	 *  this run already spawned it. */
-	#newSession(backendId: BackendId, acpAgent?: { id: string; name: string }, reuseId?: string): Session {
+	#newSession(backendId: BackendId, acpAgent?: AcpAgentRef, reuseId?: string): Session {
 		const id = reuseId && !this.allSessions.some((s) => s.id === reuseId) ? reuseId : this.uid();
 		const chat = new ChatState(backendId);
 		chat.bindRunKey(id);
 		if (acpAgent) {
 			chat.acpAgentId = acpAgent.id;
 			chat.acpAgentName = acpAgent.name;
+			chat.acpOpencode = !!acpAgent.opencode;
 		}
 		const adapter = createLynShenAdapter();
 		registerAdapter(id, adapter);
@@ -280,7 +282,7 @@ export class SessionStore {
 		s.chat.taskOutputs = {};
 		// What this chat already shows of a claude conversation is richer than
 		// the daemon's replay of it.
-		if (s.backendId === 'claude' && s.chat.messages.some((m) => m.kind === 'user')) s.chat.keepNextTranscript = true;
+		if ((s.backendId === 'claude' || s.backendId === 'acp') && s.chat.messages.some((m) => m.kind === 'user')) s.chat.keepNextTranscript = true;
 		const program = {
 			...(base?.bin_override ? { bin: base.bin_override } : {}),
 			...(base?.env ? { env: base.env } : {})
@@ -318,13 +320,32 @@ export class SessionStore {
 						})
 					: s.backendId === 'acp'
 						? // An ACP agent runs the command its registry entry names.
-							acpAgentsList().then((agents) => {
+							acpAgentsList().then(async (agents) => {
 								const entry = agents.find((a) => a.id === s.acpAgent?.id);
 								if (!entry) throw new Error(`unknown ACP agent ${s.acpAgent?.id ?? ''}`);
+								// OpenCode: approval modes and the LynShen gateway (the daemon's
+								// engines/opencode.rs); 1.x only.
+								const opencode = isOpencodeAgent(entry);
+								s.chat.acpOpencode = opencode;
+								if (s.acpAgent) s.acpAgent = { id: s.acpAgent.id, name: s.acpAgent.name, ...(opencode ? { opencode } : {}) };
+								if (opencode) await checkOpencode(entry);
+								// A new OpenCode conversation runs on the LynShen gateway when this
+								// computer is signed in; a reopened one as it last ran.
+								if (opencode && s.gateway === undefined && !s.chat.sessionId && !resume) s.gateway = gatewayByDefault();
 								return {
 									engine: 'acp',
-									// The agent's own environment wins over the backend's.
-									options: { command: entry.command, args: entry.args, env: agentEnv(entry, base?.env) }
+									options: {
+										command: entry.command,
+										args: entry.args,
+										// The agent's own environment wins over the backend's.
+										env: agentEnv(entry, base?.env),
+										acp_agent: { id: entry.id, name: entry.name },
+										...(opencode
+											? { approval_mode: mode, ...(s.gateway !== undefined ? { lynshen_gateway: s.gateway } : {}) }
+											: {}),
+										// Continuing a conversation of the agent's: a copy (session/fork).
+										...(typeof extraOpts?.fork === 'string' ? { fork: extraOpts.fork } : {})
+									}
 								};
 							})
 						: Promise.resolve(undefined);
@@ -391,7 +412,7 @@ export class SessionStore {
 		project: Project,
 		firstMessage?: string,
 		backend?: BackendId,
-		acpAgent?: { id: string; name: string },
+		acpAgent?: AcpAgentRef,
 		model?: string
 	) {
 		// Only the lynshen engine has a chat mode.
@@ -506,7 +527,7 @@ export class SessionStore {
 	 * (model catalog, commands, session id…). No-op once the first user message
 	 * has been sent — the conversation can't move engines.
 	 */
-	async switchBackend(id: string, backend: BackendId, acpAgent?: { id: string; name: string }) {
+	async switchBackend(id: string, backend: BackendId, acpAgent?: AcpAgentRef) {
 		const s = this.allSessions.find((x) => x.id === id);
 		if (!s) return;
 		if (s.backendId === backend && (backend !== 'acp' || s.acpAgent?.id === acpAgent?.id)) return;
@@ -533,6 +554,7 @@ export class SessionStore {
 			s.acpAgent = acpAgent;
 			chat.acpAgentId = acpAgent.id;
 			chat.acpAgentName = acpAgent.name;
+			chat.acpOpencode = !!acpAgent.opencode;
 			if (project) project.lastAcpAgent = acpAgent;
 		} else {
 			s.acpAgent = undefined;
@@ -554,7 +576,7 @@ export class SessionStore {
 	}
 
 	/** A draft's backend changes: only the choice, nothing starts. */
-	#redraft(s: Session, backend: BackendId, acpAgent?: { id: string; name: string }) {
+	#redraft(s: Session, backend: BackendId, acpAgent?: AcpAgentRef) {
 		const chat = new ChatState(backend);
 		chat.bindRunKey(s.id);
 		chat.title = s.chat.title;
@@ -562,6 +584,7 @@ export class SessionStore {
 		if (agent) {
 			chat.acpAgentId = agent.id;
 			chat.acpAgentName = agent.name;
+			chat.acpOpencode = !!agent.opencode;
 		}
 		const adapter = createLynShenAdapter();
 		registerAdapter(s.id, adapter);
@@ -666,11 +689,14 @@ export class SessionStore {
 			engine?: string;
 			group?: string | null;
 			gateway?: boolean;
+			/** ACP: the registry agent that runs it. */
+			acp_agent?: AcpAgentRef | null;
 		},
 		reuseId?: string,
 		atStart = false
 	): string {
-		const s = this.#newSession(normalizeBackendId(rec.engine), undefined, reuseId);
+		const backend = normalizeBackendId(rec.engine);
+		const s = this.#newSession(backend, backend === 'acp' ? (rec.acp_agent ?? undefined) : undefined, reuseId);
 		if (rec.gateway) s.gateway = true;
 		s.dormant = true;
 		s.restored = true;
@@ -694,9 +720,10 @@ export class SessionStore {
 		chrome: SavedTabChrome,
 		reuseId?: string,
 		gateway?: boolean,
-		model?: string
+		model?: string,
+		acpAgent?: AcpAgentRef
 	): string {
-		const id = this.listDormant(project, { session: sid, title, archived, engine: backend, gateway }, reuseId);
+		const id = this.listDormant(project, { session: sid, title, archived, engine: backend, gateway, acp_agent: acpAgent }, reuseId);
 		const s = project.sessions.find((x) => x.id === id)!;
 		if (model) s.model = model;
 		if (chrome.color) s.color = chrome.color;
@@ -860,7 +887,7 @@ export class SessionStore {
 		archived = false,
 		chrome?: SavedTabChrome,
 		reuseId?: string,
-		acpAgent?: { id: string; name: string },
+		acpAgent?: AcpAgentRef,
 		surface?: 'tui',
 		gateway?: boolean,
 		model?: string
@@ -898,7 +925,7 @@ export class SessionStore {
 		backend: BackendId = 'lynshen',
 		archived = false,
 		chrome?: SavedTabChrome,
-		acpAgent?: { id: string; name: string }
+		acpAgent?: AcpAgentRef
 	) {
 		const s = this.#newSession(backend, backend === 'acp' ? acpAgent : undefined, reuseId);
 		if (title) s.chat.title = title;
@@ -1121,14 +1148,15 @@ export class SessionStore {
 		}
 	}
 
-	/** Run this Claude Code / Codex session through the LynShen gateway
-	 *  (`lynshen`, optionally on `model`) or the provider in the user's own
-	 *  config (`system`). Only this session's process changes; other Claude
-	 *  Code / Codex sessions on the machine keep their config. */
+	/** Run this Claude Code / Codex / OpenCode session through the LynShen
+	 *  gateway (`lynshen`, optionally on `model`) or the provider in the user's
+	 *  own config (`system`). Only this session's process changes; other
+	 *  sessions of that agent on the machine keep their config. */
 	async applyToolProfile(id: string, mode: 'system' | 'lynshen', model?: string) {
 		const s = this.allSessions.find((x) => x.id === id);
 		if (!s) return;
-		if (s.backendId !== 'claude' && s.backendId !== 'codex') return;
+		const opencode = s.backendId === 'acp' && s.chat.acpOpencode;
+		if (s.backendId !== 'claude' && s.backendId !== 'codex' && !opencode) return;
 		s.gateway = mode === 'lynshen';
 		// A draft starts that way with its first message.
 		if (s.draft) {
@@ -1402,7 +1430,7 @@ export class SessionStore {
 	}
 
 	/** Open a saved conversation from a history picker in a new tab. */
-	openSaved(project: Project, sid: string, title: string, backend: BackendId) {
+	openSaved(project: Project, sid: string, title: string, backend: BackendId, acpAgent?: AcpAgentRef) {
 		// Outside any project, a conversation opens in the folder it ran in.
 		const dir = project.home ? this.#historyDirs.get(sid) : undefined;
 		if (dir && !samePath(dir, project.path)) project = this.#homeFor(dir);
@@ -1414,7 +1442,35 @@ export class SessionStore {
 			this.activeId = open.id;
 			return;
 		}
-		this.activeId = this.restoreSession(project, sid, title, backend);
+		this.activeId = this.restoreSession(project, sid, title, backend, false, undefined, undefined, acpAgent);
+	}
+
+	/** The registered OpenCode agent, if any. */
+	opencodeAgent(): Promise<AcpAgent | undefined> {
+		return opencodeAgent();
+	}
+
+	/** Continues OpenCode conversation `original` in a new tab, on a copy
+	 *  OpenCode makes (`session/fork`); the original stays as it was. The copy
+	 *  is recorded, so opening the original again opens the copy. */
+	openForked(project: Project, original: string, title: string, agent: AcpAgentRef) {
+		const s = this.#newSession('acp', { ...agent, opencode: true });
+		if (title) s.chat.title = title;
+		// The copy holds the conversation: the backend stays.
+		s.restored = true;
+		project.sessions.push(s);
+		project.lastBackend = 'acp';
+		project.lastAcpAgent = s.acpAgent;
+		this.activeId = s.id;
+		this.#spawn(s, project.path, undefined, { fork: original })
+			.then(() => {
+				const copy = s.chat.sessionId;
+				if (!copy) return;
+				if (title) sessionMeta(copy, { title }).catch(() => {});
+				recordOpencodeCopy(original, copy).catch(() => {});
+			})
+			.catch((e) => this.#engineFailed(s.chat, e));
+		return s.id;
 	}
 
 	/** The tab was closed (or its workspace swapped out) while an async
@@ -1520,7 +1576,7 @@ export class SessionStore {
 			// any, never start a bare 'acp' (there is no command to run).
 			const savedAgent =
 				t.acpAgent && typeof t.acpAgent.id === 'string' && typeof t.acpAgent.name === 'string'
-					? { id: t.acpAgent.id, name: t.acpAgent.name }
+					? { id: t.acpAgent.id, name: t.acpAgent.name, ...(t.acpAgent.opencode === true ? { opencode: true } : {}) }
 					: undefined;
 			let acpAgent = backend === 'acp' ? (savedAgent ?? proj.lastAcpAgent) : undefined;
 			if (backend === 'acp' && !acpAgent) {
@@ -1537,10 +1593,10 @@ export class SessionStore {
 			// with the connection, and the daemon resumed the engine.
 			const surface = undefined;
 			// The conversation waits in the daemon: list it now and open it
-			// when it is shown (ACP needs its agent start path below).
-			const dormant = sid && !surface && backend !== 'acp';
+			// when it is shown (an ACP one with its agent).
+			const dormant = sid && !surface;
 			const id = dormant
-				? this.#restoreDormant(proj, sid, t.title, backend, !!t.archived, chrome, t.id, t.gateway === true, t.model)
+				? this.#restoreDormant(proj, sid, t.title, backend, !!t.archived, chrome, t.id, t.gateway === true, t.model, acpAgent)
 				: sid
 				? this.restoreSession(
 						proj,
@@ -1603,7 +1659,11 @@ export class SessionStore {
 					typeof p.lastAcpAgent.id === 'string' &&
 					typeof p.lastAcpAgent.name === 'string'
 				) {
-					proj.lastAcpAgent = { id: p.lastAcpAgent.id, name: p.lastAcpAgent.name };
+					proj.lastAcpAgent = {
+						id: p.lastAcpAgent.id,
+						name: p.lastAcpAgent.name,
+						...(p.lastAcpAgent.opencode === true ? { opencode: true } : {})
+					};
 				}
 				if (p.worktree) {
 					proj.worktree = p.worktree;

@@ -80,3 +80,12 @@ export function agentEnv(
 	if (isOpencodeAgent(agent) && !env.OPENCODE_SERVER_PASSWORD) env.OPENCODE_SERVER_PASSWORD = secret();
 	return env;
 }
+
+/** The version an OpenCode `--version` printed, when it is 2.x or later
+ *  (`@opencode/cli`), which the desktop does not run; null for 1.x or an
+ *  unreadable version. */
+export function opencodeRefusal(version: string | undefined | null): string | null {
+	const found = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
+	if (!found) return null;
+	return Number(found[1]) >= 2 ? found[0] : null;
+}

@@ -22,7 +22,8 @@
 		type AcpPreset,
 		type BackendStatus
 	} from '$lib/protocol';
-	import { formatArgs, slugifyAgentId, tokenizeArgs } from '$lib/backends/acp-agents';
+	import { formatArgs, isOpencodeAgent, opencodeRefusal, slugifyAgentId, tokenizeArgs } from '$lib/backends/acp-agents';
+	import { onWindows } from '$lib/sandbox/request';
 	import { formatEnvLines, parseEnvLines, versionLabel } from '$lib/backends/settings';
 	import BackendIcon from '$lib/BackendIcon.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
@@ -50,7 +51,10 @@
 	let draft = $state({ name: '', command: '', args: '', env: '' });
 	let draftError = $state('');
 	// How each preset's program is installed (shown while it is missing).
-	const PRESET_INSTALL: Record<string, string> = { opencode: 'npm i -g opencode-ai' };
+	const PRESET_INSTALL: Record<string, string> = { opencode: 'npm i -g opencode-ai@1' };
+	// OpenCode on Windows is a preview: its commands run in PowerShell there,
+	// and stopping it is less tested.
+	const windows = onWindows();
 
 	function syncTexts() {
 		for (const a of agents) {
@@ -169,6 +173,7 @@
 			<div class="amain">
 				<div class="ahead">
 					<span class="aname">{preset.name}</span>
+					{#if windows && preset.id === 'opencode'}<span class="tag" title={t('settings.acp.previewHint')}>{t('settings.acp.preview')}</span>{/if}
 					{#if preset.path}
 						<span class="astate ok"><CheckCircleIcon size={12} /> {t('settings.acp.found')}</span>
 					{:else}
@@ -191,8 +196,13 @@
 			<div class="amain">
 				<div class="ahead">
 					<span class="aname">{agent.name}</span>
+					{#if windows && isOpencodeAgent(agent)}<span class="tag" title={t('settings.acp.previewHint')}>{t('settings.acp.preview')}</span>{/if}
 					{#if st === 'checking'}
 						<span class="astate dim">{t('settings.acp.checking')}</span>
+					{:else if st && st.found && isOpencodeAgent(agent) && opencodeRefusal(st.version)}
+						<span class="astate warn" title={t('shell.backend.opencodeV2', { version: opencodeRefusal(st.version) ?? '' })}
+							><WarningCircleIcon size={12} /> {t('settings.acp.opencodeV2', { version: opencodeRefusal(st.version) ?? '' })}</span
+						>
 					{:else if st && st.found}
 						<span class="astate ok"><CheckCircleIcon size={12} /> {versionLabel(st) || t('settings.acp.found')}</span>
 					{:else if st}
@@ -334,6 +344,14 @@
 	}
 	.astate.dim {
 		color: var(--dim2);
+	}
+	.tag {
+		flex-shrink: 0;
+		padding: 0 6px;
+		border-radius: var(--r-xs, 4px);
+		border: 1px solid var(--hairline);
+		font-size: var(--fs-2xs);
+		color: var(--dim);
 	}
 	.ahint {
 		font-size: var(--fs-2xs);

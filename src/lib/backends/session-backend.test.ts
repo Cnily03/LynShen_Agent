@@ -4,6 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('$lib/protocol', () => ({
 	hostSession: vi.fn(() => Promise.resolve()),
 	daemon: { sessionOf: vi.fn(() => 'conv-1') },
+	acpAgentsList: vi.fn(() => Promise.resolve([])),
+	acpAgentCheck: vi.fn(() => Promise.resolve({ found: true, version: '1.19.0' })),
+	recordOpencodeCopy: vi.fn(() => Promise.resolve()),
+	sessionMeta: vi.fn(() => Promise.resolve()),
 	closeSession: vi.fn(() => Promise.resolve()),
 	sendOp: vi.fn(() => Promise.resolve()),
 	sendLine: vi.fn(() => Promise.resolve()),
@@ -13,7 +17,8 @@ vi.mock('$lib/protocol', () => ({
 }));
 
 import { SessionStore } from '$lib/session.svelte';
-import { hostSession, sendOp, sendLine } from '$lib/protocol';
+import { acpAgentCheck, acpAgentsList, hostSession, recordOpencodeCopy, sendOp, sendLine } from '$lib/protocol';
+import { caps } from './index';
 import { adapterFor, dispatch } from './router';
 import { setLocale } from '$lib/i18n';
 import type { Project } from '$lib/types';
@@ -160,4 +165,75 @@ describe('SessionStore × backends', () => {
 		store.removeSession(id);
 		expect(adapterFor(id)).toBeUndefined();
 	});
+
+	describe('OpenCode', () => {
+		const opencode = { id: 'opencode', name: 'OpenCode', command: '/opt/homebrew/bin/opencode', args: ['acp'], env: {} };
+		const settle = async () => {
+			for (let i = 0; i < 5; i++) await flush();
+		};
+
+		it('starts with its approval mode, the gateway when signed in, and its agent', async () => {
+			vi.mocked(acpAgentsList).mockResolvedValue([opencode]);
+			vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ id: 'u1', username: 'x' }) });
+			try {
+				const store = new SessionStore();
+				const p = proj();
+				store.projects.push(p);
+				const id = store.addSession(p, undefined, 'acp', { id: 'opencode', name: 'OpenCode' });
+				begin(id);
+				await settle();
+				const spec = vi.mocked(hostSession).mock.calls[0][5] as { engine: string; options: Record<string, unknown> };
+				expect(spec).toMatchObject({
+					engine: 'acp',
+					options: {
+						command: opencode.command,
+						args: ['acp'],
+						approval_mode: 'read-only',
+						lynshen_gateway: true,
+						acp_agent: { id: 'opencode', name: 'OpenCode' }
+					}
+				});
+				expect((spec.options.env as Record<string, string>).OPENCODE_SERVER_PASSWORD).toMatch(/^[0-9a-f]{48}$/);
+				const s = p.sessions[0];
+				expect(s.chat.acpOpencode).toBe(true);
+				expect(s.acpAgent).toEqual({ id: 'opencode', name: 'OpenCode', opencode: true });
+				expect(caps(s.chat).approvalModes).toBe(true);
+				// Saved with the flag, so a restored tab knows before it starts.
+				s.chat.sessionId = 'sid-1';
+				expect(store.serialize()[0].tabs?.[0].acpAgent).toEqual({ id: 'opencode', name: 'OpenCode', opencode: true });
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it('refuses OpenCode 2.x before the daemon is asked, in the UI language', async () => {
+			vi.mocked(acpAgentsList).mockResolvedValue([{ ...opencode, command: 'opencode' }]);
+			vi.mocked(acpAgentCheck).mockResolvedValue({ found: true, version: '2.0.29' });
+			const store = new SessionStore();
+			const p = proj();
+			store.projects.push(p);
+			const id = store.addSession(p, undefined, 'acp', { id: 'opencode', name: 'OpenCode', opencode: true });
+			begin(id);
+			await settle();
+			expect(hostSession).not.toHaveBeenCalled();
+			const errors = p.sessions[0].chat.messages.filter((m) => m.kind === 'error');
+			expect(JSON.stringify(errors)).toContain('只支持 OpenCode 1.x');
+		});
+
+		it('continues an OpenCode conversation in a new tab on a copy, and records it', async () => {
+			vi.mocked(acpAgentsList).mockResolvedValue([{ ...opencode, command: '/usr/bin/opencode' }]);
+			vi.mocked(acpAgentCheck).mockResolvedValue({ found: true, version: '1.19.0' });
+			const store = new SessionStore();
+			const p = proj();
+			store.projects.push(p);
+			const id = store.openForked(p, 'ses_orig', 'Fix it', { id: 'opencode', name: 'OpenCode' });
+			await settle();
+			expect(store.activeId).toBe(id);
+			const spec = vi.mocked(hostSession).mock.calls[0][5] as { options: Record<string, unknown> };
+			expect(spec.options.fork).toBe('ses_orig');
+			expect(p.sessions[0].chat.title).toBe('Fix it');
+			expect(recordOpencodeCopy).toHaveBeenCalledWith('ses_orig', 'conv-1');
+		});
+	});
 });
+

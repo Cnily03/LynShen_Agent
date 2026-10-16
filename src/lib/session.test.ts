@@ -603,19 +603,34 @@ describe('SessionStore lifecycle', () => {
 		expect(s.draft).toBe(true);
 		begin(s.id);
 		await flush();
-		expect(lastSpec()).toEqual({ engine: 'acp', options: { command: 'gemini', args: ['--experimental-acp'], env: {} } });
+		expect(lastSpec()).toEqual({
+			engine: 'acp',
+			// The registry entry names the agent as it is now.
+			options: { command: 'gemini', args: ['--experimental-acp'], env: {}, acp_agent: { id: 'gemini', name: 'Gemini' } }
+		});
 	});
 
-	it('a restored acp tab with a sid reopens its conversation right away', async () => {
+	it('a restored acp tab with a sid waits, and reopens its conversation with its agent when shown', async () => {
 		const agent = { id: 'gemini', name: 'Gemini CLI' };
 		const store = new SessionStore();
 		await store.restore([
 			{ id: 'p1', name: 'p1', path: '/tmp/p1', tabs: [{ id: 't1', sid: 'acp-1', title: 'A', backend: 'acp', acpAgent: agent }] }
 		]);
 		const s = store.projects[0].sessions[0];
-		expect(s.dormant).toBeUndefined();
+		expect(s.dormant).toBe(true);
+		expect(s.acpAgent).toEqual(agent);
 		await flush();
-		expect(hostSession).toHaveBeenCalledWith('t1', '/tmp/p1', 'acp-1', undefined, false, expect.objectContaining({ engine: 'acp' }));
+		expect(hostSession).not.toHaveBeenCalled();
+		store.wake(s.id);
+		await flush();
+		expect(hostSession).toHaveBeenCalledWith(
+			't1',
+			'/tmp/p1',
+			'acp-1',
+			undefined,
+			false,
+			expect.objectContaining({ engine: 'acp', options: expect.objectContaining({ acp_agent: { id: 'gemini', name: 'Gemini' } }) })
+		);
 	});
 
 	it('acp tabs without a saved agent fall back to the project lastAcpAgent', async () => {
@@ -1186,7 +1201,7 @@ describe('sessions in the lynshen daemon', () => {
 		await flush();
 		expect(hostSession).toHaveBeenCalledWith(acp, p.path, undefined, undefined, false, {
 			engine: 'acp',
-			options: { command: 'gemini', args: ['--experimental-acp'], env: {} }
+			options: { command: 'gemini', args: ['--experimental-acp'], env: {}, acp_agent: { id: 'gemini', name: 'Gemini' } }
 		});
 	});
 

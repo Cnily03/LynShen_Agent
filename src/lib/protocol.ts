@@ -209,7 +209,7 @@ export function installCliCommand(): Promise<string> {
 
 // Conversations Claude Code / Codex saved in their own apps, imported as a
 // cleaned copy that LynShen resumes (src-tauri/src/native_import.rs).
-export type NativeSource = 'claude' | 'codex';
+export type NativeSource = 'claude' | 'codex' | 'opencode';
 export interface NativeSession {
 	id: string;
 	title: string;
@@ -221,8 +221,14 @@ export interface NativeSession {
 export function nativeSessions(source: NativeSource, cwd: string): Promise<NativeSession[]> {
 	return invoke('native_sessions', { source, cwd });
 }
-export function importNativeSession(source: NativeSource, cwd: string, id: string): Promise<{ id: string; title: string }> {
+export function importNativeSession(source: 'claude' | 'codex', cwd: string, id: string): Promise<{ id: string; title: string }> {
 	return invoke('import_native_session', { source, cwd, id });
+}
+/** Records that OpenCode conversation `from` continues in daemon session `to`
+ *  (a copy OpenCode made): the import lists show it as imported, and opening
+ *  it again opens the copy. */
+export function recordOpencodeCopy(from: string, to: string): Promise<void> {
+	return invoke('record_opencode_copy', { from, to });
 }
 
 // 一键导入: what the other coding agents on this machine have — conversations
@@ -288,8 +294,8 @@ export interface ImportOutcome {
 	target: string | null;
 	title: string | null;
 	cwd: string | null;
-	/** The backend the copy continues on. */
-	engine: 'lynshen' | 'claude' | 'codex' | null;
+	/** The backend the copy continues on ('acp': OpenCode, on a copy it made). */
+	engine: 'lynshen' | 'claude' | 'codex' | 'acp' | null;
 	cwd_exists: boolean;
 	error: string | null;
 }

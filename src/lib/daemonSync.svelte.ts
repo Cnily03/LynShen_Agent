@@ -48,8 +48,11 @@ interface DaemonWorkspace {
 	projects: DaemonProject[];
 }
 
-/** Engines a listed session can be opened on (ACP needs its registry agent). */
+/** Engines a listed session can be opened on; an ACP session also needs the
+ *  registry agent it was started with (`acp_agent`, newer daemons). */
 const LISTED_ENGINES = new Set(['lynshen', 'claude', 'codex']);
+const listed = (r: { engine?: string; acp_agent?: unknown }) =>
+	LISTED_ENGINES.has(r.engine ?? 'lynshen') || (r.engine === 'acp' && !!r.acp_agent);
 /** A session created this recently may still be on its way to its tab. */
 const NEW_SESSION_GRACE_MS = 10_000;
 
@@ -286,7 +289,7 @@ export class DaemonSync {
 			}
 			if (daemon.desktopOf(r.session)) continue;
 			if (opening && Date.now() - r.created_at < NEW_SESSION_GRACE_MS) continue;
-			if (!LISTED_ENGINES.has(r.engine ?? 'lynshen')) continue;
+			if (!listed(r)) continue;
 			// A conversation opened elsewhere without a first message is listed
 			// once it has one.
 			if (savedEmpty(r)) continue;

@@ -391,6 +391,33 @@ fn apply(roots: &Roots, selection: Selection) -> Vec<Outcome> {
     out
 }
 
+/// OpenCode's conversations of `cwd`, newest first, for a history picker:
+/// `imported` names the daemon session a copy continues in.
+pub fn opencode_sessions(cwd: &str) -> Vec<native_import::NativeSession> {
+    opencode_sessions_in(&Roots::real(), cwd)
+}
+
+fn opencode_sessions_in(roots: &Roots, cwd: &str) -> Vec<native_import::NativeSession> {
+    let registry = native_import::load_registry(&roots.registry());
+    let mut report = sessions::Report::default();
+    let mut found: Vec<sessions::Found> = opencode::scan(roots, opencode::Tool::Opencode, &registry, &mut report)
+        .into_iter()
+        .filter(|s| native_import::same_dir(&s.cwd, cwd))
+        .collect();
+    found.sort_by_key(|s| std::cmp::Reverse(s.updated_at_ms));
+    found.truncate(50);
+    found
+        .into_iter()
+        .map(|s| native_import::NativeSession {
+            imported: opencode::copied_in_opencode(&registry, opencode::Tool::Opencode, &s.id),
+            title: s.title,
+            mtime_ms: s.updated_at_ms,
+            origin: "OpenCode".to_string(),
+            id: s.id,
+        })
+        .collect()
+}
+
 // --- commands ----------------------------------------------------------------
 
 /// Everything the other agents on this machine have that LynShen can take
