@@ -428,7 +428,7 @@ pub fn monoize_oauth_start() -> Result<Value, String> {
 }
 
 #[tauri::command(async)]
-pub fn monoize_oauth_poll(user_code: String) -> Result<Value, String> {
+pub fn monoize_oauth_poll(app: tauri::AppHandle, user_code: String) -> Result<Value, String> {
     let attempt = pending()
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -486,6 +486,9 @@ pub fn monoize_oauth_poll(user_code: String) -> Result<Value, String> {
         );
         return Err(error);
     }
+    // Sign-in finishes in the browser: come back to the front, also when the consent
+    // page's lynshen://auth link did not open the app (gateway spec DA-7a).
+    crate::show_main_window(&app);
     Ok(json!({"user": response["user"]}))
 }
 

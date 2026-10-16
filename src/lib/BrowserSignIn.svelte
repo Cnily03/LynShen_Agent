@@ -3,6 +3,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import type { MonoizeUser } from '$lib/protocol';
+	import { pollForSignIn, type SignInPoll } from '$lib/signInPoll';
 	import { t } from '$lib/i18n';
 	import Button from '$lib/ui/Button.svelte';
 	let { onSuccess, autoStart = false }: { autoStart?: boolean; onSuccess: (user: MonoizeUser) => void } = $props();
@@ -15,11 +16,10 @@
 	let showAlternates = $state(false);
 	let altTimer: ReturnType<typeof setTimeout> | undefined;
 	let generation = 0;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	let wake: (() => void) | undefined;
+	let polling: SignInPoll | undefined;
 	function cancel() {
 		generation++;
-		clearTimeout(timer); clearTimeout(altTimer); wake?.(); wake = undefined;
+		clearTimeout(altTimer); polling?.stop(); polling = undefined;
 		if (code) void invoke('monoize_oauth_cancel', { userCode: code }).catch(() => {});
 		busy = false; code = ''; alternates = []; showAlternates = false;
 	}
@@ -39,13 +39,12 @@
 			alternates = attempt.alternates ?? [];
 			altTimer = setTimeout(() => (showAlternates = true), 10_000);
 			await openUrl(attempt.verification_uri_complete);
-			while (current === generation) {
-				await new Promise<void>(resolve => { wake = resolve; timer = setTimeout(resolve, 5000); });
-				if (current !== generation) return;
-				const result = await invoke<{ pending?: boolean; user?: MonoizeUser }>('monoize_oauth_poll', { userCode: code });
-				if (current !== generation) return;
-				if (result.user) { code = ''; busy = false; onSuccess(result.user); return; }
-			}
+			if (current !== generation) return;
+			// The consent page's lynshen://auth link makes it poll at once (authLinkOpened).
+			polling = pollForSignIn(() => invoke<{ pending?: boolean; user?: MonoizeUser }>('monoize_oauth_poll', { userCode: attempt.user_code }));
+			const user = await polling.done;
+			if (current !== generation || !user) return;
+			polling = undefined; code = ''; busy = false; onSuccess(user);
 		} catch (cause) {
 			if (current === generation) { error = String(cause); cancel(); }
 		}

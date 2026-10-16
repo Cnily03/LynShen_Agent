@@ -3670,7 +3670,7 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// 显示并聚焦主窗口（托盘点击 / 二次启动 / 深链 / Dock 图标都会走这里）。
+/// 显示并聚焦主窗口（托盘点击 / 二次启动 / 深链 / Dock 图标 / 浏览器登录成功都会走这里）。
 fn show_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
