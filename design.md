@@ -272,7 +272,7 @@ Extension boundary:
 - The phone remote page and the web chat are outside this file's scope and keep the type scale and radii they were made with: `app.css` restores them under `:root:has(.remote, .web, .signin)`.
 - Theme: `initTheme()` / `setTheme()` in `src/lib/theme.svelte.ts` set `data-theme` (`light｜dark`, resolved from `system｜light｜dark`) on `<html>`. Platform and preference attributes on `<html>`: `data-os`, `data-vibrancy`, `data-glass`, `data-canvas-bg` (`src/lib/prefs.svelte.ts`).
 - Icons: `phosphor-svelte`, defaults set by `IconContext` in `+layout.svelte` (regular weight, `aria-hidden`).
-- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`, `&collapsed`, `&home`, `&settings[=<section>]` (with `&chats[=empty|error|old|all]` for 聊天连接), `&approval`, `&states`, `&cards`, `&tool`, `&textOnly`, `&models[=old]`; `?remote&cards` for the phone page).
+- Browser fixtures for rendered checks: `tests/browser` (`?shell`: the frame with one conversation; `&theme=light`, `&preview`, `&empty`, `&collapsed`, `&home`, `&settings[=<section>]` (with `&chats[=empty|error|old|all]` for 聊天连接), `&approval`, `&states`, `&cards`, `&tool`, `&textOnly`, `&models[=old]`, `&planStop=quota|inactive|none|notInPlan` (a turn the plan stopped); `&trial[=used|full|ended|web]` with `&funding=plan` for who pays; `?remote&cards` for the phone page).
 
 ## Glossary
 

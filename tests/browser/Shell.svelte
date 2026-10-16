@@ -33,6 +33,12 @@
 	//   &models[=old]           a gateway session on the sample models
 	//                           (catalogSample.ts), described by the gateway's
 	//                           catalog, or (=old) by their ids only
+	//   &planStop=quota|inactive|none|notInPlan
+	//                           the last turn stopped by the plan, as the
+	//                           gateway answers (notes/plan-balance-contract.md
+	//                           3): the 5-hour window used up (recovers in 2
+	//                           hours), the plan ended, no plan at all, a model
+	//                           outside the plan (with &trial and &funding=plan)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it); `window.__shellChat` the conversation's
 	// chat (to send it more events), `window.__opened` what the chat asked the
@@ -174,6 +180,26 @@
 		feed({ type: 'user_message', content: '好，就按这个做。' });
 		feed({ type: 'status', message: 'streaming' });
 		feed({ type: 'assistant_delta', delta: '已改好：默认是「自适应」，可以在 设置 → 通用 → 对话宽度 里换成「标准」或「铺满」。' });
+		feed({ type: 'status', message: 'ready' });
+	}
+
+	// A turn the plan stopped (?shell&planStop=…): the gateway's answer as
+	// Codex passes it on.
+	const planStop = mode.get('planStop');
+	if (planStop) {
+		const at = (ms: number) => new Date(ms).toISOString();
+		const win = (kind: string, quota: string, used: string, resets: string) => ({ kind, quota_cny: quota, used_cny: used, in_flight_cny: '0.00', remaining_cny: (Number(quota) - Number(used)).toFixed(2), resets_at: resets });
+		const retry = at(Date.now() + 2 * 3_600_000);
+		const bodies: Record<string, [number, string, Record<string, unknown>]> = {
+			quota: [402, 'Payment Required', { code: 'plan_quota_exhausted', type: 'invalid_request_error', param: null, message: '套餐 5 小时额度已用完', plan_name: '7 天体验套餐', window: '5h', retry_at: retry, windows: [win('5h', '4.00', '4.00', retry), win('7d', '10.00', '6.20', at(Date.now() + 5 * 86_400_000))] }],
+			inactive: [402, 'Payment Required', { code: 'plan_inactive', type: 'invalid_request_error', param: null, message: '套餐已结束', plan_name: 'Grove', ended_at: at(Date.now() - 3 * 3_600_000), reason: 'expired' }],
+			none: [402, 'Payment Required', { code: 'plan_inactive', type: 'invalid_request_error', param: null, message: '没有生效的套餐', plan_name: null, ended_at: null, reason: 'none' }],
+			notInPlan: [403, 'Forbidden', { code: 'model_not_in_plan', type: 'invalid_request_error', param: 'model', message: '模型不在套餐内', model: 'claude-opus-5-5', plan_name: '7 天体验套餐' }]
+		};
+		const [status, text, error] = bodies[planStop] ?? bodies.quota;
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'status', message: 'streaming' });
+		feed({ type: 'error', message: `unexpected status ${status} ${text}: ${JSON.stringify({ error })}, url: https://api.lynshen.org/v1/responses, request id: 7f3c2a10-5b1e-4c55-9d1a-3e2f9b8c6d01` });
 		feed({ type: 'status', message: 'ready' });
 	}
 

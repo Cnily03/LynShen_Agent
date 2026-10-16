@@ -10,8 +10,15 @@ const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http:/
 const frostAtStart = (() => {
   try { return JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}').sidebarVibrancy === true; } catch { return false; }
 })();
-// ?trial[=granted|used|404|not_eligible]: signed in, and the gateway's
-// answer to the first-use trial claim (a 404 is a gateway without the endpoint).
+// ?trial[=granted|used|full|ended|404|not_eligible]: signed in, and the
+// gateway's answer to the first-use trial claim (a 404 is a gateway without
+// the endpoint). =full: its 5-hour window is used up (recovers in 2 hours);
+// =ended: no plan in force any more (the claim says not_eligible); =web: a
+// paid plan (Grove) bought on the website, which this device does not pay
+// with yet (the claim says not_eligible).
+// ?funding=plan: the device pays with the plan (default: the balance, as a
+// new device key starts; notes/plan-balance-contract.md F5). PUT plan
+// without a plan in force answers 409 plan_inactive (contract 2.2).
 const trialReply = new URL(location.href).searchParams.get('trial');
 // ?latency[=random|<ms>]: the plan's GET / PUT answer that much later
 // (random: 300–1500 ms), as a slow gateway would.
@@ -34,7 +41,8 @@ const modelsMode = params0.get('models');
 // network.
 const purchaseMode = params0.get('purchase');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
-let planFunding = 'plan';
+let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
+const planRefused = () => JSON.stringify({status: 409, code: 'plan_inactive', message: '现在没有生效的套餐'});
 const STORE_CATALOG = {
   currency: 'CNY',
   products: [
@@ -56,14 +64,19 @@ const store = {
   plan: null as any
 };
 const storeRefusal = (status: number | null, code: string | null, message: string) => JSON.stringify({status, code, message});
-const trialPlan = (used: boolean) => ({
+// The trial's windows: unused, used, or (=full) the 5-hour one used up.
+const planStartedAt = Date.now();
+// Plans end at a fixed time (the same plan on the next load), 6.5 to 7.5 days
+// after the start for the trial (a 7-day trial when its card counts days).
+const planEndsFrom = Math.floor(planStartedAt / 86_400_000) * 86_400_000 + 12 * 3_600_000;
+const trialPlan = (used: boolean, full = trialReply === 'full') => ({
   name: '7 天体验套餐',
   group: '国内模型分组',
   windows: [
-    { kind: '5h', quota_cny: '4.00', used_cny: used ? '1.36' : '0.00', resets_at: used ? new Date(Date.now() + 3 * 3_600_000).toISOString() : null },
-    { kind: '7d', quota_cny: '10.00', used_cny: used ? '3.58' : '0.00', resets_at: used ? new Date(Date.now() + 5 * 86_400_000).toISOString() : null }
+    { kind: '5h', quota_cny: '4.00', used_cny: full ? '4.00' : used ? '1.36' : '0.00', resets_at: full ? new Date(planStartedAt + 2 * 3_600_000).toISOString() : used ? new Date(planStartedAt + 3 * 3_600_000).toISOString() : null },
+    { kind: '7d', quota_cny: '10.00', used_cny: full ? '6.20' : used ? '3.58' : '0.00', resets_at: used || full ? new Date(planStartedAt + 5 * 86_400_000).toISOString() : null }
   ],
-  expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString()
+  expires_at: new Date(planEndsFrom + 7 * 86_400_000).toISOString()
 });
 Object.assign(window, {
   __calls: calls,
@@ -133,7 +146,13 @@ Object.assign(window, {
         }
       }
       // The plan bought in the store (?purchase without ?trial).
-      if (command === 'monoize_desktop_plan' && purchaseMode != null && trialReply == null) return {plan: store.plan, plan_funding: planFunding};
+      if ((command === 'monoize_desktop_plan' || command === 'monoize_set_plan_funding') && purchaseMode != null && trialReply == null) {
+        if (command === 'monoize_set_plan_funding') {
+          if (args.funding === 'plan' && !store.plan) throw planRefused();
+          planFunding = args.funding;
+        }
+        return {plan: store.plan, plan_funding: planFunding, bucket: planFunding};
+      }
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
         // not written its own list yet.
@@ -146,16 +165,23 @@ Object.assign(window, {
         case 'desktop_installation_id': return 'inst-browser';
         case 'monoize_trial_claim':
           if (trialReply === '404') throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
-          if (trialReply === 'not_eligible') return {status: 'not_eligible'};
-          return {status: 'granted', plan: trialPlan(trialReply === 'used')};
+          if (trialReply === 'not_eligible' || trialReply === 'ended' || trialReply === 'web') return {status: 'not_eligible'};
+          // The claim does not switch the device (contract 2.3).
+          return {status: 'granted', plan: trialPlan(trialReply === 'used'), plan_funding: planFunding};
         // GET / PUT /api/desktop/oauth/plan (an older gateway with ?trial=404).
         case 'monoize_desktop_plan':
         case 'monoize_set_plan_funding':
           if (trialReply === '404' || trialReply === 'not_eligible' || trialReply == null) throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
-          if (command === 'monoize_set_plan_funding') planFunding = args.funding;
+          if (command === 'monoize_set_plan_funding') {
+            if (args.funding === 'plan' && trialReply === 'ended') throw planRefused();
+            planFunding = args.funding;
+          }
           {
             // The gateway stores a change as it arrives and answers later.
-            const answer = {plan: {...trialPlan(trialReply === 'used'), trial: true, active: true}, plan_funding: planFunding};
+            const plan = trialReply === 'ended' ? null
+              : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true}
+              : {...trialPlan(trialReply === 'used'), trial: true, active: true};
+            const answer = {plan, plan_funding: planFunding, bucket: planFunding};
             if (latency != null) await slow();
             return answer;
           }
@@ -190,6 +216,8 @@ Object.assign(window, {
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
         case 'diagnostic_logs': return [];
+        // No ACP agent registered (the app's command answers a list).
+        case 'acp_agents_list': return [];
         // ?avatar: the account's avatar as the app kept it (account_avatar.rs);
         // an upload answers the gateway's user and the picture it sent.
         case 'monoize_avatar_cached': return new URL(location.href).searchParams.has('avatar') ? {url: '/api/desktop/oauth/avatars/a1', data_url: KEPT_AVATAR} : null;
