@@ -13,6 +13,7 @@
 	import { useHost } from './connection.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { t } from '$lib/i18n';
+	import { savedEmpty } from '$lib/savedEmpty';
 
 	let {
 		project,
@@ -40,7 +41,8 @@
 	 *  saving them has the daemon's version (the list also reloads as soon as
 	 *  the session list changes, which can be before the save lands). */
 	let overrides = $state<Record<string, { title?: string; archived?: boolean }>>({});
-	const shown = $derived(items.map((s) => (overrides[s.session] ? { ...s, ...overrides[s.session] } : s)));
+	// A conversation saved with nothing in it is not listed (savedEmpty.ts).
+	const shown = $derived(items.filter((s) => !savedEmpty(s)).map((s) => (overrides[s.session] ? { ...s, ...overrides[s.session] } : s)));
 	const active = $derived(shown.filter((s) => !s.archived && !s.agent));
 	const archived = $derived(shown.filter((s) => s.archived && !s.agent));
 	const ENGINE_LABELS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };

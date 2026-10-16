@@ -3,6 +3,7 @@
 	// Protocol agents the desktop may launch (id, name, command, args, env).
 	// The registry itself is owned and validated by the Rust side
 	// (acp_registry.rs) — this UI only reads it and submits whole entries.
+	// Presets (OpenCode) not registered yet are offered above the list.
 	import { onMount } from 'svelte';
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
 	import TrashIcon from 'phosphor-svelte/lib/TrashIcon';
@@ -15,7 +16,10 @@
 		acpAgentRemove,
 		acpAgentUpsert,
 		acpAgentsList,
+		acpPresetAdd,
+		acpPresets,
 		type AcpAgent,
+		type AcpPreset,
 		type BackendStatus
 	} from '$lib/protocol';
 	import { formatArgs, slugifyAgentId, tokenizeArgs } from '$lib/backends/acp-agents';
@@ -36,11 +40,17 @@
 	let envText = $state<Record<string, string>>({});
 	let rowError = $state<Record<string, string>>({});
 	let listError = $state('');
+	// Presets not registered yet, and the one being added.
+	let presets = $state<AcpPreset[]>([]);
+	let addingPreset = $state('');
+	const offered = $derived(presets.filter((p) => !p.registered));
 
 	// Add-agent draft form.
 	let adding = $state(false);
 	let draft = $state({ name: '', command: '', args: '', env: '' });
 	let draftError = $state('');
+	// How each preset's program is installed (shown while it is missing).
+	const PRESET_INSTALL: Record<string, string> = { opencode: 'npm i -g opencode-ai' };
 
 	function syncTexts() {
 		for (const a of agents) {
@@ -58,6 +68,29 @@
 				for (const a of list) check(a.id);
 			})
 			.catch((e) => (listError = String(e)));
+		loadPresets();
+	}
+
+	function loadPresets() {
+		acpPresets()
+			.then((list) => (presets = list))
+			.catch(() => (presets = []));
+	}
+
+	function addPreset(preset: AcpPreset) {
+		if (addingPreset) return;
+		addingPreset = preset.id;
+		const before = new Set(agents.map((a) => a.id));
+		acpPresetAdd(preset.id)
+			.then((list) => {
+				agents = list;
+				listError = '';
+				syncTexts();
+				for (const a of list) if (!before.has(a.id)) check(a.id);
+				loadPresets();
+			})
+			.catch((e) => (listError = String(e)))
+			.finally(() => (addingPreset = ''));
 	}
 
 	function check(id: string) {
@@ -93,6 +126,7 @@
 				agents = list;
 				listError = '';
 				syncTexts();
+				loadPresets();
 			})
 			.catch((e) => (listError = String(e)));
 	}
@@ -129,6 +163,27 @@
 	{#if listError}
 		<div class="pad"><Notice>{listError}</Notice></div>
 	{/if}
+	{#each offered as preset (preset.id)}
+		<div class="arow preset">
+			<span class="atile"><BackendIcon backend="acp" size={16} /></span>
+			<div class="amain">
+				<div class="ahead">
+					<span class="aname">{preset.name}</span>
+					{#if preset.path}
+						<span class="astate ok"><CheckCircleIcon size={12} /> {t('settings.acp.found')}</span>
+					{:else}
+						<span class="astate warn"><WarningCircleIcon size={12} /> {t('settings.acp.notFound')}</span>
+					{/if}
+				</div>
+				<span class="acmd" title={preset.path ?? ''}>{preset.command} {formatArgs(preset.args)}</span>
+				<span class="ahint">{preset.path ? t('settings.acp.presetHint') : t('settings.acp.presetInstall', { install: PRESET_INSTALL[preset.id] ?? preset.command })}</span>
+			</div>
+			<Button variant="secondary" size="sm" disabled={!!addingPreset} onclick={() => addPreset(preset)}>
+				<PlusIcon size={14} />
+				{t('settings.acp.presetAdd')}
+			</Button>
+		</div>
+	{/each}
 	{#each agents as agent (agent.id)}
 		{@const st = status[agent.id]}
 		<div class="arow">
@@ -278,6 +333,10 @@
 		color: var(--warn);
 	}
 	.astate.dim {
+		color: var(--dim2);
+	}
+	.ahint {
+		font-size: var(--fs-2xs);
 		color: var(--dim2);
 	}
 	.acmd {

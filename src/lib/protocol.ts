@@ -4,6 +4,7 @@ import type { McpServerEntry } from './mcp';
 import type { PreviewFacts } from './preview/kinds';
 import { DaemonClient, type DaemonEndpoint, type EngineSpec, type SocketLike } from './daemon';
 import { buildBackendOpts } from './backends/settings';
+import { parseStyleList, type StyleList } from './styles';
 
 // Started when needed with the lynshen backend's binary and environment (the
 // daemon runs lynshen sessions itself).
@@ -72,6 +73,9 @@ export type Op =
 	// besides the workspace; each is acknowledged by a `sandbox` event.
 	| { op: 'set_sandbox'; mode: 'read-only' | 'workspace-write' | 'full-access'; network?: boolean }
 	| { op: 'add_directory'; path: string; mode: 'ro' | 'rw'; persist: 'session' | 'project' | 'global' }
+	// LynShen: this conversation's reply style from its next message (null
+	// follows the default for new conversations); acknowledged by `reply_style`.
+	| { op: 'set_style'; style: string | null }
 	| { op: 'remove_directory'; path: string; persist: 'session' | 'project' | 'global' }
 	// MCP server management (engine config is global; any live session's engine
 	// can answer). Each op is acknowledged by an `mcp_servers` event.
@@ -162,6 +166,24 @@ export function acpAgentRemove(id: string): Promise<AcpAgent[]> {
 /** Availability probe for one registered ACP agent (`<command> --version`). */
 export function acpAgentCheck(id: string): Promise<BackendStatus> {
 	return invoke('acp_agent_check', { id });
+}
+/** An agent Settings can add in one click (`acp_registry.rs` presets). */
+export interface AcpPreset {
+	id: string;
+	name: string;
+	command: string;
+	args: string[];
+	/** Where its program was found; null when it is not installed. */
+	path: string | null;
+	/** A registered agent already runs it. */
+	registered: boolean;
+}
+export function acpPresets(): Promise<AcpPreset[]> {
+	return invoke('acp_presets');
+}
+/** Registers a preset (a no-op when an agent already runs it); the updated list. */
+export function acpPresetAdd(id: string): Promise<AcpAgent[]> {
+	return invoke('acp_preset_add', { id });
 }
 
 /** Login-shell environment snapshot state (see src-tauri/src/shell_env.rs). */
@@ -458,6 +480,26 @@ export async function createSkill(name: string, description: string): Promise<st
 	await daemon.connect();
 	const reply = await daemon.request({ op: 'skill_create', name, description });
 	return reply.path as string;
+}
+
+// Reply styles (回复风格, see $lib/styles): the styles a LynShen engine finds
+// and the personal style files. A daemon older than these ops answers them as
+// unknown (`isUnknownOp`).
+export async function listStyles(cwd?: string): Promise<StyleList> {
+	await daemon.connect();
+	return parseStyleList(await daemon.request({ op: 'styles_list', ...(cwd ? { cwd } : {}) }));
+}
+/** Writes ~/.lynshen/styles/<style>.md: `style` replaces that file, without
+ *  it the daemon makes an id from the name. Resolves with the id. */
+export async function saveStyle(draft: { style?: string; name: string; description: string; instructions: string }): Promise<string> {
+	await daemon.connect();
+	const reply = await daemon.request({ op: 'style_save', ...draft });
+	return String(reply.style ?? '');
+}
+/** Deletes a personal style; a default that named it goes back to 默认. */
+export async function deleteStyle(style: string): Promise<void> {
+	await daemon.connect();
+	await daemon.request({ op: 'style_delete', style });
 }
 
 // LynShen account: plan / balance / usage / call-details, fetched via the

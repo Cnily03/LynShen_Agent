@@ -47,6 +47,9 @@ export interface Session {
 	at?: number;
 	/** Model and effort picked while a draft, applied when it starts. */
 	draftPick?: { model?: string; effort?: string };
+	/** The reply style picked while a draft (LynShen), sent before its first
+	 *  message. */
+	draftStyle?: string;
 	/** Claude Code / Codex: runs through the LynShen gateway on the user's
 	 *  LynShen login (only this session's process; their own config is left
 	 *  alone). Unset: as it last ran (the daemon remembers it). */
@@ -64,6 +67,9 @@ export interface Session {
 	 *  the user starts it): with a plan to confirm, the user's words, and
 	 *  the mode the work runs in (see `Requirements.begin`). */
 	requirementStart?: { plan: boolean; text?: string; mode?: string };
+	/** The daemon lists its conversation as saved with nothing in it (see
+	 *  savedEmpty.ts): a restored session whose transcript is not here. */
+	empty?: boolean;
 }
 
 /** 并行任务（git worktree）项目的元数据，随项目布局持久化。 */

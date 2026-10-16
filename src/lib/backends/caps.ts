@@ -31,7 +31,8 @@ export const CLAUDE_CAPS: BackendCaps = {
 	sideQuestions: true, // side_question control request
 	agentTrace: true, // system/task_* + the session's saved workflows/subagents files
 	contextBreakdown: true, // get_context_usage
-	sandbox: false // Claude Code's own permission modes
+	sandbox: false, // Claude Code's own permission modes
+	replyStyles: false // Claude Code's own output styles
 };
 
 export const CODEX_CAPS: BackendCaps = {
@@ -59,7 +60,8 @@ export const CODEX_CAPS: BackendCaps = {
 	sideQuestions: false,
 	agentTrace: true, // subagent threads, read back with thread/turns/list
 	contextBreakdown: false, // the app server reports a total only
-	sandbox: false // Codex's own sandbox and approval policy
+	sandbox: false, // Codex's own sandbox and approval policy
+	replyStyles: false
 };
 
 export const ACP_CAPS: BackendCaps = {
@@ -78,7 +80,7 @@ export const ACP_CAPS: BackendCaps = {
 	contextUsage: false, // no usage/context telemetry in ACP v1
 	compact: false,
 	modelPicker: false, // session/set_model is optional; kept off until provable
-	resume: false, // session/load is optional (lynshen acp: loadSession false)
+	resume: false, // no listing to pick from; a tab reopens its own conversation (session/load or session/resume in the daemon)
 	subagents: false,
 	transcriptReplay: false,
 	slashCommands: false, // available_commands have no invocation RPC (prompt text only)
@@ -87,5 +89,6 @@ export const ACP_CAPS: BackendCaps = {
 	sideQuestions: false,
 	agentTrace: false,
 	contextBreakdown: false,
-	sandbox: false
+	sandbox: false,
+	replyStyles: false
 };

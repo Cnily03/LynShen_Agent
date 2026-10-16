@@ -29,6 +29,7 @@
 	import { toast } from '$lib/ui/toast.svelte';
 	import { t } from '$lib/i18n';
 	import { CHATS_ENABLED } from '$lib/types';
+	import { savedEmpty } from '$lib/savedEmpty';
 
 	let {
 		current,
@@ -60,10 +61,11 @@
 	const code = $derived(projects.filter((p) => !p.chats));
 	/** The daemon's sessions, newest first. A closed ACP session cannot be
 	 *  reopened, so it is not listed (the desktop does the same); nor are
-	 *  chats while they are hidden. */
+	 *  chats while they are hidden, nor a conversation saved with nothing in
+	 *  it (savedEmpty.ts): a new one is listed from its first message. */
 	const listed = $derived(
 		agentDirectory.sessions
-			.filter((s) => !s.agent && (s.engine !== 'acp' || s.open) && (CHATS_ENABLED || !s.chat))
+			.filter((s) => !s.agent && (s.engine !== 'acp' || s.open) && (CHATS_ENABLED || !s.chat) && !savedEmpty(s))
 			.sort((a, b) => (b.updated_at ?? b.created_at) - (a.updated_at ?? a.created_at))
 	);
 	const sessionsOf = (p: ProjectView) => listed.filter((s) => trim(s.cwd) === trim(p.path));

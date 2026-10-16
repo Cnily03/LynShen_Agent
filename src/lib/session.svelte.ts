@@ -1,17 +1,19 @@
 import { AUTO_CONTINUE, ChatState, UNTITLED } from './chat.svelte';
 import { acpAgentsList, closeSession, createChatDir, daemon, hostSession, listDir, sessionMeta, sessionHistory, defaultWorkspaceDir, writeConfig, git, type FsEntry, type HistoryItem } from './protocol';
 import { chatFolderName } from './chatFolder';
+import { savedEmpty } from './savedEmpty';
 import { DaemonError, type EngineSpec } from './daemon';
 import { canHandOffToTui, isValidResumeSessionId } from './tuiHandoff';
-import { normalizeBackendId, type BackendId } from './backends';
+import { caps, normalizeBackendId, type BackendId } from './backends';
 import { createLynShenAdapter } from './backends/lynshen';
 import { clearDraft, dispatch, dropHeldOps, holdOps, ioFor, markDraft, peekHeldOps, registerAdapter, startDraft, unregisterAdapter } from './backends/router';
 import { buildBackendOpts, defaultBackendFor } from './backends/settings';
+import { agentEnv } from './backends/acp-agents';
 import { toEngineMode } from './approval';
 import { getLocale, t } from '$lib/i18n';
 import { prefs } from './prefs.svelte';
 import { workMode } from './requirements.svelte';
-import { saveComposerText } from './composerText';
+import { loadComposerText, saveComposerText } from './composerText';
 import { toast } from './ui/toast.svelte';
 import { telemetry } from './telemetry.svelte';
 import { normalizeColor, parseTabIcon, type TabIcon } from './workbench/tabChrome';
@@ -85,13 +87,39 @@ const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 const isAbsolute = (p: string) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '');
 
+/** A new conversation with nothing in it yet: no message (only notices
+ *  such as a command's output), no goal, and no name (the daemon names a
+ *  conversation after its first message; the user may name a draft). A
+ *  draft, or one a command started. A restored conversation shows its
+ *  transcript only once the engine replays it: it is blank only when the
+ *  daemon lists it as saved empty. The TUI's, an agent's and a requirement's
+ *  sessions have a start of their own and are never blank.
+ *
+ *  Lists leave a blank conversation out until its first message (as Claude,
+ *  ChatGPT and Codex do), and 新对话 opens it again instead of adding
+ *  another (`SessionStore.addSession`). */
+export function isBlank(s: Session): boolean {
+	if (s.surface === 'tui' || s.chat.agent || s.requirement || s.requirementStart) return false;
+	if (s.chat.title && s.chat.title !== UNTITLED) return false;
+	if (s.chat.goal || s.chat.messages.some((m) => m.kind !== 'system' && m.kind !== 'error')) return false;
+	return !(s.restored || s.dormant) || !!s.empty;
+}
+
 /** A project's sessions as the sidebar lists them: pinned first, each group
  *  in the project's own order (new sessions join at the start); archived
- *  ones are left out. */
+ *  and blank ones (`isBlank`) are left out. */
 export function listedSessions(p: Project): Session[] {
-	const live = p.sessions.filter((s) => !s.archived);
+	const live = p.sessions.filter((s) => !s.archived && !isBlank(s));
 	return [...live.filter((s) => s.pinned), ...live.filter((s) => !s.pinned)];
 }
+
+/** A conversation outside any project still waiting for its first message
+ *  (its folder is made from that message): one at a time. */
+const waitingChat = (p: { home?: boolean; newFolder?: boolean }) => p.home === true && p.newFolder === true;
+
+/** A saved tab of a new conversation nobody named or typed into. */
+const untouchedTab = (t: { id?: string; sid?: string; title: string }) =>
+	!t.sid && (!t.title || t.title === UNTITLED) && !loadComposerText(t.id ?? '').trim();
 
 /**
  * Owns the project/session tree and its lifecycle (spawn, restore, restart,
@@ -296,7 +324,7 @@ export class SessionStore {
 								return {
 									engine: 'acp',
 									// The agent's own environment wins over the backend's.
-									options: { command: entry.command, args: entry.args, env: { ...(base?.env ?? {}), ...entry.env } }
+									options: { command: entry.command, args: entry.args, env: agentEnv(entry, base?.env) }
 								};
 							})
 						: Promise.resolve(undefined);
@@ -354,7 +382,11 @@ export class SessionStore {
 	 *  sessions (defaults to the project's last one; without any, the session
 	 *  falls back to the native engine). `model` (native engine only) is
 	 *  picked before the conversation exists (the home page): it goes first,
-	 *  as a draft's pick does. */
+	 *  as a draft's pick does.
+	 *
+	 *  Asked for nothing in particular (新对话, a project's +, ⌘N) while the
+	 *  project already has a new conversation with nothing sent (`isBlank`),
+	 *  that one is made active instead: a project waits with one at most. */
 	addSession(
 		project: Project,
 		firstMessage?: string,
@@ -366,6 +398,11 @@ export class SessionStore {
 		// Mutate the stored Svelte proxy, including when the caller just inserted
 		// a plain project object. Mutating that original bypasses reactivity.
 		project = this.projects.find((p) => p.id === project.id) ?? project;
+		const waiting = firstMessage || backend || acpAgent || model ? undefined : this.#blankIn(project);
+		if (waiting) {
+			this.activeId = waiting.id;
+			return waiting.id;
+		}
 		let backendId = project.chats ? 'lynshen' : (backend ?? defaultBackendFor(project.lastBackend));
 		let agent = backendId === 'acp' ? (acpAgent ?? project.lastAcpAgent) : undefined;
 		if (backendId === 'acp' && !agent) {
@@ -413,6 +450,22 @@ export class SessionStore {
 		markDraft(s.id, () => this.#startDraft(s.id));
 	}
 
+	/** The project's new conversation with nothing sent yet (`isBlank`), the
+	 *  one 新对话 opens again. A restored one holds a saved conversation and
+	 *  is not reused. */
+	#blankIn(project: Project): Session | undefined {
+		return project.sessions.find((s) => !s.archived && !s.restored && !s.dormant && isBlank(s));
+	}
+
+	/** Drops a draft nobody can reach any more (another new conversation
+	 *  waits in its project): it has no engine, so nothing else goes. */
+	#dropDraft(project: Project, s: Session) {
+		unregisterAdapter(s.id);
+		clearDraft(s.id);
+		project.sessions = project.sessions.filter((x) => x !== s);
+		if (this.activeId === s.id) this.activeId = '';
+	}
+
 	/** The first message: the draft becomes a session of its backend. Looked
 	 *  up by id, so it changes the session as the reactive list holds it. */
 	#startDraft(id: string) {
@@ -425,10 +478,13 @@ export class SessionStore {
 		if (s.backendId === 'acp' && s.acpAgent) project.lastAcpAgent = s.acpAgent;
 		const pick = s.draftPick;
 		s.draftPick = undefined;
+		const style = s.draftStyle;
+		s.draftStyle = undefined;
 		const model = pick?.model || s.chat.model;
-		// The model and effort picked while a draft go first; the held first
-		// message follows.
+		// The reply style, model and effort picked while a draft go first; the
+		// held first message follows.
 		const applyPick = () => {
+			if (style && caps(s.chat).replyStyles) dispatch(s.id, { op: 'set_style', style });
 			if (!pick || !model) return;
 			const effort = pick.effort ?? '';
 			dispatch(s.id, { op: 'command', input: effort ? `/model ${model} ${effort}` : `/model ${model}` });
@@ -514,6 +570,7 @@ export class SessionStore {
 		s.adapter = adapter;
 		s.acpAgent = agent;
 		s.draftPick = undefined;
+		s.draftStyle = undefined;
 		this.#makeDraft(s);
 	}
 
@@ -576,7 +633,9 @@ export class SessionStore {
 	}
 
 	/** A new conversation not started yet (a draft) moves to another
-	 *  project: it starts there, in that project's directory. */
+	 *  project: it starts there, in that project's directory. A new
+	 *  conversation that waited there with no unsent text gives way (one
+	 *  per project). */
 	moveDraft(id: string, projectId: string) {
 		const from = this.projects.find((p) => p.sessions.some((x) => x.id === id));
 		const to = this.userProjects.find((p) => p.id === projectId && !p.chats && !p.stale);
@@ -585,6 +644,9 @@ export class SessionStore {
 		from.sessions = from.sessions.filter((x) => x !== s);
 		to.sessions.unshift(s);
 		to.lastBackend = s.backendId;
+		if (!isBlank(s)) return;
+		const waiting = to.sessions.filter((x) => x !== s && x.draft && isBlank(x) && !loadComposerText(x.id).trim());
+		for (const x of waiting) this.#dropDraft(to, x);
 	}
 
 	/** A session's title, archive state or removal goes to the daemon, which
@@ -850,12 +912,15 @@ export class SessionStore {
 
 	/** A new conversation outside any project. It gets a folder of its own
 	 *  under `~/Documents/LynShen`, made from its first message, so the files
-	 *  of different conversations never mix. */
+	 *  of different conversations never mix. Without a first message, the one
+	 *  still waiting for its first message opens again (`addSession`). */
 	async newChat(firstMessage?: string, model?: string) {
 		const path = await defaultWorkspaceDir(true);
 		// The folder may already be a project the user added.
 		const known = this.userProjects.find((p) => !p.home && samePath(p.path, path));
 		if (known) return this.addSession(known, firstMessage, undefined, undefined, model);
+		const waiting = this.userProjects.find((p) => waitingChat(p) && samePath(p.path, path) && p.sessions.every(isBlank));
+		if (waiting && !firstMessage && !model) return this.addSession(waiting);
 		const id = this.uid();
 		this.projects.unshift({ id, name: t('shell.home.chats'), path, sessions: [], home: true, newFolder: true });
 		return this.addSession(this.projects.find((p) => p.id === id)!, firstMessage, undefined, undefined, model);
@@ -1293,13 +1358,14 @@ export class SessionStore {
 
 	/** The LynShen conversations saved for the project, as history picker rows.
 	 *  Outside any project: those of the workspace dir and of every
-	 *  conversation folder in it, newest first. */
+	 *  conversation folder in it, newest first. One saved with nothing in it
+	 *  (savedEmpty.ts) is left out. */
 	async historyItems(p: Project, chat: ChatState) {
 		const dirs = p.home ? await this.#homeDirs() : [p.path];
 		const lists = await Promise.all(
 			dirs.map((dir) =>
 				sessionHistory(dir).then(
-					(list) => list.filter((x) => x.engine === 'lynshen').map((x) => ({ x, dir })),
+					(list) => list.filter((x) => x.engine === 'lynshen' && !savedEmpty(x)).map((x) => ({ x, dir })),
 					() => [] as { x: HistoryItem; dir: string }[]
 				)
 			)
@@ -1436,6 +1502,15 @@ export class SessionStore {
 			if (!sid && !t.id) continue;
 			// Already open: the same tab in a duplicated project entry.
 			if (this.allSessions.some((s) => (t.id && s.id === t.id) || (sid && s.chat.sessionId === sid))) continue;
+			// Older versions saved a new conversation per click of 新对话: one
+			// nobody typed into waits per project, besides those holding
+			// unsent text (each opens with 新对话 once the one before is sent).
+			if (!sid && (!t.title || t.title === UNTITLED)) {
+				const typed = !!loadComposerText(t.id!).trim();
+				const untouched = proj.sessions.filter((s) => s.draft && isBlank(s) && !loadComposerText(s.id).trim());
+				if (!typed && (untouched.length || t.archived)) continue;
+				if (typed) for (const s of untouched) this.#dropDraft(proj, s);
+			}
 			// Tabs saved before multi-backend support carry no backend field →
 			// lynshen (normalizeBackendId maps unknown/missing to the default).
 			// Chrome fields are re-validated here (the file is user-editable).
@@ -1499,6 +1574,14 @@ export class SessionStore {
 				// daemon list raced the restore): one entry, both entries' tabs.
 				// A conversation still waiting for its folder shares the workspace
 				// dir's path with others; only its id matches it.
+				// Older versions saved a group per click of 新对话, each with a
+				// new conversation nobody typed into: one waits.
+				if (
+					waitingChat(p) &&
+					(p.tabs ?? []).every(untouchedTab) &&
+					this.userProjects.some((x) => waitingChat(x) && samePath(x.path, p.path))
+				)
+					continue;
 				const known = this.userProjects.find(
 					(x) => x.id === p.id || (!p.newFolder && !x.newFolder && samePath(x.path, p.path))
 				);

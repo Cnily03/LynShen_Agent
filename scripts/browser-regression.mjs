@@ -16,11 +16,52 @@ try {
   for (let i=1;i<=3;i++) {
     await page.getByRole('button',{name:'新项目',exact:true}).click();
     await expect(page.getByTestId('session')).toHaveText('草稿已就绪');
+    // Before anything is sent, a new session there is the same draft.
     await page.getByRole('button',{name:'新会话',exact:true}).click();
     await expect(page.getByTestId('session')).toHaveText('草稿已就绪');
-    await expect(page.getByTestId('count')).toHaveText(String(i*2));
+    await expect(page.getByTestId('count')).toHaveText(String(i));
   }
   assert.equal(await page.evaluate(() => window.__calls.some(c => c.command === 'daemon_endpoint')), false);
+  // 新对话 clicked again and again opens the one new conversation: it is not
+  // listed or saved as a conversation until its first message (each click
+  // added a 新对话 row and a saved tab), and it keeps what was typed into it.
+  // A project's + does the same in its project.
+  await page.goto(base + '?newchat');
+  const nav = page.locator('aside');
+  const navRows = nav.locator('.list .sess:not(.ghost)');
+  const newChatButton = nav.locator('nav.primary').getByRole('button',{name:'新对话',exact:true});
+  const savedTabs = () => page.evaluate(() => window.__store.serialize().map((p) => [p.newFolder ? 'waiting' : p.home ? 'chat' : p.name, p.tabs.length]));
+  await expect(navRows).toHaveCount(2);
+  for (let i = 0; i < 5; i++) await newChatButton.click();
+  await expect(page.locator('[data-testid=canvas] .welcome')).toBeVisible();
+  await expect(navRows).toHaveCount(2);
+  await expect(nav.locator('.list').getByText('新对话',{exact:true})).toHaveCount(0);
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['regression-project', 1]]);
+  const newChatBox = page.locator('[data-testid=canvas] .rich');
+  await newChatBox.click();
+  await page.keyboard.type('还没发出去的话');
+  await nav.locator('.sess', {hasText:'修复登录'}).first().click();
+  await expect(newChatBox).toHaveText('');
+  await newChatButton.click();
+  await expect(newChatBox).toHaveText('还没发出去的话');
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['regression-project', 1]]);
+  // Sent: a conversation, listed; the next 新对话 is a new one.
+  await newChatBox.click();
+  await page.keyboard.press('Enter');
+  await expect(navRows).toHaveCount(3);
+  await expect.poll(savedTabs).toEqual([['chat', 1], ['regression-project', 1]]);
+  await newChatButton.click();
+  await expect(newChatBox).toHaveText('');
+  await expect(navRows).toHaveCount(3);
+  await expect.poll(savedTabs).toEqual([['waiting', 1], ['chat', 1], ['regression-project', 1]]);
+  const projectPlus = nav.getByRole('button',{name:'在此项目下新建对话'});
+  for (let i = 0; i < 3; i++) {
+    await nav.locator('.folder-row').hover();
+    await projectPlus.click();
+  }
+  await expect(page.locator('[data-testid=canvas] .welcome')).toBeVisible();
+  await expect(nav.locator('.project .sess:not(.ghost)')).toHaveText(['修复登录']);
+  assert.deepEqual(await savedTabs(), [['waiting', 1], ['chat', 1], ['regression-project', 2]]);
   await page.goto(base);
   await page.getByRole('button',{name:'在浏览器中授权',exact:true}).click();
   await expect(page.getByText('ABCDEF-123456')).toBeVisible();
@@ -218,6 +259,90 @@ try {
   // A daemon before the `shells` op: a note, no choice.
   await page.goto(base + '?agents&oldEngine');
   await expect(page.getByText('当前的后台服务不能选择 Shell，更新后可用')).toBeVisible();
+  // Settings → 回复风格 against the stand-in daemon: the default for new
+  // conversations is written to config.json; a built-in opens read only and
+  // 复制为自定义 starts a personal copy, which is saved and then deleted.
+  await page.goto(base + '?styles');
+  const styleDefault = page.locator('#set-reply-style-default .trigger');
+  await expect(styleDefault).toHaveText('默认', {timeout:30000});
+  await styleDefault.click();
+  await expect(page.locator('#set-reply-style-default .opt')).toHaveText(['默认', '简洁', '详细讲解', '教学引导', '正式汇报', '代码评审', '发布说明']);
+  await page.locator('#set-reply-style-default .opt', {hasText:'简洁'}).click();
+  const stylePatches = () => page.evaluate(() => window.__calls.filter((c) => c.command === 'write_config').map((c) => JSON.stringify(c.args.patch)));
+  await expect.poll(stylePatches).toContain('{"reply_style":"concise"}');
+  await expect(page.locator('.srow', {hasText:'发布说明'})).toContainText('项目');
+  // A file that does not load: its path and the reason in the app's
+  // language, never the engine's English detail.
+  await expect(page.getByText('~/.lynshen/styles/two words.md 不会加载：文件名不能作为风格 id', {exact:false})).toBeVisible();
+  await expect(page.getByText('the file name cannot be a style id')).toHaveCount(0);
+  const formal = page.locator('.srow', {hasText:'正式汇报'});
+  await formal.hover();
+  await formal.getByRole('button',{name:'查看'}).click();
+  const viewDialog = page.getByRole('dialog', {name:'回复风格', exact:true});
+  await expect(viewDialog.getByText('内置风格不能修改')).toBeVisible();
+  await viewDialog.getByRole('button',{name:'复制为自定义'}).click();
+  const newDialog = page.getByRole('dialog', {name:'新建回复风格', exact:true});
+  await expect(newDialog.getByPlaceholder('例如：代码评审')).toHaveValue('正式汇报 副本');
+  await newDialog.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(newDialog).toHaveCount(0);
+  const savedStyle = await page.evaluate(() => window.__ops.find((o) => o.op === 'style_save'));
+  assert.equal(savedStyle.name, '正式汇报 副本');
+  assert.equal(savedStyle.style, undefined);
+  assert.ok(savedStyle.instructions.includes('正式的书面语气'));
+  const copied = page.locator('.srow', {hasText:'正式汇报 副本'});
+  await expect(copied).toContainText('自定义');
+  // A personal style is edited in place and deleted after confirming.
+  await copied.hover();
+  await copied.getByRole('button',{name:'编辑'}).click();
+  const editDialog = page.getByRole('dialog', {name:'编辑回复风格', exact:true});
+  await editDialog.getByPlaceholder('例如：代码评审').fill('');
+  await editDialog.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(editDialog.getByText('填写名称')).toBeVisible();
+  await editDialog.getByPlaceholder('例如：代码评审').fill('周报');
+  await editDialog.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(editDialog).toHaveCount(0);
+  // Saved under the id the daemon gave it (`style` for a name with no
+  // ASCII letters, as the engine does).
+  assert.equal(await page.evaluate(() => window.__ops.filter((o) => o.op === 'style_save').at(-1).style), 'style');
+  const weekly = page.locator('.srow', {hasText:'周报'});
+  await weekly.hover();
+  await weekly.getByRole('button',{name:'删除'}).click();
+  await page.getByRole('button',{name:'删除',exact:true}).last().click();
+  await expect(page.locator('.srow', {hasText:'周报'})).toHaveCount(0);
+  assert.ok(await page.evaluate(() => window.__ops.some((o) => o.op === 'style_delete')));
+  // A save the engine refuses: the reason by its code, in the app's language.
+  await page.getByRole('button',{name:'新建风格'}).click();
+  const failing = page.getByRole('dialog', {name:'新建回复风格', exact:true});
+  await failing.getByPlaceholder('例如：代码评审').fill('只读');
+  await failing.locator('textarea').fill('先给结论。');
+  await failing.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(failing.getByText('没有保存：写不了风格文件，检查 ~/.lynshen/styles 能否写入')).toBeVisible();
+  await expect(failing.getByText(/Permission denied/)).toHaveCount(0);
+  await failing.getByRole('button',{name:'取消',exact:true}).click();
+  await expect(failing).toHaveCount(0);
+  // Built-ins and project styles are not deleted here.
+  await expect(page.locator('.srow', {hasText:'发布说明'}).getByRole('button',{name:'删除'})).toHaveCount(0);
+  await expect(page.locator('.srow', {hasText:'简洁'}).getByRole('button',{name:'删除'})).toHaveCount(0);
+  // A daemon before reply styles: a note, no choice.
+  await page.goto(base + '?styles&oldEngine');
+  await expect(page.getByText('后台服务不支持回复风格，更新 LynShen CLI 后可以使用')).toBeVisible({timeout:30000});
+  // The composer's "+" menu lists the styles once the engine has said which
+  // one the conversation uses; a pick goes to the engine as set_style.
+  await page.goto(base + '?shell&styles');
+  await page.waitForFunction(() => window.__chat, null, {timeout:30000});
+  await page.locator('.fbtn.add').click();
+  const tray = page.locator('#cmp-tray');
+  await expect(tray.getByRole('group', {name:'回复风格'})).toBeVisible();
+  await expect(tray.getByRole('option', {name:/默认/})).toHaveAttribute('aria-checked', 'true');
+  await tray.getByRole('option', {name:/简洁/}).click();
+  assert.deepEqual(await page.evaluate(() => window.__sent.filter((o) => o.op === 'set_style')), [{op: 'set_style', style: 'concise'}]);
+  await page.evaluate(() => window.__chat.handle({type:'reply_style', style:'concise', name:'简洁', source:'builtin', chosen:true, missing:false}));
+  await page.locator('.fbtn.add').click();
+  await expect(tray.getByRole('option', {name:/简洁/})).toHaveAttribute('aria-checked', 'true');
+  // A style that is gone shows under its id, checked and not pickable.
+  await page.evaluate(() => window.__chat.handle({type:'reply_style', style:'terse', name:'terse', source:'missing', chosen:true, missing:true}));
+  await expect(tray.getByRole('option', {name:/terse/})).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
   // The sidebar: folded sections stay folded after a restart; the archive
   // restores several conversations at once.
   await page.goto(base + '?sidebar');
@@ -227,8 +352,13 @@ try {
   await page.reload();
   await expect(page.getByRole('button',{name:'项目',exact:true})).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('.folder-name')).toHaveCount(0);
-  await page.getByRole('button',{name:'展开所有项目'}).click();
+  // 全部折叠 covers 对话 too: with 对话 open it folds everything, then
+  // 全部展开 opens both sections and every project.
+  await page.getByRole('button',{name:'全部折叠'}).click();
+  await expect(page.getByRole('button',{name:'对话',exact:true})).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button',{name:'全部展开'}).click();
   await expect(page.locator('.folder-name')).toHaveCount(3);
+  await expect(page.getByRole('button',{name:'对话',exact:true})).toHaveAttribute('aria-expanded', 'true');
   await page.getByRole('button',{name:'已归档的对话'}).click();
   await expect(page.locator('.tools-count')).toHaveText('6');
   await page.getByRole('button',{name:'选择',exact:true}).click();
@@ -1674,5 +1804,5 @@ try {
     await cp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

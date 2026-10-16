@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Stub the Tauri-backed protocol layer so the store's lifecycle is testable in node.
 vi.mock('./protocol', () => ({
@@ -25,7 +25,7 @@ vi.mock('./protocol', () => ({
 	)
 }));
 
-import { RELEASE_AFTER_MS, SessionStore, listedSessions } from './session.svelte';
+import { RELEASE_AFTER_MS, SessionStore, listedSessions, type SavedProject } from './session.svelte';
 import { UNTITLED } from './chat.svelte';
 import { dispatch, startDraft } from './backends/router';
 import { daemon, hostSession, closeSession, sendLine, git, writeConfig, sessionHistory, sessionMeta } from './protocol';
@@ -89,6 +89,32 @@ describe('SessionStore lifecycle', () => {
 			JSON.stringify({ op: 'command', input: '/model opus high' }),
 			JSON.stringify({ op: 'user_message', content: 'hi' })
 		]);
+	});
+
+	it('a reply style picked in a draft goes first, before its model and its first message', async () => {
+		const store = new SessionStore();
+		const p = proj();
+		store.projects.push(p);
+		const id = store.addSession(p);
+		const s = p.sessions[0];
+		s.draftStyle = 'concise';
+		s.draftPick = { model: 'gpt-5.5', effort: 'high' };
+		begin(id);
+		expect(s.draftStyle).toBeUndefined();
+		await flush();
+		const lines = vi.mocked(sendLine).mock.calls.filter(([sid]) => sid === id).map(([, l]) => l);
+		expect(lines).toEqual([
+			JSON.stringify({ op: 'set_style', style: 'concise' }),
+			JSON.stringify({ op: 'command', input: '/model gpt-5.5 high' }),
+			JSON.stringify({ op: 'user_message', content: 'hi' })
+		]);
+		// Only a LynShen engine takes a style: Claude Code's own prompt has none.
+		const other = store.addSession(p, undefined, 'claude');
+		p.sessions.find((x) => x.id === other)!.draftStyle = 'concise';
+		begin(other);
+		await flush();
+		const sent = vi.mocked(sendLine).mock.calls.filter(([sid]) => sid === other).map(([, l]) => l);
+		expect(sent).toEqual([JSON.stringify({ op: 'user_message', content: 'hi' })]);
 	});
 
 	it('a model picked on the home page goes before the first message', async () => {
@@ -185,7 +211,7 @@ describe('SessionStore lifecycle', () => {
 		const store = new SessionStore();
 		const p = proj();
 		store.projects.push(p);
-		const a = store.addSession(p);
+		const a = store.addSession(p, 'hi');
 		const b = store.addSession(p);
 		expect(store.activeId).toBe(b);
 		store.removeSession(b);
@@ -198,8 +224,8 @@ describe('SessionStore lifecycle', () => {
 		const store = new SessionStore();
 		const p = proj();
 		store.projects.push(p);
-		const a = store.addSession(p);
-		const b = store.addSession(p);
+		const a = store.addSession(p, 'hi');
+		const b = store.addSession(p, 'hello');
 		expect(store.activeId).toBe(b);
 		store.archiveSession(b);
 		expect(p.sessions.find((s) => s.id === b)?.archived).toBe(true);
@@ -514,9 +540,10 @@ describe('SessionStore lifecycle', () => {
 		const store = new SessionStore();
 		const p = proj();
 		store.projects.push(p);
-		store.addSession(p);
-		store.addSession(p);
-		store.addSession(p);
+		// A backend asked for: a new session each time.
+		store.addSession(p, undefined, 'lynshen');
+		store.addSession(p, undefined, 'lynshen');
+		store.addSession(p, undefined, 'lynshen');
 		const [a, b, c] = p.sessions;
 		a.chat.sessionId = 'sid-0';
 		a.chat.title = 'first';
@@ -992,7 +1019,10 @@ describe('SessionStore conversations outside a project', () => {
 		const p = proj();
 		store.projects.push(p);
 		const older = store.addSession(p);
+		store.renameSession(older, 'older');
 		const chat = await store.newChat('hello');
+		await flush();
+		await flush();
 		const saved = store.serialize();
 		expect(saved.find((x) => x.home)?.tabs?.[0]).toMatchObject({ id: chat });
 		const again = new SessionStore();
@@ -1514,5 +1544,179 @@ describe('moveDraft', () => {
 		// Started: it stays where it is.
 		store.moveDraft(id, 'a');
 		expect(store.projects[1]!.sessions.map((s) => s.id)).toEqual([id]);
+	});
+});
+
+describe('新对话: one new conversation waits until its first message', () => {
+	/** localStorage for unsent composer text (composerText.ts), as the app has it. */
+	function storage() {
+		const items = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => items.get(k) ?? null,
+			setItem: (k: string, v: string) => void items.set(k, v),
+			removeItem: (k: string) => void items.delete(k)
+		});
+		return items;
+	}
+	afterEach(() => vi.unstubAllGlobals());
+	const listed = (store: SessionStore) => store.shownProjects.flatMap((p) => listedSessions(p)).map((s) => s.id);
+
+	it('新对话 again before anything is sent opens the same conversation, which is not listed', async () => {
+		const store = new SessionStore();
+		store.projects.push(proj());
+		const first = await store.newChat();
+		store.activeId = '';
+		expect(await store.newChat()).toBe(first);
+		expect(await store.newChat()).toBe(first);
+		expect(store.activeId).toBe(first);
+		expect(store.projects.filter((p) => p.home)).toHaveLength(1);
+		expect(store.home!.sessions.map((s) => s.id)).toEqual([first]);
+		// Not a conversation yet: not in the lists, not what a restart opens.
+		expect(listed(store)).toEqual([]);
+		expect(store.recentSessions).toEqual([]);
+		// Sent: listed, and the next 新对话 is a new one.
+		store.home!.sessions[0].chat.optimisticUser('hi');
+		begin(first);
+		expect(listed(store)).toEqual([first]);
+		await flush();
+		await flush();
+		const second = await store.newChat();
+		expect(second).not.toBe(first);
+		expect(listed(store)).toEqual([first]);
+		expect(hostSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("a project's + opens its waiting new conversation; one with a first message is not reused", () => {
+		const store = new SessionStore();
+		const a = proj('a');
+		const b = proj('b');
+		store.projects.push(a, b);
+		const inA = store.addSession(a);
+		const inB = store.addSession(b);
+		expect(inB).not.toBe(inA);
+		expect(store.addSession(a)).toBe(inA);
+		expect(store.activeId).toBe(inA);
+		expect(store.addSession(b)).toBe(inB);
+		expect(a.sessions).toHaveLength(1);
+		expect(b.sessions).toHaveLength(1);
+		// Asked for a given backend (the TUI picker) or with a first message: a new one.
+		expect(store.addSession(a, undefined, 'claude')).not.toBe(inA);
+		const sent = store.addSession(b, 'hello');
+		expect(sent).not.toBe(inB);
+		expect(store.addSession(b)).toBe(inB);
+		// A draft the user named is a conversation of its own.
+		store.renameSession(inB, 'plan');
+		const next = store.addSession(b);
+		expect(next).not.toBe(inB);
+		expect(listedSessions(b).map((s) => s.id)).toEqual([sent, inB]);
+	});
+
+	it('a command typed into a new conversation leaves it unlisted and waiting; a goal makes it a conversation', async () => {
+		const store = new SessionStore();
+		const p = proj();
+		store.projects.push(p);
+		const id = store.addSession(p);
+		dispatch(id, { op: 'command', input: '/help' });
+		await flush();
+		expect(hostSession).toHaveBeenCalledTimes(1);
+		const s = p.sessions[0];
+		s.chat.messages.push({ kind: 'system', text: 'commands: …' });
+		expect(listedSessions(p)).toEqual([]);
+		expect(store.addSession(p)).toBe(id);
+		s.chat.handle({ type: 'goal', goal: { objective: 'make the tests pass', status: 'active' } } as never);
+		expect(listedSessions(p).map((x) => x.id)).toEqual([id]);
+		expect(store.addSession(p)).not.toBe(id);
+	});
+
+	it('a restored conversation is listed unless the daemon reports it saved empty', async () => {
+		const store = new SessionStore();
+		await store.restore([{ id: 'p1', name: 'p1', path: '/tmp/p1', tabs: [{ id: 't1', sid: 's-1', title: UNTITLED }] }]);
+		const p = store.projects[0];
+		expect(listedSessions(p).map((s) => s.id)).toEqual(['t1']);
+		p.sessions[0].empty = true;
+		expect(listedSessions(p)).toEqual([]);
+		// Not reused either: it holds a saved conversation.
+		expect(store.addSession(p)).not.toBe('t1');
+	});
+
+	it('a restart keeps one waiting new conversation per project, and every one with unsent text', async () => {
+		const items = storage();
+		items.set('lynshen-composer:t-typed', 'half a question');
+		const waiting = (id: string, tabs: SavedProject['tabs']) => ({
+			id,
+			name: '对话',
+			path: '/home/u/Documents/LynShen',
+			home: true,
+			newFolder: true,
+			tabs
+		});
+		const store = new SessionStore();
+		await store.restore([
+			// What 0.8.0 saved after 新对话 was clicked four times.
+			waiting('h1', [{ id: 't-h1', title: UNTITLED }]),
+			waiting('h2', [{ id: 't-h2', title: UNTITLED }]),
+			waiting('h3', [{ id: 't-typed', title: UNTITLED }]),
+			waiting('h4', [{ id: 't-h4', title: UNTITLED }]),
+			{ id: 'h5', name: '2026-10-14 hi', path: '/home/u/Documents/LynShen/2026-10-14 hi', home: true, tabs: [{ id: 't-hi', sid: 's-hi', title: 'hi' }] },
+			{
+				id: 'p1',
+				name: 'p1',
+				path: '/tmp/p1',
+				tabs: [
+					{ id: 't-a', title: UNTITLED },
+					{ id: 't-b', title: UNTITLED },
+					{ id: 't-named', title: 'named' },
+					{ id: 't-c', title: UNTITLED, archived: true },
+					{ id: 't-sent', sid: 's-1', title: 'fix it' }
+				]
+			}
+		]);
+		const ids = (p: Project | undefined) => p?.sessions.map((s) => s.id);
+		expect(store.projects.map((p) => p.id)).toEqual(['h1', 'h3', 'h5', 'p1']);
+		expect(ids(store.projects[0])).toEqual(['t-h1']);
+		expect(ids(store.projects[1])).toEqual(['t-typed']);
+		expect(ids(store.projects[3])).toEqual(['t-a', 't-named', 't-sent']);
+		// The lists show the conversations only; a restart opens the latest one.
+		expect(listed(store).sort()).toEqual(['t-hi', 't-named', 't-sent']);
+		expect(['t-hi', 't-named', 't-sent']).toContain(store.activeId);
+		// 新对话 opens the one waiting; nothing was deleted on disk.
+		expect(await store.newChat()).toBe('t-h1');
+		expect(store.addSession(store.projects[3])).toBe('t-a');
+		expect(items.get('lynshen-composer:t-typed')).toBe('half a question');
+		expect(store.serialize().filter((p) => p.home && p.newFolder)).toHaveLength(2);
+	});
+
+	it('a new conversation moved to a project replaces the one waiting there', () => {
+		const items = storage();
+		const store = new SessionStore();
+		const a = proj('a');
+		const b = proj('b');
+		store.projects.push(a, b);
+		const waitingInB = store.addSession(b);
+		const moved = store.addSession(a);
+		store.moveDraft(moved, 'b');
+		expect(b.sessions.map((s) => s.id)).toEqual([moved]);
+		expect(store.addSession(b)).toBe(moved);
+		// One with unsent text stays (it opens once this one is sent).
+		const typed = store.addSession(a);
+		items.set(`lynshen-composer:${moved}`, 'keep me');
+		store.moveDraft(typed, 'b');
+		expect(b.sessions.map((s) => s.id)).toEqual([typed, moved]);
+		expect(waitingInB).not.toBe(moved);
+	});
+
+	it('history leaves out conversations saved with nothing in them', async () => {
+		vi.mocked(sessionHistory).mockResolvedValueOnce([
+			{ session: 's-full', title: 'old chat', updated_at: 3, entries: 4, archived: false, agent: null, open: false, engine: 'lynshen' },
+			{ session: 's-empty', title: '', updated_at: 2, entries: 0, archived: false, agent: null, open: false, engine: 'lynshen' },
+			{ session: 's-old', title: 's-old', updated_at: 2, entries: 0, archived: false, agent: null, open: false, engine: 'lynshen' },
+			{ session: 's-named', title: 'kept', updated_at: 1, entries: 0, archived: false, agent: null, open: false, engine: 'lynshen' }
+		]);
+		const store = new SessionStore();
+		const p = proj();
+		store.projects.push(p);
+		const id = store.addSession(p);
+		const items = await store.historyItems(p, p.sessions.find((s) => s.id === id)!.chat);
+		expect(items.map((x) => x.id)).toEqual(['s-full', 's-named']);
 	});
 });

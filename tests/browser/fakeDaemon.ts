@@ -38,6 +38,17 @@ const connector = (extra: Frame = {}): Frame => ({
 	...extra
 });
 
+const styleDir = `${home}/.lynshen/styles`;
+const builtin = (id: string, name: string, description: string, instructions: string) => ({
+	id,
+	name,
+	description,
+	instructions,
+	source: 'builtin',
+	path: null,
+	truncated: false
+});
+
 export const daemonState = {
 	/** Answer the skill ops as a daemon older than them does. */
 	old: false,
@@ -89,6 +100,41 @@ export const daemonState = {
 			{ scope: 'project', path: `${project}/.agents/skills` }
 		],
 		projectTrusted: true
+	} as Frame,
+	/** The reply styles (styles_list) and config.json's `reply_style`. */
+	styles: {
+		styles: [
+			builtin('default', '默认', '不加风格，按 LynShen 默认的方式回复', ''),
+			builtin('concise', '简洁', '先给结论，省掉铺垫和复述', '- 第一句给出结论或结果。\n- 不写开场白和结尾总结。'),
+			builtin('explanatory', '详细讲解', '说明做法、关键决定和取舍', '- 说明做了什么，也说明为什么这样做。'),
+			builtin('learning', '教学引导', '边做边讲概念，邀请你写一小段', '- 边做边讲背后的概念和原理。'),
+			builtin('formal', '正式汇报', '结论、过程、验证、风险的正式报告', '- 使用正式的书面语气。'),
+			{
+				id: 'code-review',
+				name: '代码评审',
+				description: '先列问题，按严重程度排序',
+				instructions: '评审时先列出问题，按严重程度从高到低排列，每条写出文件和行号。',
+				source: 'user',
+				path: `${styleDir}/code-review.md`,
+				truncated: false
+			},
+			{
+				id: 'release',
+				name: '发布说明',
+				description: '面向用户的发布说明',
+				instructions: '按“新增、修复、已知问题”写，每条一句。',
+				source: 'project',
+				path: `${project}/.lynshen/styles/release.md`,
+				truncated: false
+			}
+		] as Frame[],
+		default: 'default',
+		dirs: [
+			{ scope: 'user', path: styleDir },
+			{ scope: 'project', path: `${project}/.lynshen/styles` }
+		],
+		projectTrusted: true,
+		problems: [{ path: `${styleDir}/two words.md`, code: 'invalid_id', message: 'the file name cannot be a style id' }]
 	} as Frame,
 	claude: {
 		backend: 'claude',
@@ -294,11 +340,35 @@ function reply(op: Frame): Frame | null {
 	const list = () => (op.backend === 'claude' ? s.claude : s.list);
 	if (s.old && String(op.op).startsWith('skill') && op.op !== 'skills_catalog' && op.op !== 'skill_install')
 		return { type: 'error', message: `${op.op} requires session` };
+	if (s.old && String(op.op).startsWith('style')) return { type: 'error', message: `${op.op} requires session` };
 	switch (op.op) {
 		case 'shells':
 			return s.old ? { type: 'error', message: 'shells requires session' } : shellsReply();
 		case 'skills_list':
 			return { type: 'skills_list', ...list() };
+		case 'styles_list': {
+			// The default as the page last wrote it (`write_config`).
+			const calls = ((window as unknown as { __calls?: Frame[] }).__calls ?? []).filter((c) => c.command === 'write_config' && 'reply_style' in c.args.patch);
+			if (calls.length) s.styles.default = calls[calls.length - 1].args.patch.reply_style;
+			return { type: 'styles_list', ...s.styles };
+		}
+		case 'style_save': {
+			// A folder it cannot write (the page shows the reason by its code).
+			if (op.name === '只读') return { type: 'error', code: 'write_failed', message: `cannot write ${styleDir}/style.md: Permission denied (os error 13)` };
+			const id = op.style || String(op.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'style';
+			const saved = { id, name: op.name, description: op.description ?? '', instructions: op.instructions, source: 'user', path: `${styleDir}/${id}.md`, truncated: false };
+			const at = s.styles.styles.findIndex((x: Frame) => x.id === id);
+			if (at >= 0) s.styles.styles[at] = saved;
+			else s.styles.styles.push(saved);
+			return { type: 'style_saved', style: id, path: saved.path };
+		}
+		case 'style_delete': {
+			const found = s.styles.styles.find((x: Frame) => x.id === op.style && x.source === 'user');
+			if (!found) return { type: 'error', code: 'not_found', message: `no personal style ${op.style}` };
+			s.styles.styles = s.styles.styles.filter((x: Frame) => x !== found);
+			if (s.styles.default === op.style) s.styles.default = 'default';
+			return { type: 'style_deleted', style: op.style };
+		}
 		case 'skill_set_enabled': {
 			const found = s.list.skills.find((x: Frame) => x.path === op.path);
 			if (!found) return { type: 'error', message: `no such skill: ${op.path}` };

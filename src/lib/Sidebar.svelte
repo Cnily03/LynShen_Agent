@@ -41,7 +41,7 @@
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
 	import { queuedLabel, sessionInbox } from '$lib/sessions/inbox.svelte';
-	import { listedSessions } from '$lib/session.svelte';
+	import { isBlank, listedSessions } from '$lib/session.svelte';
 	import { lastActive, type Project, type Session } from '$lib/types';
 	import type { AgentView } from '$lib/agents.svelte';
 	import RequirementTag from '$lib/requirements/RequirementTag.svelte';
@@ -189,7 +189,6 @@
 	// Each conversation outside a project has a folder (and group) of its own.
 	const homes = $derived(projects.filter((p) => p.home));
 	const codeProjects = $derived(projects.filter((p) => !p.chats && !p.home));
-	const everyFolded = $derived(allFolded(fold, codeProjects.map((p) => p.id)));
 	const RECENT_LIMIT = 8;
 	const recent = $derived.by(() => {
 		const listed = projects
@@ -199,6 +198,8 @@
 			.map((x, i) => ({ ...x, i, at: lastActive(x.s) }))
 			.sort((a, b) => b.at - a.at || a.i - b.i);
 	});
+	// The toolbar's 全部折叠 covers the 对话 section (when it lists any) and every project.
+	const everyFolded = $derived(allFolded(fold, codeProjects.map((p) => p.id), recent.length > 0));
 	let showAllRecent = $state(false);
 
 	// Session filter: case-insensitive substring over session title + project
@@ -223,20 +224,22 @@
 		!query || s.chat.title.toLowerCase().includes(query) || p.name.toLowerCase().includes(query);
 	const shownRecent = $derived(recent.filter((x) => sessionMatches(x.p, x.s)));
 	// The archived conversations per place (对话 first, then each project) the
-	// filter matches, and how many there are in all.
+	// filter matches, and how many there are in all (blank ones are not
+	// conversations yet: see isBlank).
+	const archived = (s: Session) => s.archived && !isBlank(s);
 	const archivedGroups = $derived.by(() => {
 		const groups: { id: string; name: string; sessions: Session[] }[] = [];
-		const chats = homes.flatMap((h) => h.sessions.filter((s) => s.archived && sessionMatches(h, s)));
+		const chats = homes.flatMap((h) => h.sessions.filter((s) => archived(s) && sessionMatches(h, s)));
 		if (chats.length) groups.push({ id: 'chats', name: t('shell.chats'), sessions: chats });
 		for (const p of codeProjects) {
-			const list = p.sessions.filter((s) => s.archived && sessionMatches(p, s));
+			const list = p.sessions.filter((s) => archived(s) && sessionMatches(p, s));
 			if (list.length) groups.push({ id: p.id, name: p.name, sessions: list });
 		}
 		return groups;
 	});
 	const archivedShown = $derived(archivedGroups.flatMap((g) => g.sessions));
 	const archivedTotal = $derived(
-		[...homes, ...codeProjects].reduce((n, p) => n + p.sessions.filter((s) => s.archived).length, 0)
+		[...homes, ...codeProjects].reduce((n, p) => n + p.sessions.filter(archived).length, 0)
 	);
 
 	// Inline rename (dblclick a session title).
@@ -609,7 +612,7 @@
 			<span class="grow"></span>
 			<button
 				class="tool"
-				disabled={!codeProjects.length}
+				disabled={!codeProjects.length && !recent.length}
 				onclick={() => saveFold(foldAll(fold, codeProjects.map((p) => p.id), !everyFolded))}
 				aria-label={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}
 				title={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}

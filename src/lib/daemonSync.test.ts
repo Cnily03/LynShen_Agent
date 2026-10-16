@@ -217,6 +217,30 @@ describe('DaemonSync', () => {
 		expect(store.projects[0].sessions).toHaveLength(0);
 	});
 
+	it('lists a session saved with nothing in it only once it has something', async () => {
+		const { sync, store } = await setup();
+		const p = store.projects[0];
+		const session = (over: Record<string, unknown> = {}) => ({ session: 's-1', cwd: '/w/app', created_at: 0, open: false, engine: 'lynshen', ...over });
+		// A newer daemon counts what the engine saved: none, and never named.
+		sync.reconcile([session({ entries: 0, title: null }), session({ session: 's-named', entries: 0, title: 'kept' })]);
+		expect(p.sessions.map((s) => s.chat.sessionId)).toEqual(['s-named']);
+		sync.reconcile([session({ entries: 2, title: 'fix login' }), session({ session: 's-named', entries: 0, title: 'kept' })]);
+		expect(listedSessions(p).map((s) => s.chat.sessionId)).toEqual(['s-1', 's-named']);
+		// An older daemon does not count: listed as before.
+		sync.reconcile([session({ session: 's-old', title: null })]);
+		expect(listedSessions(p).map((s) => s.chat.sessionId)).toContain('s-old');
+		// A tab restored with a conversation the daemon reports empty is not listed.
+		const again = await setup();
+		await again.store.restore([{ id: 'p1', name: 'app', path: '/w/app', tabs: [{ id: 't1', sid: 's-1', title: 'New session' }] }]);
+		again.store.loaded = true;
+		const q = again.store.projects[0];
+		expect(listedSessions(q).map((s) => s.id)).toEqual(['t1']);
+		again.sync.reconcile([session({ entries: 0, title: null })]);
+		expect(listedSessions(q)).toEqual([]);
+		again.sync.reconcile([session({ entries: 1, title: 'hi' })]);
+		expect(listedSessions(q).map((s) => s.id)).toEqual(['t1']);
+	});
+
 	it('never lists a session a tab here is opening', async () => {
 		const { sync, store } = await setup();
 		desktopOf.mockReturnValue('tab-1');

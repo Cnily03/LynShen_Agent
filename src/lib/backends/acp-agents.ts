@@ -1,6 +1,8 @@
-// Pure helpers for the ACP agent settings UI (kept DOM-free for unit tests).
-// The registry itself lives Rust-side (acp_registry.rs) — these only shape
-// the form fields.
+// Pure helpers for ACP agents (kept DOM-free for unit tests): the settings
+// form fields, and the environment a session of an agent starts with. The
+// registry itself lives Rust-side (acp_registry.rs).
+
+import type { AcpAgent } from '$lib/protocol';
 
 /** Splits an argument line into argv entries, honoring single/double quotes
  *  (`--flag "a b"` → ['--flag', 'a b']). No escapes, no expansion — this is a
@@ -48,4 +50,33 @@ export function slugifyAgentId(name: string, taken: Set<string> = new Set()): st
 		const candidate = `${base}-${n}`;
 		if (!taken.has(candidate)) return candidate;
 	}
+}
+
+/** Whether an agent runs OpenCode's ACP server (`opencode acp`): its program
+ *  by name or path, with or without a Windows extension. */
+export function isOpencodeAgent(agent: Pick<AcpAgent, 'command' | 'args'>): boolean {
+	const file = agent.command.split(/[\\/]/).pop() ?? '';
+	const stem = file.replace(/\.(exe|cmd|bat|ps1)$/i, '');
+	return stem.toLowerCase() === 'opencode' && agent.args[0] === 'acp';
+}
+
+function randomSecret(): string {
+	const bytes = new Uint8Array(24);
+	crypto.getRandomValues(bytes);
+	return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** The environment a session of `agent` starts with: the backend's custom
+ *  environment, then the agent's own. `opencode acp` also serves its HTTP API
+ *  on 127.0.0.1 (port 4096 when free) with no password unless
+ *  OPENCODE_SERVER_PASSWORD is set, so each OpenCode session gets a random
+ *  one: other programs on this computer cannot drive it. */
+export function agentEnv(
+	agent: AcpAgent,
+	base: Record<string, string> = {},
+	secret: () => string = randomSecret
+): Record<string, string> {
+	const env = { ...base, ...agent.env };
+	if (isOpencodeAgent(agent) && !env.OPENCODE_SERVER_PASSWORD) env.OPENCODE_SERVER_PASSWORD = secret();
+	return env;
 }
