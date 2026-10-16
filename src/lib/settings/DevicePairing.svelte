@@ -16,6 +16,7 @@
 	import Notice from '$lib/ui/Notice.svelte';
 	import Switch from '$lib/ui/Switch.svelte';
 	import { daemon } from '$lib/protocol';
+	import { isChatDevice } from '$lib/chatConnectors';
 	import { t } from '$lib/i18n';
 	import SettingsRow from './SettingsRow.svelte';
 
@@ -83,7 +84,8 @@
 	async function refresh() {
 		try {
 			const reply = await daemon.request({ op: 'device_list' });
-			const next = (reply.devices as Device[]) ?? [];
+			// Chat accounts have their own page (聊天连接).
+			const next = ((reply.devices as (Device & { kind?: string })[]) ?? []).filter((d) => !isChatDevice(d));
 			// A new device means the shown code was just used.
 			if (pairing && next.length > devices.length) stopPairing();
 			devices = next;

@@ -19,9 +19,33 @@ const skill = (name: string, description: string, scope: 'user' | 'shared' | 'pr
 	...extra
 });
 
+const connector = (extra: Frame = {}): Frame => ({
+	id: 'tg-3f9a1c2b',
+	platform: 'telegram',
+	name: '@aogiri_home_bot',
+	link: 'https://t.me/aogiri_home_bot',
+	enabled: true,
+	proxy: null,
+	proxy_source: 'environment',
+	proxy_shown: 'http://127.0.0.1:7890',
+	state: 'connected',
+	error: null,
+	settings: { approvals: true, notify: true, max_mode: 'auto' },
+	bindings: [
+		{ device: 'dev-tg-1', name: 'Chad Li (@chadli)', paired_at: Date.UTC(2026, 9, 16, 2, 10), last_seen: Date.UTC(2026, 9, 16, 5, 3) }
+	],
+	created_at: Date.UTC(2026, 9, 16, 2, 0),
+	...extra
+});
+
 export const daemonState = {
 	/** Answer the skill ops as a daemon older than them does. */
 	old: false,
+	/** Chat connectors (Settings → 聊天连接); `chats` picks a sample:
+	 *  `empty`, `error` (no proxy reaches Telegram), `old` (a daemon without
+	 *  connectors), else one bot with one bound account. */
+	chats: '' as string,
+	connectors: [] as Frame[],
 	/** The computer `shells` describes: a Mac, or a Windows PC without PowerShell 7. */
 	shellsPlatform: 'macos' as 'macos' | 'windows',
 	/** Leave the catalog's first request unanswered (a stuck daemon). */
@@ -192,8 +216,65 @@ function shellsReply(): Frame {
 	};
 }
 
+/** The connector ops, as the daemon answers them (LynShen-CLI docs/chat-connectors.md). */
+function connectorReply(op: Frame): Frame | null {
+	const s = daemonState;
+	const list = () => ({ type: 'connectors', connectors: s.connectors });
+	const found = s.connectors.find((c) => c.id === op.connector);
+	if (s.chats === 'old' && String(op.op).startsWith('connector_')) return { type: 'error', message: `${op.op} requires session` };
+	switch (op.op) {
+		case 'connector_list':
+			return list();
+		case 'connector_add': {
+			if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(String(op.token ?? '').trim())) return { type: 'error', message: 'this is not a Telegram bot token (@BotFather gives one like 123456789:AA…)' };
+			if (String(op.token).includes('REVOKED')) return { type: 'error', message: 'Telegram does not know this token: copy it again from @BotFather' };
+			const added = connector({ id: `tg-${s.connectors.length + 1}`, name: '@aogiri_work_bot', link: 'https://t.me/aogiri_work_bot', state: 'connecting', proxy: op.proxy ?? null, proxy_source: op.proxy ? 'setting' : 'environment', proxy_shown: op.proxy ?? 'http://127.0.0.1:7890', bindings: [] });
+			s.connectors.push(added);
+			return { type: 'connector_added', connector: added };
+		}
+		case 'connector_set': {
+			if (!found) return { type: 'error', message: 'connector_set requires a known connector' };
+			if (typeof op.enabled === 'boolean') Object.assign(found, { enabled: op.enabled, state: op.enabled ? 'connecting' : 'stopped', error: null });
+			for (const key of ['approvals', 'notify', 'max_mode']) if (key in op) found.settings[key] = op[key];
+			if ('proxy' in op) Object.assign(found, { proxy: op.proxy || null, proxy_source: op.proxy === 'direct' ? 'none' : op.proxy ? 'setting' : 'environment', proxy_shown: op.proxy && op.proxy !== 'direct' ? op.proxy : op.proxy ? null : 'http://127.0.0.1:7890' });
+			return list();
+		}
+		case 'connector_remove':
+			s.connectors = s.connectors.filter((c) => c.id !== op.connector);
+			return { type: 'connector_removed', connector: op.connector };
+		case 'connector_bind_start':
+			if (!found) return { type: 'error', message: 'connector_bind_start requires a known connector' };
+			return { type: 'connector_bind_code', connector: found.id, code: 'K7QXA2B9', expires_at: Date.now() + 5 * 60_000, link: `${found.link}?start=K7QXA2B9` };
+		case 'device_revoke':
+			for (const c of s.connectors) c.bindings = c.bindings.filter((b: Frame) => b.device !== op.device);
+			return { type: 'device_revoked', device: op.device };
+		// 远程访问 lists the phones; a chat account is a device too, of kind chat.
+		case 'device_list':
+			return {
+				type: 'devices',
+				devices: [
+					{ id: 'dev-phone', name: 'iPhone', paired_at: Date.UTC(2026, 9, 12), kind: 'device', last_seen: null },
+					...s.connectors.flatMap((c) => c.bindings.map((b: Frame) => ({ id: b.device, name: b.name, paired_at: b.paired_at, kind: 'chat', platform: 'telegram', connector: c.id, last_seen: b.last_seen })))
+				]
+			};
+		case 'relay_status':
+			return { type: 'relay_status', enabled: false, connected: false, host: null, url: 'wss://app.lynshen.org/relay/v1' };
+		default:
+			return null;
+	}
+}
+
+/** The sample connectors for `daemonState.chats`. */
+export function chatSample(kind: string): Frame[] {
+	if (kind === 'empty' || kind === 'old') return [];
+	if (kind === 'error')
+		return [connector({ state: 'error', proxy_source: 'none', proxy_shown: null, error: 'cannot reach Telegram: https://api.telegram.org/bot<token>/getUpdates: Connection Failed: Connect error: connection timed out', bindings: [] })];
+	return [connector()];
+}
+
 function reply(op: Frame): Frame | null {
 	const s = daemonState;
+	if (String(op.op).startsWith('connector_') || ['device_revoke', 'device_list', 'relay_status'].includes(op.op)) return connectorReply(op);
 	const list = () => (op.backend === 'claude' ? s.claude : s.list);
 	if (s.old && String(op.op).startsWith('skill') && op.op !== 'skills_catalog' && op.op !== 'skill_install')
 		return { type: 'error', message: `${op.op} requires session` };
