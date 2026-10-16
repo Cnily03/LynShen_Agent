@@ -1,10 +1,11 @@
 <script lang="ts">
 	// Settings → 聊天连接: chat bots in the daemon (LynShen-CLI
-	// docs/chat-connectors.md). Add a Telegram bot by its token, bind an
-	// account with a one-time code (link and QR code), see the connection
-	// state and the bound accounts, unbind, switch the bot off, and choose
-	// what a chat may do. The daemon keeps the token; the page never gets it
-	// back.
+	// docs/chat-connectors.md). Add a Telegram or Discord bot by its token, or
+	// a QQ official bot by its AppID and AppSecret; bind an account with a
+	// one-time code (Telegram: a link and QR code; the others: a command to
+	// send the bot); see the connection state and the bound accounts, unbind,
+	// switch the bot off, and choose what a chat may do. The daemon keeps the
+	// credentials; the page never gets them back.
 	import { onDestroy, onMount } from 'svelte';
 	import { renderSVG } from 'uqr';
 	import { openUrl } from '@tauri-apps/plugin-opener';
@@ -25,13 +26,19 @@
 	import { t } from '$lib/i18n';
 	import {
 		MAX_MODES,
+		PLATFORMS,
+		addOp,
+		isDiscordToken,
 		isOldDaemon,
+		isQqAppId,
+		isQqSecret,
 		isTelegramToken,
 		parseConnectors,
 		proxyValue,
 		remaining,
 		type Connector,
-		type MaxMode
+		type MaxMode,
+		type Platform
 	} from '$lib/chatConnectors';
 	import SettingsRow from './SettingsRow.svelte';
 	import SettingsSection from './SettingsSection.svelte';
@@ -43,7 +50,10 @@
 
 	// The add form.
 	let adding = $state(false);
+	let platform = $state<Platform>('telegram');
 	let token = $state('');
+	let appId = $state('');
+	let secret = $state('');
 	let proxy = $state('');
 	let busy = $state(false);
 	let addError = $state('');
@@ -59,8 +69,10 @@
 	let poll: ReturnType<typeof setInterval> | null = null;
 
 	const qr = $derived(code?.link ? renderSVG(code.link, { border: 4 }) : '');
-	const tokenOk = $derived(isTelegramToken(token));
+	const tokenOk = $derived(platform === 'discord' ? isDiscordToken(token) : isTelegramToken(token));
 	const proxyOk = $derived(proxyValue(proxy).ok);
+	const op = $derived(addOp(platform, { token, appId, secret, proxy }));
+	const hint = $derived(t(`settings.chat.${platform === 'telegram' ? 'telegramHint' : platform === 'discord' ? 'discordHint' : 'qqHint'}`));
 
 	/** A daemon op, connecting first (the page may open before any session). */
 	async function ask(op: Record<string, unknown>) {
@@ -99,22 +111,15 @@
 	}
 
 	async function add() {
-		const parsed = proxyValue(proxy);
-		if (!tokenOk || !parsed.ok) return;
+		if (!op) return;
 		busy = true;
 		addError = '';
 		try {
-			const reply = await ask({
-				op: 'connector_add',
-				platform: 'telegram',
-				token: token.trim(),
-				...(parsed.value ? { proxy: parsed.value } : {})
-			});
+			const reply = await ask(op);
 			const name = String((reply.connector as Record<string, unknown> | undefined)?.name ?? '');
 			toast.success(t('settings.chat.added', { name }));
 			adding = false;
-			token = '';
-			proxy = '';
+			token = appId = secret = proxy = '';
 			await load();
 		} catch (e) {
 			addError = message(e);
@@ -162,9 +167,10 @@
 	}
 
 	async function copyLink() {
-		if (!code?.link) return;
+		const text = code?.link ?? (code ? `/bind ${code.code}` : '');
+		if (!text) return;
 		try {
-			await navigator.clipboard.writeText(code.link);
+			await navigator.clipboard.writeText(text);
 			copied = true;
 			setTimeout(() => (copied = false), 1500);
 		} catch {
@@ -236,7 +242,7 @@
 	{:else if loadError}
 		<SettingsRow stacked><Notice>{t('settings.chat.loadFailed', { msg: loadError })}</Notice></SettingsRow>
 	{/if}
-	<SettingsRow id="chat-telegram" title={t('settings.chat.addTelegram')} description={t('settings.chat.telegramHint')}>
+	<SettingsRow id="chat-add" title={t('settings.chat.addBot')} description={t('settings.chat.addBotHint')}>
 		{#if !adding}
 			<Button size="sm" disabled={!loaded || old} onclick={() => (adding = true)}>{t('settings.chat.add')}</Button>
 		{/if}
@@ -250,20 +256,44 @@
 					void add();
 				}}
 			>
-				<label class="field">
-					<span class="label">{t('settings.chat.token')}</span>
-					<TextField bind:value={token} type="password" mono placeholder="123456789:AA…" disabled={busy} />
-					{#if token.trim() && !tokenOk}<span class="bad">{t('settings.chat.tokenShape')}</span>{/if}
-				</label>
-				<label class="field">
-					<span class="label">{t('settings.chat.proxy')}</span>
-					<TextField bind:value={proxy} mono placeholder={t('settings.chat.proxyPlaceholder')} disabled={busy} />
-					<span class="hint">{t('settings.chat.proxyHint')}</span>
-					{#if !proxyOk}<span class="bad">{t('settings.chat.proxyInvalid')}</span>{/if}
-				</label>
+				<div class="field">
+					<span class="label">{t('settings.chat.platform')}</span>
+					<div>
+						<Segmented
+							value={platform}
+							options={PLATFORMS.map((p) => ({ value: p, label: t(`settings.chat.platformName.${p}`) }))}
+							onChange={(p) => ((platform = p as Platform), (addError = ''))}
+						/>
+					</div>
+					<span class="hint">{hint}</span>
+				</div>
+				{#if platform === 'qq'}
+					<label class="field">
+						<span class="label">{t('settings.chat.appId')}</span>
+						<TextField bind:value={appId} mono placeholder="102030405" disabled={busy} />
+						{#if appId.trim() && !isQqAppId(appId)}<span class="bad">{t('settings.chat.appIdShape')}</span>{/if}
+					</label>
+					<label class="field">
+						<span class="label">{t('settings.chat.appSecret')}</span>
+						<TextField bind:value={secret} type="password" mono disabled={busy} />
+						{#if secret.trim() && !isQqSecret(secret)}<span class="bad">{t('settings.chat.secretShape')}</span>{/if}
+					</label>
+				{:else}
+					<label class="field">
+						<span class="label">{t('settings.chat.token')}</span>
+						<TextField bind:value={token} type="password" mono placeholder={platform === 'telegram' ? '123456789:AA…' : ''} disabled={busy} />
+						{#if token.trim() && !tokenOk}<span class="bad">{t(platform === 'telegram' ? 'settings.chat.tokenShape' : 'settings.chat.discordTokenShape')}</span>{/if}
+					</label>
+					<label class="field">
+						<span class="label">{t('settings.chat.proxy')}</span>
+						<TextField bind:value={proxy} mono placeholder={t('settings.chat.proxyPlaceholder')} disabled={busy} />
+						<span class="hint">{t('settings.chat.proxyHint')}</span>
+						{#if !proxyOk}<span class="bad">{t('settings.chat.proxyInvalid')}</span>{/if}
+					</label>
+				{/if}
 				{#if addError}<Notice>{addError}</Notice>{/if}
 				<div class="actions">
-					<Button variant="primary" size="sm" type="submit" disabled={busy || !tokenOk || !proxyOk}>
+					<Button variant="primary" size="sm" type="submit" disabled={busy || !op}>
 						{#if busy}<CircleNotchIcon size={13} class="spin" /> {t('settings.chat.checking')}{:else}{t('settings.chat.connect')}{/if}
 					</Button>
 					<Button size="sm" variant="ghost" type="button" disabled={busy} onclick={() => ((adding = false), (addError = ''))}>{t('common.cancel')}</Button>
@@ -274,7 +304,7 @@
 </SettingsSection>
 
 {#each connectors as c (c.id)}
-	<SettingsSection id={`chat-${c.id}`} title={`${t('settings.chat.telegram')} · ${c.name}`}>
+	<SettingsSection id={`chat-${c.id}`} title={`${t(`settings.chat.platformName.${c.platform}`)} · ${c.name}`}>
 		<SettingsRow title={t('settings.chat.connection')}>
 			{#snippet detail()}
 				<span class="status">
@@ -285,6 +315,14 @@
 			<Switch checked={c.enabled} label={t('settings.chat.connection')} onChange={(on) => set(c, { enabled: on })} />
 		</SettingsRow>
 
+		{#if c.platform === 'discord' && c.link}
+			<SettingsRow title={t('settings.chat.inviteTitle')} description={t('settings.chat.inviteHint')}>
+				<Button size="sm" onclick={() => c.link && openUrl(c.link).catch(() => {})}><ArrowSquareOutIcon size={13} /> {t('settings.chat.invite')}</Button>
+			</SettingsRow>
+		{/if}
+		{#if c.platform === 'qq'}
+			<SettingsRow stacked><p class="note">{t('settings.chat.qqNote')}</p></SettingsRow>
+		{/if}
 		<SettingsRow title={t('settings.chat.bind')}>
 			{#if code?.connector !== c.id}
 				<Button size="sm" disabled={!c.enabled} onclick={() => bind(c)}>{t('settings.chat.bind')}</Button>
@@ -299,16 +337,20 @@
 					{/if}
 					<div class="code-text">
 						<strong class="mono">{t('settings.chat.bindCode', { code: code.code })}</strong>
-						<span>{t('settings.chat.bindHint', { code: code.code })}</span>
-						<span class="expires">{t('settings.chat.expires', { time: remaining(code.expires_at, now) })}</span>
 						{#if code.link}
-							<div class="link-row">
-								<Button size="sm" onclick={() => code?.link && openUrl(code.link).catch(() => {})}><ArrowSquareOutIcon size={13} /> {t('settings.chat.openLink')}</Button>
-								<Button size="sm" variant="ghost" onclick={copyLink}>
-									{#if copied}<CheckIcon size={13} /> {t('settings.chat.copied')}{:else}<CopyIcon size={13} /> {t('settings.chat.copyLink')}{/if}
-								</Button>
-							</div>
+							<span>{t('settings.chat.bindHint', { code: code.code })}</span>
+						{:else}
+							<span>{t('settings.chat.bindCommand', { code: code.code })}</span>
 						{/if}
+						<span class="expires">{t('settings.chat.expires', { time: remaining(code.expires_at, now) })}</span>
+						<div class="link-row">
+							{#if code.link}
+								<Button size="sm" onclick={() => code?.link && openUrl(code.link).catch(() => {})}><ArrowSquareOutIcon size={13} /> {t('settings.chat.openLink')}</Button>
+							{/if}
+							<Button size="sm" variant="ghost" onclick={copyLink}>
+								{#if copied}<CheckIcon size={13} /> {t('settings.chat.copied')}{:else}<CopyIcon size={13} /> {t(code.link ? 'settings.chat.copyLink' : 'settings.chat.copyCommand')}{/if}
+							</Button>
+						</div>
 					</div>
 					<IconButton onclick={() => (code = null)} label={t('common.close')}><XIcon size={14} /></IconButton>
 				</div>
@@ -345,15 +387,17 @@
 				onChange={(m) => set(c, { max_mode: m as MaxMode })}
 			/>
 		</SettingsRow>
-		<SettingsRow title={t('settings.chat.proxy')} description={t('settings.chat.proxyHint')}>
-			{#snippet detail()}
-				<span class="status">{t(`settings.chat.proxyNow.${c.proxySource}`, { proxy: c.proxyShown ?? '' })}</span>
-			{/snippet}
-			<div class="proxy">
-				<TextField bind:value={proxies[c.id]} mono placeholder={t('settings.chat.proxyPlaceholder')} />
-				<Button size="sm" disabled={(proxies[c.id] ?? '') === (c.proxy ?? '')} onclick={() => saveProxy(c)}>{t('settings.chat.save')}</Button>
-			</div>
-		</SettingsRow>
+		{#if c.platform !== 'qq'}
+			<SettingsRow title={t('settings.chat.proxy')} description={t('settings.chat.proxyHint')}>
+				{#snippet detail()}
+					<span class="status">{t(`settings.chat.proxyNow.${c.proxySource}`, { proxy: c.proxyShown ?? '' })}</span>
+				{/snippet}
+				<div class="proxy">
+					<TextField bind:value={proxies[c.id]} mono placeholder={t('settings.chat.proxyPlaceholder')} />
+					<Button size="sm" disabled={(proxies[c.id] ?? '') === (c.proxy ?? '')} onclick={() => saveProxy(c)}>{t('settings.chat.save')}</Button>
+				</div>
+			</SettingsRow>
+		{/if}
 		{#if errors[c.id]}
 			<SettingsRow stacked><Notice onDismiss={() => (errors[c.id] = '')}>{errors[c.id]}</Notice></SettingsRow>
 		{/if}
@@ -393,6 +437,12 @@
 	.lede .safety {
 		font-size: var(--fs-xs);
 		color: var(--dim2);
+	}
+	.note {
+		margin: 0;
+		font-size: var(--fs-xs);
+		line-height: 1.5;
+		color: var(--dim);
 	}
 	.hint {
 		margin: 0;

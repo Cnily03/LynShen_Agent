@@ -226,9 +226,19 @@ function connectorReply(op: Frame): Frame | null {
 		case 'connector_list':
 			return list();
 		case 'connector_add': {
-			if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(String(op.token ?? '').trim())) return { type: 'error', message: 'this is not a Telegram bot token (@BotFather gives one like 123456789:AA…)' };
-			if (String(op.token).includes('REVOKED')) return { type: 'error', message: 'Telegram does not know this token: copy it again from @BotFather' };
-			const added = connector({ id: `tg-${s.connectors.length + 1}`, name: '@aogiri_work_bot', link: 'https://t.me/aogiri_work_bot', state: 'connecting', proxy: op.proxy ?? null, proxy_source: op.proxy ? 'setting' : 'environment', proxy_shown: op.proxy ?? 'http://127.0.0.1:7890', bindings: [] });
+			const n = s.connectors.length + 1;
+			let added: Frame;
+			if (op.platform === 'qq') {
+				if (!/^\d+$/.test(String(op.app_id ?? '')) || String(op.secret ?? '').length < 8) return { type: 'error', message: 'the QQ AppID is a number (QQ 开放平台 → 开发设置)' };
+				added = connector({ id: `qq-${n}`, platform: 'qq', name: '@梧桐助手', link: null, state: 'connecting', proxy: null, proxy_source: 'none', proxy_shown: null, bindings: [] });
+			} else if (op.platform === 'discord') {
+				if (String(op.token ?? '').split('.').length !== 3) return { type: 'error', message: 'this is not a Discord bot token' };
+				added = connector({ id: `dc-${n}`, platform: 'discord', name: '@aogiri_dc', link: 'https://discord.com/oauth2/authorize?client_id=777&scope=bot&permissions=0', state: 'connecting', proxy: op.proxy ?? null, bindings: [] });
+			} else {
+				if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(String(op.token ?? '').trim())) return { type: 'error', message: 'this is not a Telegram bot token (@BotFather gives one like 123456789:AA…)' };
+				if (String(op.token).includes('REVOKED')) return { type: 'error', message: 'Telegram does not know this token: copy it again from @BotFather' };
+				added = connector({ id: `tg-${n}`, name: '@aogiri_work_bot', link: 'https://t.me/aogiri_work_bot', state: 'connecting', proxy: op.proxy ?? null, proxy_source: op.proxy ? 'setting' : 'environment', proxy_shown: op.proxy ?? 'http://127.0.0.1:7890', bindings: [] });
+			}
 			s.connectors.push(added);
 			return { type: 'connector_added', connector: added };
 		}
@@ -244,7 +254,7 @@ function connectorReply(op: Frame): Frame | null {
 			return { type: 'connector_removed', connector: op.connector };
 		case 'connector_bind_start':
 			if (!found) return { type: 'error', message: 'connector_bind_start requires a known connector' };
-			return { type: 'connector_bind_code', connector: found.id, code: 'K7QXA2B9', expires_at: Date.now() + 5 * 60_000, link: `${found.link}?start=K7QXA2B9` };
+			return { type: 'connector_bind_code', connector: found.id, code: 'K7QXA2B9', expires_at: Date.now() + 5 * 60_000, link: found.platform === 'telegram' ? `${found.link}?start=K7QXA2B9` : null };
 		case 'device_revoke':
 			for (const c of s.connectors) c.bindings = c.bindings.filter((b: Frame) => b.device !== op.device);
 			return { type: 'device_revoked', device: op.device };
@@ -267,6 +277,12 @@ function connectorReply(op: Frame): Frame | null {
 /** The sample connectors for `daemonState.chats`. */
 export function chatSample(kind: string): Frame[] {
 	if (kind === 'empty' || kind === 'old') return [];
+	if (kind === 'all')
+		return [
+			connector(),
+			connector({ id: 'dc-7a1b', platform: 'discord', name: '@aogiri_dc', link: 'https://discord.com/oauth2/authorize?client_id=777&scope=bot&permissions=0', bindings: [{ device: 'dev-dc-1', name: 'Chad (@chad)', paired_at: Date.UTC(2026, 9, 16, 3), last_seen: null }] }),
+			connector({ id: 'qq-102030405', platform: 'qq', name: '@梧桐助手', link: null, proxy_source: 'none', proxy_shown: null, bindings: [] })
+		];
 	if (kind === 'error')
 		return [connector({ state: 'error', proxy_source: 'none', proxy_shown: null, error: 'cannot reach Telegram: https://api.telegram.org/bot<token>/getUpdates: Connection Failed: Connect error: connection timed out', bindings: [] })];
 	return [connector()];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isChatDevice, isOldDaemon, isTelegramToken, parseConnectors, proxyValue, remaining } from './chatConnectors';
+import { addOp, isChatDevice, isDiscordToken, isOldDaemon, isQqAppId, isQqSecret, isTelegramToken, parseConnectors, proxyValue, remaining } from './chatConnectors';
 
 describe('chat connectors', () => {
 	it('reads the daemon list and drops what it cannot use', () => {
@@ -60,5 +60,34 @@ describe('chat connectors', () => {
 		expect(isChatDevice({})).toBe(false);
 		expect(isOldDaemon('connector_list requires session')).toBe(true);
 		expect(isOldDaemon('Telegram answered 401: Unauthorized')).toBe(false);
+	});
+
+	it('builds the add op for each platform only from complete fields', () => {
+		const discord = ['MTA5ODc2NTQz', 'MjEwOTg3NjU0', 'GaBcDe', 'f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2'];
+		const discordToken = `${discord[0]}${discord[1]}.${discord[2]}.${discord[3]}`;
+		expect(isDiscordToken(discordToken)).toBe(true);
+		expect(isDiscordToken('a.b.c')).toBe(false);
+		expect(isQqAppId('102030405')).toBe(true);
+		expect(isQqAppId('abc')).toBe(false);
+		expect(isQqSecret('qqSecretABCDEF')).toBe(true);
+		expect(isQqSecret('has space x')).toBe(false);
+		const fields = { token: '', appId: '', secret: '', proxy: '' };
+		expect(addOp('telegram', { ...fields, token: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw1', proxy: 'http://127.0.0.1:7890' })).toEqual({
+			op: 'connector_add',
+			platform: 'telegram',
+			token: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw1',
+			proxy: 'http://127.0.0.1:7890'
+		});
+		expect(addOp('discord', { ...fields, token: discordToken })).toEqual({ op: 'connector_add', platform: 'discord', token: discordToken });
+		expect(addOp('discord', { ...fields, token: discordToken, proxy: 'socks5://x:1' })).toBeNull();
+		expect(addOp('qq', { ...fields, appId: ' 102030405 ', secret: 'qqSecretABCDEF' })).toEqual({
+			op: 'connector_add',
+			platform: 'qq',
+			app_id: '102030405',
+			secret: 'qqSecretABCDEF'
+		});
+		expect(addOp('qq', { ...fields, appId: '102030405' })).toBeNull();
+		expect(parseConnectors({ connectors: [{ id: 'x', platform: 'slack' }] })[0].platform).toBe('telegram');
+		expect(parseConnectors({ connectors: [{ id: 'q', platform: 'qq' }] })[0].platform).toBe('qq');
 	});
 });

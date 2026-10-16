@@ -18,7 +18,7 @@
 	//   &collapsed              the navigator collapsed to its icon rail
 	//   &home                   the home page over the canvas
 	//   &settings[=<section>]   the settings page over the navigator and canvas
-	//   &chats[=empty|error|old] with &settings=chat: the chat connectors' sample
+	//   &chats[=empty|error|old|all] with &settings=chat: the chat connectors' sample
 	//   &approval               the conversation waits for an approval (a
 	//                           sandbox request: the card above the composer)
 	//   &states                 the other conversations in the navigator wait

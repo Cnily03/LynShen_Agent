@@ -4,6 +4,10 @@
 // never gets a token back.
 
 export type ConnectorState = 'stopped' | 'connecting' | 'connected' | 'error';
+export type Platform = 'telegram' | 'discord' | 'qq';
+
+/** The platforms the daemon connects to, in the order the page offers them. */
+export const PLATFORMS: Platform[] = ['telegram', 'discord', 'qq'];
 export type MaxMode = 'plan' | 'manual' | 'auto-edit' | 'auto';
 export type ProxySource = 'setting' | 'environment' | 'none';
 
@@ -26,7 +30,7 @@ export interface ConnectorSettings {
 
 export interface Connector {
 	id: string;
-	platform: string;
+	platform: Platform;
 	/** The bot as people see it, `@name`. */
 	name: string;
 	/** Where the bot opens (`https://t.me/<bot>`). */
@@ -58,7 +62,7 @@ export function parseConnectors(reply: Record<string, unknown>): Connector[] {
 			const source = ['setting', 'environment', 'none'].includes(c.proxy_source) ? (c.proxy_source as ProxySource) : 'none';
 			return {
 				id: c.id,
-				platform: str(c.platform) || 'telegram',
+				platform: PLATFORMS.includes(c.platform) ? (c.platform as Platform) : 'telegram',
 				name: str(c.name),
 				link: strOrNull(c.link),
 				enabled: c.enabled !== false,
@@ -84,6 +88,41 @@ export function parseConnectors(reply: Record<string, unknown>): Connector[] {
  *  letters, digits, `_` or `-`. */
 export function isTelegramToken(token: string): boolean {
 	return /^\d+:[A-Za-z0-9_-]{30,}$/.test(token.trim());
+}
+
+/** A Discord bot token: three parts joined by dots. */
+export function isDiscordToken(token: string): boolean {
+	const t = token.trim();
+	return t.length >= 50 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t);
+}
+
+/** A QQ bot's AppID (digits) and AppSecret (one word of 8 or more). */
+export function isQqAppId(id: string): boolean {
+	return /^\d+$/.test(id.trim());
+}
+export function isQqSecret(secret: string): boolean {
+	return /^\S{8,}$/.test(secret.trim());
+}
+
+/** What `connector_add` needs for a platform: the fields as typed, checked.
+ *  Null while something is missing or malformed. */
+export function addOp(
+	platform: Platform,
+	fields: { token: string; appId: string; secret: string; proxy: string }
+): Record<string, unknown> | null {
+	const proxy = proxyValue(fields.proxy);
+	if (!proxy.ok) return null;
+	const withProxy = proxy.value ? { proxy: proxy.value } : {};
+	switch (platform) {
+		case 'telegram':
+			return isTelegramToken(fields.token) ? { op: 'connector_add', platform, token: fields.token.trim(), ...withProxy } : null;
+		case 'discord':
+			return isDiscordToken(fields.token) ? { op: 'connector_add', platform, token: fields.token.trim(), ...withProxy } : null;
+		case 'qq':
+			return isQqAppId(fields.appId) && isQqSecret(fields.secret)
+				? { op: 'connector_add', platform, app_id: fields.appId.trim(), secret: fields.secret.trim() }
+				: null;
+	}
 }
 
 /** The proxy field as the daemon takes it: empty (the environment's proxy),

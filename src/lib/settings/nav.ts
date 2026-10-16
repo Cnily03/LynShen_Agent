@@ -141,7 +141,7 @@ export const ROWS: SearchRow[] = [
 	{ section: 'daemon', id: 'relay', titleKey: 'settings.backend.relayToggle', descKey: 'settings.backend.relayHint' },
 	{ section: 'daemon', id: 'devices', titleKey: 'settings.backend.devices' },
 	{ section: 'chat', id: 'chat-connectors', titleKey: 'settings.section.chat', descKey: 'settings.chat.intro' },
-	{ section: 'chat', id: 'chat-telegram', titleKey: 'settings.chat.addTelegram', descKey: 'settings.chat.telegramHint' },
+	{ section: 'chat', id: 'chat-add', titleKey: 'settings.chat.addBot', descKey: 'settings.chat.addBotHint' },
 	{ section: 'updates', id: 'app-version', titleKey: 'settings.update.currentVersion' },
 	{ section: 'updates', id: 'licenses', titleKey: 'settings.licenses.title' }
 ];
