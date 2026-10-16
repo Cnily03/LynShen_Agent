@@ -3,7 +3,10 @@
 	// (Claude Code, Codex, opencode, zcode, omp), a checklist of what they
 	// have, and one button that brings the picked items over. Conversations
 	// and skills are imported on the Rust side (agent_import); MCP servers go
-	// to the daemon with `mcp_set`, the way Settings → MCP adds one.
+	// to the daemon with `mcp_set`, the way Settings → MCP adds one. With an
+	// OpenCode agent registered, OpenCode conversations continue in OpenCode
+	// instead: OpenCode copies each into a daemon session (copyOpencode).
+	import { copyOpencode, opencodeAgent } from '$lib/backends/opencode';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import {
@@ -12,6 +15,7 @@
 		importScan,
 		readConfig,
 		type ImportMcp,
+		type ImportOutcome,
 		type ImportScan,
 		type ImportSession,
 		type ImportSkill,
@@ -122,13 +126,17 @@
 		summary = null;
 		foldersAdded = false;
 		try {
-			const sessions = scanned.sessions
-				.filter((s) => picks[sessionKey(s)])
+			const picked = scanned.sessions.filter((s) => picks[sessionKey(s)]);
+			const inOpencode = (await opencodeAgent()) !== undefined;
+			const copies = picked.filter((s) => inOpencode && s.source === 'opencode');
+			const sessions = picked
+				.filter((s) => !copies.includes(s))
 				.map((s) => ({ source: s.source, id: s.id, cwd: s.cwd }));
 			const skills = scanned.skills
 				.filter((s) => !s.present && picks[skillKey(s)])
 				.map((s) => ({ source: s.source, path: s.path }));
 			const outcomes = sessions.length || skills.length ? await importApply({ sessions, skills }) : [];
+			for (const s of copies) outcomes.push(await copyInOpencode(s));
 			const servers = await addServers(scanned.mcp.filter((m) => !m.present && picks[mcpKey(m)]));
 			summary = summarize(outcomes, servers);
 			folders = importedFolders(outcomes);
@@ -139,6 +147,29 @@
 		}
 		// Fresh marks (imported, already added) for another round.
 		await scan(true);
+	}
+
+	/** An OpenCode conversation continued in OpenCode: a copy OpenCode makes,
+	 *  once (an earlier import is kept). */
+	async function copyInOpencode(s: ImportSession): Promise<ImportOutcome> {
+		const outcome: ImportOutcome = {
+			kind: 'session',
+			source: s.source,
+			key: s.id,
+			status: 'existing',
+			target: null,
+			title: s.title,
+			cwd: s.cwd,
+			engine: 'acp',
+			cwd_exists: true,
+			error: null
+		};
+		if (s.imported) return outcome;
+		try {
+			return { ...outcome, status: 'imported', target: await copyOpencode(s.cwd, s.id, s.title) };
+		} catch (e) {
+			return { ...outcome, status: 'failed', cwd_exists: false, error: String(e) };
+		}
 	}
 
 	function addFolders() {

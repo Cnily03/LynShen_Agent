@@ -90,20 +90,41 @@ current one settles (same UX as claude's stdin queue).
 
 ## OpenCode
 
-The preset registers `opencode acp` (OpenCode 1.19: `loadSession`, model and
-mode config options, `usage_update`). Adding it on Windows stores the
-`opencode.exe` behind an npm shim (`node_modules/opencode-ai/bin/`), so
-stopping a session stops OpenCode and not only the `cmd.exe` that ran the
-shim. `opencode acp` also serves its HTTP API on 127.0.0.1 (port 4096 when
-free) without a password unless `OPENCODE_SERVER_PASSWORD` is set: each
-session gets a random one (`agentEnv`) unless the entry sets its own.
+The preset registers `opencode acp` (OpenCode 1.x). Adding it on Windows
+stores the `opencode.exe` behind an npm shim (`node_modules/opencode-ai/bin/`),
+so stopping a session stops OpenCode and not only the `cmd.exe` that ran the
+shim; there the preset says 预览 (OpenCode runs commands in PowerShell, and
+stopping and reopening is less tested). `opencode acp` also serves its HTTP
+API on 127.0.0.1 (port 4096 when free) without a password unless
+`OPENCODE_SERVER_PASSWORD` is set: each session gets a random one
+(`agentEnv`) unless the entry sets its own.
 
-OpenCode asks for permission only for `external_directory`, `doom_loop` and
-`.env` reads by default; every other tool runs without asking. Its sessions
-are its own (`~/.local/share/opencode/opencode.db`), so they also show in
-OpenCode's TUI. Design notes and the next steps (approval modes, models on the
-LynShen gateway, importing OpenCode sessions to continue on OpenCode):
-`opencode-backend-design.md` in the owner's notes.
+An OpenCode session (`isOpencodeAgent`: the program is `opencode`, the first
+argument `acp`; `ChatState.acpOpencode`, `AcpAgentRef.opencode`) gets more
+than other ACP agents (`OPENCODE_CAPS`; the daemon's `engines/opencode.rs`):
+
+- **Approval modes** 谨慎 / 自动编辑 / 计划 / 全自动, passed as `approval_mode`
+  and switched live. 谨慎 and 自动编辑 run on an agent the daemon defines
+  (every tool asks except reading ones; the user's own OpenCode `deny` rules
+  still deny); in 自动编辑 the daemon allows edits itself. 计划 is OpenCode's
+  plan agent: no file edits, but it still runs commands (the mode picker
+  says so). 全自动 is OpenCode as the user configured it.
+- **LynShen gateway** (`lynshen_gateway`): on for a new conversation when the
+  computer is signed in to LynShen (`gatewayByDefault`), a switch in the
+  model menu (`SessionSwitches` `gateway`) otherwise. The daemon gives
+  OpenCode the user's LynShen models; the gateway bills each turn.
+- **OpenCode 2.x is refused** before the daemon is asked: the session reads
+  the version first (`checkOpencode`, `--version`) and shows
+  `shell.backend.opencodeV2`.
+- **Its own conversations continue in OpenCode, on a copy** (`session/fork`,
+  the original stays as it was): the history picker's OpenCode source
+  (`native_sessions("opencode")`, `SessionStore.openForked`) and Settings →
+  导入 (`copyOpencode` → `DaemonClient.copyAcp`). `record_opencode_copy`
+  keeps `opencode-acp` records in `~/.lynshen/native-imports.json`, so the
+  lists mark them imported and opening one again opens the copy.
+- Sessions keep their registry agent in the daemon (`acp_agent`), so the
+  sidebar lists them like Claude Code and Codex sessions, and a restored tab
+  waits dormant until it is shown.
 
 ## Adding an agent
 

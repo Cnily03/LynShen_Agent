@@ -395,7 +395,7 @@ pub(crate) fn codex_threads(codex: &Path) -> HashMap<String, Vec<Segment>> {
     threads
 }
 
-fn same_dir(a: &str, b: &str) -> bool {
+pub(crate) fn same_dir(a: &str, b: &str) -> bool {
     let trim = |s: &str| s.trim_end_matches('/').to_string();
     if trim(a) == trim(b) {
         return true;
@@ -656,15 +656,45 @@ pub(crate) fn import_codex(h: &Homes, cwd: &str, id: &str) -> Result<ImportedSes
 
 // --- commands ----------------------------------------------------------------
 
-/// Conversations Claude Code (`source` = "claude") or Codex ("codex") saved
-/// for `cwd`, newest first.
+/// Conversations Claude Code (`source` = "claude"), Codex ("codex") or
+/// OpenCode ("opencode") saved for `cwd`, newest first.
 #[tauri::command(async)]
 pub fn native_sessions(source: String, cwd: String) -> Result<Vec<NativeSession>, String> {
     match source.as_str() {
         "claude" => list_claude(&homes(), &cwd),
         "codex" => list_codex(&homes(), &cwd),
+        "opencode" => Ok(crate::agent_import::opencode_sessions(&cwd)),
         other => Err(format!("unknown source: {other}")),
     }
+}
+
+/// The source an OpenCode conversation continued in OpenCode is recorded
+/// under: `from` its id there, `to` the daemon session of the copy.
+pub(crate) const OPENCODE_COPY: &str = "opencode-acp";
+
+/// Ids recorded for an OpenCode copy: an OpenCode session id (`ses_…`) and a
+/// daemon session id (a UUID).
+fn copy_ids_ok(from: &str, to: &str) -> bool {
+    let plain = |s: &str, extra: char| {
+        !s.is_empty() && s.len() <= 128 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == extra)
+    };
+    plain(from, '_') && plain(to, '-')
+}
+
+/// Records that OpenCode conversation `from` continues in daemon session
+/// `to` (a copy OpenCode made with `session/fork`), so the import lists show
+/// it as imported and opening it again opens the copy.
+#[tauri::command(async)]
+pub fn record_opencode_copy(from: String, to: String) -> Result<(), String> {
+    if !copy_ids_ok(&from, &to) {
+        return Err("invalid session id".to_string());
+    }
+    let _one = IMPORTING.lock().unwrap_or_else(|e| e.into_inner());
+    let path = homes().registry;
+    let mut registry = load_registry(&path);
+    registry.retain(|r| !(r.source == OPENCODE_COPY && r.from == from));
+    registry.push(ImportRecord { source: OPENCODE_COPY.into(), from, to, at_ms: now_ms() });
+    save_registry(&path, &registry)
 }
 
 /// Copies one of them for LynShen (see module docs); returns the copy's id,
@@ -701,6 +731,14 @@ mod tests {
 
     fn read_lines(path: &Path) -> Vec<Value> {
         fs::read_to_string(path).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+
+    #[test]
+    fn opencode_copy_ids_are_checked() {
+        assert!(copy_ids_ok("ses_3c2a91f0aBcD", "aaaaaaaa-1111-4111-8111-111111111111"));
+        assert!(!copy_ids_ok("../x", "d-1"));
+        assert!(!copy_ids_ok("ses_1", "a_b"));
+        assert!(!copy_ids_ok("", "d-1"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import type { ChatState } from './chat.svelte';
-import type { BackendId, EngineAdapter } from './backends/types';
+import type { AcpAgentRef, BackendId, EngineAdapter } from './backends/types';
 import type { TabIcon } from './workbench/tabChrome';
 
 export interface Session {
@@ -12,8 +12,9 @@ export interface Session {
 	/** Tab icon: builtin id, slug/emoji, or sanitized SVG (persisted). */
 	icon?: TabIcon;
 	/** For 'acp' sessions: the registry id + display name of the launched agent
-	 *  (passed as the allowlisted `agent` spawn option on every (re)spawn). */
-	acpAgent?: { id: string; name: string };
+	 *  (passed as the allowlisted `agent` spawn option on every (re)spawn), and
+	 *  whether it is OpenCode (approval modes, the LynShen gateway switch). */
+	acpAgent?: AcpAgentRef;
 	/** Per-session adapter instance (the lynshen one; not persisted). */
 	adapter: EngineAdapter;
 	/** Archived threads are hidden from the sidebar by default (persisted); the
@@ -99,7 +100,7 @@ export interface Project {
 	/** 本项目最近一次新建会话所用的引擎后端（新建会话的默认值）。 */
 	lastBackend?: BackendId;
 	/** lastBackend 为 'acp' 时：上次选择的 ACP agent（注册表 id + 名称）。 */
-	lastAcpAgent?: { id: string; name: string };
+	lastAcpAgent?: AcpAgentRef;
 	/** 对话分组：path 为 ~/.lynshen/chats，会话以对话模式（非编程）运行，只用 lynshen 引擎。 */
 	chats?: boolean;
 	/** 不属于任何项目的对话：path 为 ~/Documents/LynShen，会话照常以编程模式运行。

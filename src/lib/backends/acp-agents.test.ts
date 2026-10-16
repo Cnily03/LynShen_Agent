@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tokenizeArgs, formatArgs, slugifyAgentId, isOpencodeAgent, agentEnv } from './acp-agents';
+import { tokenizeArgs, formatArgs, slugifyAgentId, isOpencodeAgent, agentEnv, opencodeRefusal } from './acp-agents';
 
 describe('tokenizeArgs', () => {
 	it('splits on whitespace and honors quotes', () => {
@@ -53,5 +53,16 @@ describe('OpenCode agents', () => {
 	it('leave other agents\' environment as configured, the agent\'s own winning', () => {
 		const gemini = { id: 'gemini', name: 'Gemini', command: 'gemini', args: ['--experimental-acp'], env: { A: 'agent' } };
 		expect(agentEnv(gemini, { A: 'base', B: 'base' })).toEqual({ A: 'agent', B: 'base' });
+	});
+});
+
+describe('opencodeRefusal', () => {
+	it('names 2.x and later, and lets 1.x or an unreadable version pass', () => {
+		expect(opencodeRefusal('1.19.0')).toBeNull();
+		expect(opencodeRefusal('opencode 1.2.3')).toBeNull();
+		expect(opencodeRefusal('2.0.29')).toBe('2.0.29');
+		expect(opencodeRefusal('opencode v3.1.0\n')).toBe('3.1.0');
+		expect(opencodeRefusal('')).toBeNull();
+		expect(opencodeRefusal(undefined)).toBeNull();
 	});
 });

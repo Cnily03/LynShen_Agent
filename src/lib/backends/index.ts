@@ -2,9 +2,9 @@
 
 import type { BackendCaps, BackendId } from './types';
 import { LYNSHEN_CAPS } from './lynshen';
-import { ACP_CAPS, CLAUDE_CAPS, CODEX_CAPS } from './caps';
+import { ACP_CAPS, CLAUDE_CAPS, CODEX_CAPS, OPENCODE_CAPS } from './caps';
 
-export type { BackendCaps, BackendId, EngineAdapter, AdapterIO, SessionCtx, NormalizedEvent } from './types';
+export type { AcpAgentRef, BackendCaps, BackendId, EngineAdapter, AdapterIO, SessionCtx, NormalizedEvent } from './types';
 export { BACKEND_IDS, NATIVE_BACKEND_IDS, BACKEND_LABELS, isBackendId, normalizeBackendId } from './types';
 
 /** Static capability table. */
@@ -18,9 +18,11 @@ export const CAPS: Record<BackendId, BackendCaps> = {
 /**
  * THE capability-gating helper: every UI surface asks this one function.
  * Accepts anything carrying a `backendId` (ChatState does) — or nothing, which
- * gates like the native backend so pre-existing UI behavior is unchanged.
+ * gates like the native backend so pre-existing UI behavior is unchanged. An
+ * ACP session of OpenCode (`acpOpencode`) has OpenCode's capabilities.
  */
-export function caps(chat?: { backendId?: string } | null): BackendCaps {
+export function caps(chat?: { backendId?: string; acpOpencode?: boolean } | null): BackendCaps {
 	const id = chat?.backendId;
+	if (id === 'acp' && chat?.acpOpencode) return OPENCODE_CAPS;
 	return (id && id in CAPS ? CAPS[id as BackendId] : CAPS.lynshen);
 }

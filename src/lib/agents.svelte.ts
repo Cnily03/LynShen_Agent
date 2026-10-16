@@ -90,6 +90,8 @@ export interface DaemonSessionView {
 	/** How many entries its engine saved: LynShen conversations, newer
 	 *  daemons (0: nothing in it, see savedEmpty.ts). */
 	entries?: number | null;
+	/** ACP: the desktop's registry agent it was started with (newer daemons). */
+	acp_agent?: { id: string; name: string } | null;
 }
 
 export interface QuestionView {

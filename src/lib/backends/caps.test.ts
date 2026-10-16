@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { caps, CAPS, normalizeBackendId, isBackendId, BACKEND_IDS } from './index';
 import { ChatState } from '$lib/chat.svelte';
+import { approvalModeKeys } from '$lib/approval';
+import { OPENCODE_CAPS } from './caps';
 
 describe('caps() gating helper', () => {
 	it('defaults to the native backend for missing/unknown input', () => {
@@ -87,5 +89,18 @@ describe('backend id helpers', () => {
 		expect(normalizeBackendId(42)).toBe('lynshen');
 		expect(isBackendId('claude')).toBe(true);
 		expect(isBackendId('x')).toBe(false);
+	});
+});
+
+describe('OpenCode sessions', () => {
+	it('have approval modes, plan among them, on top of the ACP capabilities', () => {
+		const chat = new ChatState('acp');
+		expect(caps(chat)).toBe(CAPS.acp);
+		chat.acpOpencode = true;
+		expect(caps(chat)).toBe(OPENCODE_CAPS);
+		expect(approvalModeKeys(caps(chat))).toEqual(['ask', 'edits', 'plan', 'all']);
+		expect(caps(chat).modelPicker).toBe(false);
+		// Only an ACP session can be OpenCode.
+		expect(caps({ backendId: 'claude', acpOpencode: true })).toBe(CAPS.claude);
 	});
 });

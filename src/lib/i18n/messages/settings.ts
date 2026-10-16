@@ -122,7 +122,7 @@ const settings = {
 			present: '已有',
 			off: '未启用',
 			plugin: '插件 {name}',
-			sessionsHint: 'Claude Code 和 Codex 的会话继续用原来的后端；其他工具的会话转成 LynShen 会话。',
+			sessionsHint: 'Claude Code 和 Codex 的会话继续用原来的后端；添加了 OpenCode 时，OpenCode 的会话由 OpenCode 复制一份后接着用（原会话不动）；其他工具的会话转成 LynShen 会话。',
 			skillsHint: '复制到 ~/.lynshen/skills。插件带的技能可能依赖原工具，默认不选。',
 			mcpHint: '加到 LynShen 的 MCP 配置里。插件带的服务器默认不选。',
 			run: '一键导入',
@@ -737,7 +737,10 @@ const settings = {
 			needNameCommand: '名称和命令不能为空',
 			presetAdd: '添加',
 			presetHint: '一键添加，之后可在新会话的智能体列表里选择',
-			presetInstall: '尚未安装。安装命令：{install}'
+			presetInstall: '尚未安装。安装命令：{install}',
+			preview: '预览',
+			previewHint: 'Windows 上的 OpenCode 还是预览：它在 PowerShell 里执行命令，停止和重开会话的测试还不多',
+			opencodeV2: 'OpenCode {version} 暂不支持，请安装 1.x'
 		},
 		help: {
 			feedback: '反馈问题',
@@ -1114,7 +1117,7 @@ const settings = {
 			present: 'Already added',
 			off: 'Off',
 			plugin: 'plugin {name}',
-			sessionsHint: 'Claude Code and Codex conversations continue on their own backend; the others become LynShen conversations.',
+			sessionsHint: 'Claude Code and Codex conversations continue on their own backend; with OpenCode added, OpenCode conversations continue in OpenCode on a copy it makes (the original stays as it was); the others become LynShen conversations.',
 			skillsHint: 'Copied to ~/.lynshen/skills. Skills from plugins may rely on their tool and are not selected by default.',
 			mcpHint: 'Added to LynShen\'s MCP servers. Servers from plugins are not selected by default.',
 			run: 'Import',
@@ -1729,7 +1732,10 @@ const settings = {
 			needNameCommand: 'Name and command are required',
 			presetAdd: 'Add',
 			presetHint: 'Add it in one click, then pick it in the agent list of a new session',
-			presetInstall: 'Not installed. Install it with: {install}'
+			presetInstall: 'Not installed. Install it with: {install}',
+			preview: 'Preview',
+			previewHint: 'OpenCode on Windows is a preview: it runs commands in PowerShell, and stopping and reopening sessions is less tested',
+			opencodeV2: 'OpenCode {version} is not supported; install 1.x'
 		},
 		help: {
 			feedback: 'Send feedback',

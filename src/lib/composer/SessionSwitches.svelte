@@ -3,17 +3,25 @@
 	import { t } from '$lib/i18n';
 	import type { ChatState } from '$lib/chat.svelte';
 
-	export type SessionSwitch = 'ultracode' | 'fast' | 'thinking';
+	export type SessionSwitch = 'ultracode' | 'fast' | 'thinking' | 'gateway';
 
 	// Claude Code's per-session switches, shown only where the engine offers
 	// them: ultracode (standing Workflow orchestration), fast mode and
-	// thinking summaries.
+	// thinking summaries. An OpenCode session has one of its own: whether it
+	// runs on the LynShen gateway's models.
 	// `thinking`: offer the thinking-summaries switch here (the desktop keeps it in settings).
+	// `gateway`: the OpenCode session's gateway switch (null: not offered).
 	let {
 		chat,
 		onSwitch,
-		thinking = true
-	}: { chat: ChatState; onSwitch: (name: SessionSwitch, on: boolean) => void; thinking?: boolean } = $props();
+		thinking = true,
+		gateway = null
+	}: {
+		chat: ChatState;
+		onSwitch: (name: SessionSwitch, on: boolean) => void;
+		thinking?: boolean;
+		gateway?: boolean | null;
+	} = $props();
 
 	const rows = $derived(
 		[
@@ -24,7 +32,8 @@
 				label: t('chat.thinkingLabel'),
 				desc: t('chat.thinkingDesc'),
 				on: chat.thinkingSummaries
-			}
+			},
+			gateway !== null && { name: 'gateway' as const, label: t('chat.gatewayLabel'), desc: t('chat.gatewayDesc'), on: gateway }
 		].filter((r) => !!r)
 	);
 </script>

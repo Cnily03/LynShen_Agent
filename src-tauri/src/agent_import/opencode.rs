@@ -155,7 +155,8 @@ pub(super) fn scan(roots: &Roots, tool: Tool, registry: &[ImportRecord], report:
             let cwd = native_dir(&s.cwd, cfg!(windows));
             out.push(Found {
                 source: source.into(),
-                imported: converted_imported(roots, registry, source, &s.id, &cwd),
+                imported: converted_imported(roots, registry, source, &s.id, &cwd)
+                    || copied_in_opencode(registry, tool, &s.id).is_some(),
                 title: s.title,
                 id: s.id,
                 cwd,
@@ -172,6 +173,19 @@ pub(super) fn scan(roots: &Roots, tool: Tool, registry: &[ImportRecord], report:
     };
     report.note(source, note);
     out
+}
+
+/// The daemon session an OpenCode conversation continues in, when it was
+/// copied in OpenCode (`native_import::record_opencode_copy`).
+pub(super) fn copied_in_opencode(registry: &[ImportRecord], tool: Tool, id: &str) -> Option<String> {
+    if tool != Tool::Opencode {
+        return None;
+    }
+    registry
+        .iter()
+        .rev()
+        .find(|r| r.source == crate::native_import::OPENCODE_COPY && r.from == id)
+        .map(|r| r.to.clone())
 }
 
 pub(super) fn load(roots: &Roots, tool: Tool, id: &str) -> Result<Conversation, String> {
@@ -793,6 +807,30 @@ mod tests {
         message("msg_6", "ses_main", 1_790_000_005_000, json!({"role": "user", "time": {"created": 1_790_000_005_000u64}}));
         part("prt_12", "msg_6", json!({"type": "text", "text": "thanks"}));
         message("msg_c", "ses_child", 1_790_000_000_000, json!({"role": "user"}));
+    }
+
+    #[test]
+    fn opencode_conversations_list_by_folder_and_name_their_copy() {
+        let roots = testutil::roots("opencode-copies");
+        opencode_db(&roots.data_home.join("opencode").join("opencode.db"), false);
+        let listed = super::super::opencode_sessions_in(&roots, "/proj/oc");
+        assert_eq!(listed.len(), 1, "the sub-agent session is not offered");
+        assert_eq!((listed[0].id.as_str(), listed[0].origin.as_str()), ("ses_main", "OpenCode"));
+        assert_eq!(listed[0].title, "fix the bug");
+        assert_eq!(listed[0].imported, None);
+        assert!(super::super::opencode_sessions_in(&roots, "/proj/other").is_empty());
+        // Continued in OpenCode on a copy: listed as imported, the copy named.
+        let registry = vec![ImportRecord {
+            source: crate::native_import::OPENCODE_COPY.into(),
+            from: "ses_main".into(),
+            to: "d-1".into(),
+            at_ms: 0,
+        }];
+        crate::native_import::save_registry(&roots.registry(), &registry).unwrap();
+        let listed = super::super::opencode_sessions_in(&roots, "/proj/oc");
+        assert_eq!(listed[0].imported.as_deref(), Some("d-1"));
+        let (found, _) = scan_all(&roots);
+        assert!(found.iter().any(|s| s.id == "ses_main" && s.imported));
     }
 
     #[test]

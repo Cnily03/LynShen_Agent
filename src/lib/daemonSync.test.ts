@@ -217,6 +217,18 @@ describe('DaemonSync', () => {
 		expect(store.projects[0].sessions).toHaveLength(0);
 	});
 
+	it('lists an ACP session with the agent it was started with, and leaves out one without', async () => {
+		const { sync, store } = await setup();
+		sync.reconcile([
+			{ session: 's-oc', cwd: '/w/app', created_at: 0, open: false, title: 'copy', engine: 'acp', acp_agent: { id: 'opencode', name: 'OpenCode' } },
+			{ session: 's-old', cwd: '/w/app', created_at: 0, open: false, title: 'older daemon', engine: 'acp' }
+		]);
+		const listed = store.projects[0].sessions;
+		expect(listed).toHaveLength(1);
+		expect(listed[0]).toMatchObject({ dormant: true, backendId: 'acp', acpAgent: { id: 'opencode', name: 'OpenCode' } });
+		expect(listed[0].chat.acpAgentName).toBe('OpenCode');
+	});
+
 	it('lists a session saved with nothing in it only once it has something', async () => {
 		const { sync, store } = await setup();
 		const p = store.projects[0];

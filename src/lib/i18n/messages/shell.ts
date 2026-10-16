@@ -982,6 +982,7 @@ const shell = {
 			pickTitle: '选择引擎后端',
 			pickFoot: '↑↓ 选择 · Enter 确认 · Esc 关闭',
 			notFound: '未检测到',
+			opencodeV2: 'OpenCode {version} 暂不支持：Aogiri 目前只支持 OpenCode 1.x。请安装 1.x：npm i -g opencode-ai@1',
 			descLynShen: '原生引擎 · 完整功能',
 			descCodex: 'OpenAI Codex CLI',
 			descClaude: 'Claude Code CLI',
@@ -1010,7 +1011,8 @@ const shell = {
 		historySource: {
 			imported: '已导入',
 			importing: '正在导入 {title}…',
-			importFail: '导入失败：{msg}'
+			importFail: '导入失败：{msg}',
+			opencodeMissing: '先在 设置 → 外部智能体（ACP）里添加 OpenCode'
 		},
 		claudeYoloRefused: 'Claude Code 没有进入全自动模式（可能被策略禁用），已按它当前的模式继续',
 		autoRestartingWhy: '引擎已退出（{reason}），正在自动重启…',
@@ -1992,6 +1994,7 @@ const shell = {
 			pickTitle: 'Choose engine backend',
 			pickFoot: '↑↓ select · Enter confirm · Esc close',
 			notFound: 'not found',
+			opencodeV2: 'OpenCode {version} is not supported yet: Aogiri works with OpenCode 1.x. Install 1.x with npm i -g opencode-ai@1',
 			descLynShen: 'Native engine · full feature set',
 			descCodex: 'OpenAI Codex CLI',
 			descClaude: 'Claude Code CLI',
@@ -2020,7 +2023,8 @@ const shell = {
 		historySource: {
 			imported: 'Imported',
 			importing: 'Importing {title}…',
-			importFail: 'Import failed: {msg}'
+			importFail: 'Import failed: {msg}',
+			opencodeMissing: 'Add OpenCode in Settings → External agents (ACP) first'
 		},
 		claudeYoloRefused: 'Claude Code did not enter full-auto mode (a policy may forbid it); continuing in its current mode',
 		autoRestartingWhy: 'Engine exited ({reason}), auto-restarting…',

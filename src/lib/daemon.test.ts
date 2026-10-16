@@ -230,4 +230,37 @@ describe('session billing refresh', () => {
 			expect(socket.sent.filter(op => op.op === 'session_usage')).toHaveLength(1);
 		} finally { vi.useRealTimers(); }
 	});
+
+	it('has an ACP agent copy a conversation without a tab, then closes the copy', async () => {
+		const env = setup();
+		const spec = { engine: 'acp', options: { command: 'opencode', args: ['acp'], fork: 'ses_1' } };
+		const copying = env.client.copyAcp('/work', spec, 'Fix it');
+		await tick();
+		const socket = env.sockets[0];
+		expect(socket.sent[0]).toMatchObject({ op: 'session_create', cwd: '/work', engine: 'acp', options: spec.options });
+		socket.reply({ type: 'session_created', session: 'copy-1' });
+		await tick();
+		expect(socket.sent).toContainEqual({ op: 'watch', session: 'copy-1' });
+		socket.push({ type: 'transcript', session: 'copy-1', items: [] });
+		socket.push({ type: 'startup', session: 'copy-1', model: 'm' });
+		expect(await copying).toBe('copy-1');
+		expect(socket.sent).toContainEqual({ op: 'session_meta', session: 'copy-1', title: 'Fix it' });
+		expect(socket.sent).toContainEqual({ op: 'session_close', session: 'copy-1' });
+		// Its frames never reach a tab.
+		expect(env.frames).toEqual([]);
+	});
+
+	it('hides a copy the agent could not make', async () => {
+		const env = setup();
+		const copying = env.client.copyAcp('/work', { engine: 'acp', options: { fork: 'ses_gone' } }, '');
+		await tick();
+		const socket = env.sockets[0];
+		socket.reply({ type: 'session_created', session: 'copy-2' });
+		await tick();
+		socket.push({ type: 'error', session: 'copy-2', message: '[acp] the agent could not copy this conversation' });
+		await expect(copying).rejects.toThrow('could not copy');
+		expect(socket.sent).toContainEqual({ op: 'session_meta', session: 'copy-2', hidden: true });
+		expect(socket.sent).toContainEqual({ op: 'session_close', session: 'copy-2' });
+	});
 });
+

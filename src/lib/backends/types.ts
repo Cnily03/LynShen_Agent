@@ -9,6 +9,15 @@ export type BackendId = 'lynshen' | 'codex' | 'claude' | 'acp';
 
 export const BACKEND_IDS: BackendId[] = ['lynshen', 'codex', 'claude', 'acp'];
 
+/** An ACP session's registry agent: id and display name, and whether it is
+ *  OpenCode (`isOpencodeAgent`), whose sessions have approval modes and the
+ *  LynShen gateway switch. */
+export interface AcpAgentRef {
+	id: string;
+	name: string;
+	opencode?: boolean;
+}
+
 /** The backends with a single well-known binary (probe rows, path overrides).
  *  'acp' is excluded: it launches whichever agent the registry entry names. */
 export const NATIVE_BACKEND_IDS: BackendId[] = ['lynshen', 'codex', 'claude'];

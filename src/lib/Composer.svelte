@@ -60,7 +60,7 @@
 	import { approvalModeKeys, buildApproveOp, nextApprovalMode, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import { commandsIsolated, onWindows } from '$lib/sandbox/request';
 	import ShieldSlashIcon from 'phosphor-svelte/lib/ShieldSlashIcon';
-	import { caps, BACKEND_LABELS, type BackendId } from '$lib/backends';
+	import { caps, BACKEND_LABELS, type AcpAgentRef, type BackendId } from '$lib/backends';
 	import { styleDescription, styleName } from '$lib/styles';
 
 	let {
@@ -76,6 +76,7 @@
 		modelSearch = false,
 		backendLocked = true,
 		toolProvider,
+		gateway = null,
 		gitBranch = '',
 		gitCwd = '',
 		repoName = '',
@@ -124,6 +125,9 @@
 		backendLocked?: boolean;
 		/** A gateway session's group (see ModelMenu). */
 		toolProvider?: ToolProvider & { model: string };
+		/** An OpenCode session: whether it runs on the LynShen gateway (the
+		 *  model menu's switch; null: not offered). */
+		gateway?: boolean | null;
 		/** Current git branch for the footer strip ('' hides the chip). */
 		gitBranch?: string;
 		/** Where the branch chip's picker runs git; '' leaves the chip read-only. */
@@ -131,7 +135,7 @@
 		repoName?: string;
 		/** A branch was switched to or created from the chip. */
 		onBranchChanged?: () => void;
-		onBackend?: (b: BackendId, acpAgent?: { id: string; name: string }) => void | Promise<void>;
+		onBackend?: (b: BackendId, acpAgent?: AcpAgentRef) => void | Promise<void>;
 		onSubmit: () => void;
 		onStop: () => void;
 		onSteer: () => void;
@@ -394,12 +398,15 @@
 	const isolated = $derived(commandsIsolated(chat.sandbox, onWindows()));
 	const modeDesc = (key: 'Ask' | 'Edits' | 'Auto' | 'All') =>
 		sandboxed ? t(`chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}`) : t(`chat.approval${key}Desc`);
+	// OpenCode's modes are its agents: its plan agent cannot edit files but
+	// may run commands, and 全自动 is OpenCode as the user configured it.
+	const opencode = $derived(chat.backendId === 'acp' && chat.acpOpencode);
 	const APPROVAL_MODES = $derived<Record<string, ModeItem>>({
 		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: modeDesc('Ask') },
 		edits: { key: 'edits', label: t('chat.approvalEdits'), desc: modeDesc('Edits') },
-		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t('chat.approvalPlanDesc') },
+		plan: { key: 'plan', label: t('chat.approvalPlan'), desc: t(opencode ? 'chat.approvalPlanDescOpencode' : 'chat.approvalPlanDesc') },
 		auto: { key: 'auto', label: t('chat.approvalAuto'), desc: modeDesc('Auto') },
-		all: { key: 'all', label: t('chat.approvalAll'), desc: modeDesc('All'), tone: 'warn' }
+		all: { key: 'all', label: t('chat.approvalAll'), desc: opencode ? t('chat.approvalAllDescOpencode') : modeDesc('All'), tone: 'warn' }
 	});
 	// An agent's session shows the agent's four modes, read-only: they are
 	// changed on its Agent page. The recommended mode: auto where the engine
@@ -1076,7 +1083,7 @@
 			</span>
 		{/if}
 		<div class="fspace"></div>
-		{#if chat.efforts.length || bcaps.modelPicker || !backendLocked}
+		{#if chat.efforts.length || bcaps.modelPicker || !backendLocked || gateway !== null}
 			<!-- The model button opens the model menu (agent, model, effort, provider). -->
 			<button
 				class="fbtn model"
@@ -1109,6 +1116,7 @@
 				rows={bcaps.modelPicker ? modelRows : []}
 				{backendLocked}
 				{toolProvider}
+				{gateway}
 				{effortDisabled}
 				anchor={modelButton}
 				onClose={closeModelPopover}
