@@ -17,6 +17,7 @@
 	import { describeError, stripEngineHint, type ErrorAction, type ErrorInfo } from '$lib/errorInfo';
 	import { planStopText, resetFromPlan, resetText } from '$lib/planStop';
 	import { trial } from '$lib/trial.svelte';
+	import { gatewayCatalog } from '$lib/models/catalogStore.svelte';
 
 	let {
 		text,
@@ -48,8 +49,10 @@
 	$effect(() => {
 		if (stop?.code === 'plan_quota_exhausted' && stop.resetsAt == null) untrack(() => void trial.refreshStatus());
 	});
+	// The model by the name the pickers show it.
+	const shownStop = $derived(stop?.model ? { ...stop, model: gatewayCatalog.lookup(stop.model)?.name ?? stop.model } : stop);
 	const words = $derived(
-		stop ? planStopText(stop, resetsAt) : info ? { title: t(`chat.err.${info.kind}.title`, { subject }), hint: t(`chat.err.${info.kind}.hint`, { subject }) } : null
+		shownStop ? planStopText(shownStop, resetsAt) : info ? { title: t(`chat.err.${info.kind}.title`, { subject }), hint: t(`chat.err.${info.kind}.hint`, { subject }) } : null
 	);
 	// Waiting needs a time to wait for.
 	const actions = $derived((info?.actions ?? []).filter((a) => a !== 'waitPlan' || resetsAt != null));

@@ -374,7 +374,11 @@
 		else if (action === 'waitPlan') waitForPlan(info);
 		else if (action === 'providers') onOpenSettings?.('providers');
 		else if (action === 'compact') send({ op: 'command', input: '/compact' });
-		else if (action === 'model') openModelPicker();
+		// The composer's model menu (its list is the engine's /model answer).
+		else if (action === 'model') {
+			if (composerRef) composerRef.openModelMenu();
+			else openModelPicker();
+		}
 	}
 
 	// The project history picker's sources: LynShen's own conversations, or the
