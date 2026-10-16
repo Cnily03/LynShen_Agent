@@ -94,11 +94,11 @@ export const ACP_CAPS: BackendCaps = {
 };
 
 /** OpenCode (`opencode acp`): an ACP agent the daemon knows more about. Its
- *  approval modes are OpenCode agents (谨慎 / 自动编辑 / 计划 / 全自动; plan
- *  cannot edit files but may run commands); see the daemon's
+ *  approval modes are OpenCode agents (谨慎 / 自动编辑 / 计划 / 全自动; 计划
+ *  cannot edit files and asks before commands); see the daemon's
  *  `engines/opencode.rs`. */
 export const OPENCODE_CAPS: BackendCaps = {
 	...ACP_CAPS,
-	approvalModes: true, // session/set_config_option mode: aogiri / build / plan
-	planMode: true // OpenCode's plan agent
+	approvalModes: true, // session/set_config_option (or set_mode) mode: aogiri / aogiri-plan / build
+	planMode: true // the daemon's aogiri-plan agent
 };

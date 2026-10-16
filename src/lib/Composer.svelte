@@ -398,8 +398,8 @@
 	const isolated = $derived(commandsIsolated(chat.sandbox, onWindows()));
 	const modeDesc = (key: 'Ask' | 'Edits' | 'Auto' | 'All') =>
 		sandboxed ? t(`chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}`) : t(`chat.approval${key}Desc`);
-	// OpenCode's modes are its agents: its plan agent cannot edit files but
-	// may run commands, and 全自动 is OpenCode as the user configured it.
+	// OpenCode's modes are agents the daemon defines: 计划 cannot edit files
+	// and asks before commands, and 全自动 is OpenCode as the user configured it.
 	const opencode = $derived(chat.backendId === 'acp' && chat.acpOpencode);
 	const APPROVAL_MODES = $derived<Record<string, ModeItem>>({
 		ask: { key: 'ask', label: t('chat.approvalAsk'), desc: modeDesc('Ask') },

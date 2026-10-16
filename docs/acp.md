@@ -106,9 +106,12 @@ than other ACP agents (`OPENCODE_CAPS`; the daemon's `engines/opencode.rs`):
 - **Approval modes** 谨慎 / 自动编辑 / 计划 / 全自动, passed as `approval_mode`
   and switched live. 谨慎 and 自动编辑 run on an agent the daemon defines
   (every tool asks except reading ones; the user's own OpenCode `deny` rules
-  still deny); in 自动编辑 the daemon allows edits itself. 计划 is OpenCode's
-  plan agent: no file edits, but it still runs commands (the mode picker
-  says so). 全自动 is OpenCode as the user configured it.
+  still deny; no subagents, since OpenCode would run a subagent with rules
+  that ask for nothing); in 自动编辑 the daemon allows edits itself. 计划 runs
+  on the same agent without file edits: commands and web fetches ask (the
+  mode picker says so). 全自动 is OpenCode as the user configured it. If
+  OpenCode does not switch to the mode's agent, the daemon sends nothing and
+  says so (全自动 excepted).
 - **LynShen gateway** (`lynshen_gateway`): on for a new conversation when the
   computer is signed in to LynShen (`gatewayByDefault`), a switch in the
   model menu (`SessionSwitches` `gateway`) otherwise. The daemon gives
