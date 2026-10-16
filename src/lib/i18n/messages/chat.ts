@@ -351,6 +351,9 @@ const chat = {
 			notInPlanTitle: '这个模型不在套餐内',
 			notInPlanNamedTitle: '{model} 不在套餐内',
 			notInPlanHint: '本设备由套餐支付，套餐只包含部分模型；不会自动改扣余额。',
+			devicesTitle: '套餐已在 {n} 台设备上使用，已达上限',
+			devicesTitleBare: '套餐同时使用的设备已满',
+			devicesHint: '这个套餐同时最多在这么多台设备上使用，本设备的请求停下了，不会自动改扣余额。在其他设备改用余额或退出后再试。',
 			waiting: '{time} 恢复后自动继续',
 			cancelWait: '取消等待',
 			balanceNote: '已改用余额，继续执行',
@@ -373,7 +376,8 @@ const chat = {
 				topUp: '充值',
 				useBalance: '改用余额继续',
 				waitPlan: '等待恢复',
-				waitPlanAt: '等待恢复 · {time}'
+				waitPlanAt: '等待恢复 · {time}',
+				devices: '查看设备'
 			},
 			providerKey: { title: '{subject} 的 API Key 无效', hint: '服务商拒绝了这个密钥。在设置 → 提供商里更新 {subject} 的密钥后再试。' },
 			lynshenAuth: {
@@ -389,6 +393,7 @@ const chat = {
 			planQuota: { title: '套餐额度用完了', hint: '本设备由套餐支付，额度用完后请求会停下，不会自动改扣余额。等待恢复、改用余额继续，或购买套餐。' },
 			planInactive: { title: '套餐已结束', hint: '本设备设为由套餐支付，套餐结束后请求会停下，不会自动改扣余额。续费套餐，或改用余额继续。' },
 			notInPlan: { title: '模型不在套餐内', hint: '本设备由套餐支付，只能用套餐包含的模型。换一个套餐内的模型，或改用余额继续。' },
+			planDevices: { title: '套餐同时使用的设备已满', hint: '这个套餐同时只能在有限的几台设备上使用。在其他设备改用余额或退出后再试，或本设备改用余额继续。' },
 			context: { title: '对话超出模型的上下文上限', hint: '压缩对话腾出空间，或新开一个会话继续。' },
 			rateLimit: { title: '请求太频繁，暂时被限流', hint: '稍等一会儿再发送。一直出现的话，换一个模型或分组。' },
 			model: { title: '模型不可用', hint: '当前账号或分组下没有这个模型，换一个模型再试。' },
@@ -881,6 +886,9 @@ const chat = {
 			notInPlanTitle: 'This model is not in the plan',
 			notInPlanNamedTitle: '{model} is not in the plan',
 			notInPlanHint: 'This device pays with its plan, which covers only some models; the balance is not used instead.',
+			devicesTitle: 'The plan is in use on {n} devices, its limit',
+			devicesTitleBare: 'The plan is in use on all its devices',
+			devicesHint: 'The plan works on at most that many devices at a time, so this request stopped; the balance is not used instead. Switch another device to the balance or sign it out, then try again.',
 			waiting: 'Continues when it recovers at {time}',
 			cancelWait: 'Stop waiting',
 			balanceNote: 'Now paying with the balance; continuing',
@@ -903,7 +911,8 @@ const chat = {
 				topUp: 'Top up',
 				useBalance: 'Continue with balance',
 				waitPlan: 'Wait for it',
-				waitPlanAt: 'Wait · {time}'
+				waitPlanAt: 'Wait · {time}',
+				devices: 'View devices'
 			},
 			providerKey: { title: '{subject} API key rejected', hint: 'The provider refused this key. Update the {subject} key in Settings → Providers, then retry.' },
 			lynshenAuth: {
@@ -919,6 +928,7 @@ const chat = {
 			planQuota: { title: 'Plan quota used up', hint: 'This device pays with its plan, so requests stop when it runs out; the balance is not used. Wait for it to recover, continue with the balance, or buy a plan.' },
 			planInactive: { title: 'Plan ended', hint: 'This device pays with its plan, so requests stop once it ends; the balance is not used. Renew the plan, or continue with the balance.' },
 			notInPlan: { title: 'Model not in the plan', hint: 'This device pays with its plan, which covers only some models. Pick a model in the plan, or continue with the balance.' },
+			planDevices: { title: 'The plan is in use on all its devices', hint: 'The plan works on a few devices at a time. Switch another device to the balance or sign it out, or continue with the balance here.' },
 			context: { title: 'Conversation exceeds the context window', hint: 'Compact the conversation to free space, or continue in a new session.' },
 			rateLimit: { title: 'Rate limited', hint: 'Wait a moment before sending. If it keeps happening, switch model or group.' },
 			model: { title: 'Model unavailable', hint: 'This model is not available to your account or group. Pick another one.' },

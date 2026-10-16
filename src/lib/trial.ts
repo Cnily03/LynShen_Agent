@@ -31,6 +31,9 @@ export interface TrialPlan {
 	/** From GET /api/desktop/oauth/plan: whether it is the trial (a paid
 	 *  desktop plan otherwise). */
 	trial?: boolean;
+	/** How many devices use the plan now, of how many it allows at once
+	 *  (a device past the limit is refused with 429 `plan_device_limit`). */
+	devices?: { inUse: number; limit: number; thisDevice?: boolean };
 }
 
 /** Who pays every request of this device (its device key), chosen by the
@@ -92,6 +95,16 @@ export const claimKey = (installationId: string, userId: string) => `${installat
 
 const text = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : null);
 
+/** The plan's devices: `{in_use, limit, this_device}`; null when absent or not that. */
+function devicesOf(v: unknown): TrialPlan['devices'] | null {
+	if (!v || typeof v !== 'object') return null;
+	const d = v as Record<string, unknown>;
+	const inUse = Number(d.in_use);
+	const limit = Number(d.limit);
+	if (!Number.isInteger(inUse) || !Number.isInteger(limit) || inUse < 0 || limit <= 0) return null;
+	return { inUse, limit, ...(typeof d.this_device === 'boolean' ? { thisDevice: d.this_device } : {}) };
+}
+
 /** The plan of a `granted` / `already_granted` answer; null when it is not one. */
 export function parsePlan(v: unknown): TrialPlan | null {
 	if (!v || typeof v !== 'object') return null;
@@ -114,7 +127,8 @@ export function parsePlan(v: unknown): TrialPlan | null {
 		windows,
 		expires_at: expires,
 		...(typeof p.active === 'boolean' ? { active: p.active } : {}),
-		...(typeof p.trial === 'boolean' ? { trial: p.trial } : {})
+		...(typeof p.trial === 'boolean' ? { trial: p.trial } : {}),
+		...(devicesOf(p.devices) ? { devices: devicesOf(p.devices)! } : {})
 	};
 }
 
@@ -362,6 +376,9 @@ export function tightestWindow(plan: TrialPlan): { window: TrialWindow; left: st
 	}
 	return best;
 }
+
+/** "套餐正在使用：2 / 3 台设备". */
+export const planDevicesText = (d: NonNullable<TrialPlan['devices']>) => t('shell.trial.devices', { n: d.inUse, limit: d.limit });
 
 /** A date for the plan: "10月20日" / "Oct 20", with the time when asked. */
 export function planDate(iso: string, withTime = false): string {

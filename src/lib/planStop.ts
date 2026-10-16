@@ -13,7 +13,7 @@ import { getLocale, t } from '$lib/i18n';
 import { planDate, sortedWindows, usedShare, windowLabel, type TrialPlan } from '$lib/trial';
 import { fmtResetAt } from '$lib/composer/quota';
 
-export type PlanStopCode = 'plan_quota_exhausted' | 'plan_inactive' | 'model_not_in_plan';
+export type PlanStopCode = 'plan_quota_exhausted' | 'plan_inactive' | 'model_not_in_plan' | 'plan_device_limit';
 
 export interface PlanStop {
 	code: PlanStopCode;
@@ -30,12 +30,16 @@ export interface PlanStop {
 	reason?: string;
 	/** The model the plan does not include. */
 	model?: string;
+	/** `plan_device_limit`: the devices the plan allows at once, and in use. */
+	limit?: number;
+	inUse?: number;
 }
 
 const CODES: [PlanStopCode, RegExp][] = [
 	['plan_quota_exhausted', /plan[_ ]quota[_ ]exhausted/i],
 	['plan_inactive', /plan[_ ]inactive/i],
-	['model_not_in_plan', /model[_ ]not[_ ]in[_ ]plan/i]
+	['model_not_in_plan', /model[_ ]not[_ ]in[_ ]plan/i],
+	['plan_device_limit', /plan[_ ]device[_ ]limit/i]
 ];
 
 /** The answer with the quotes of JSON an engine quoted again made plain
@@ -126,6 +130,10 @@ export function planStopOf(raw: string): PlanStop | null {
 	if (endedAt !== undefined) stop.endedAt = endedAt;
 	if (reason) stop.reason = reason;
 	if (model) stop.model = model;
+	const limit = Number(get('limit'));
+	const inUse = Number(get('in_use'));
+	if (Number.isInteger(limit) && limit > 0) stop.limit = limit;
+	if (Number.isInteger(inUse) && inUse >= 0 && get('in_use') != null) stop.inUse = inUse;
 	return stop;
 }
 
@@ -168,6 +176,11 @@ export function planStopText(stop: PlanStop, resetsAt: number | undefined, now =
 				: t('chat.planStop.inactiveHint');
 			return { title, hint };
 		}
+		case 'plan_device_limit':
+			return {
+				title: stop.limit ? t('chat.planStop.devicesTitle', { n: stop.limit }) : t('chat.planStop.devicesTitleBare'),
+				hint: t('chat.planStop.devicesHint')
+			};
 		case 'model_not_in_plan':
 			return {
 				title: stop.model ? t('chat.planStop.notInPlanNamedTitle', { model: stop.model }) : t('chat.planStop.notInPlanTitle'),

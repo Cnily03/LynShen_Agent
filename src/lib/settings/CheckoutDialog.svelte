@@ -50,6 +50,7 @@
 		customMinor = null,
 		options,
 		currentPlan = null,
+		currentProductId = null,
 		userId,
 		resumeOrderId = null,
 		onClose,
@@ -60,8 +61,11 @@
 		customMinor?: string | null;
 		/** The ways to pay that take this amount. */
 		options: PaymentOption[];
-		/** The desktop plan in force: a plan bought now replaces it (DP-P1). */
+		/** The desktop plan in force: a plan bought now replaces it (DP-P1),
+		 *  the same plan renews it, a higher one is an upgrade. */
 		currentPlan?: TrialPlan | null;
+		/** The catalog's product of the plan in force, where it lists it. */
+		currentProductId?: string | null;
 		userId: string;
 		/** An unpaid order of the kept checkout: show its payment again. */
 		resumeOrderId?: string | null;
@@ -74,12 +78,20 @@
 	const storage = typeof localStorage === 'undefined' ? null : localStorage;
 	const newId = () => crypto.randomUUID();
 
-	const amount = $derived(customMinor ?? product.price_minor);
+	// An upgrade costs what the gateway quotes, not the plan's list price.
+	const amount = $derived(customMinor ?? product.upgrade?.price_minor ?? product.price_minor);
+	const upgrading = $derived(product.kind === 'plan' && !!product.upgrade);
 	const balance = $derived(
 		customMinor ? { recharge_minor: customMinor, bonus_minor: '0', actual_received_minor: customMinor } : product.balance
 	);
 	const title = $derived(
-		product.kind === 'plan' ? t('settings.purchase.buyTitle', { name: product.name }) : t('settings.purchase.topUpTitle', { amount: yuan(amount) })
+		product.kind !== 'plan'
+			? t('settings.purchase.topUpTitle', { amount: yuan(amount) })
+			: product.upgrade
+				? t('settings.purchase.upgradeTitle', { name: product.name })
+				: currentPlan?.name.trim() === product.name.trim()
+					? t('settings.purchase.renewTitle', { name: product.name })
+					: t('settings.purchase.buyTitle', { name: product.name })
 	);
 
 	// The kept checkout's method when resuming, else the one picked last
@@ -203,7 +215,8 @@
 				if (current && current.state !== 'awaiting_payment') return follow(current);
 			}
 			if (!current) {
-				current = parseOrder(await createStoreOrder(product.id, option.channel_id, customMinor, pending.orderRequestId));
+				const from = upgrading ? (product.upgrade?.from ?? currentProductId ?? null) : null;
+				current = parseOrder(await createStoreOrder(product.id, option.channel_id, customMinor, pending.orderRequestId, from));
 				if (!current) throw new Error(t('settings.purchase.errors.unknown'));
 				pending = { ...pending, orderId: current.id };
 				savePending(storage, pending);
@@ -356,12 +369,22 @@
 			</div>
 		</dl>
 		{#if product.kind === 'plan'}
-			{#if replacing && currentPlan}
-				<Notice tone="warn">
-					{sameProduct
-						? t('settings.purchase.sameNotice', { current: currentPlan.name.trim(), duration: durationText(product.duration_seconds) })
-						: t('settings.purchase.replaceNotice', { current: currentPlan.name.trim() || t('shell.trial.label') })}
-				</Notice>
+			{#if upgrading && product.upgrade}
+				<p class="note">
+					{product.upgrade.expires_at
+						? t('settings.purchase.upgradeNoticeAt', { current: currentPlan?.name.trim() || t('shell.trial.label'), name: product.name, date: planDate(product.upgrade.expires_at) })
+						: t('settings.purchase.upgradeNotice', { current: currentPlan?.name.trim() || t('shell.trial.label'), name: product.name })}
+				</p>
+			{:else if sameProduct && currentPlan}
+				<!-- The same plan again: renewed from its current end, usage kept (contract v1.2). -->
+				<p class="note">
+					{t('settings.purchase.renewNotice', {
+						duration: durationText(product.duration_seconds),
+						date: planDate(new Date(Date.parse(currentPlan.expires_at) + (product.duration_seconds ?? 0) * 1000).toISOString())
+					})}
+				</p>
+			{:else if replacing && currentPlan}
+				<Notice tone="warn">{t('settings.purchase.replaceNotice', { current: currentPlan.name.trim() || t('shell.trial.label') })}</Notice>
 			{:else}
 				<p class="note">
 					{endsAround

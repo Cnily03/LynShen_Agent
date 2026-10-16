@@ -111,6 +111,13 @@ describe('reading the gateway answer', () => {
 			funding: 'plan'
 		});
 		expect(parseDesktopPlan({ plan: null, plan_funding: 'balance' })).toEqual({ plan: null, funding: 'balance' });
+		// How many devices use the plan, of how many at once.
+		expect(parseDesktopPlan({ plan: { ...PLAN, devices: { in_use: 2, limit: 3, this_device: true } }, plan_funding: 'plan', bucket: 'plan' })?.plan?.devices).toEqual({
+			inUse: 2,
+			limit: 3,
+			thisDevice: true
+		});
+		expect(parseDesktopPlan({ plan: { ...PLAN, devices: { in_use: 'two', limit: 3 } }, plan_funding: 'plan' })?.plan?.devices).toBeUndefined();
 		expect(parseDesktopPlan({ plan: null })).toBeNull();
 		expect(parseDesktopPlan({ plan: null, plan_funding: 'both' })).toBeNull();
 		expect(parseDesktopPlan(null)).toBeNull();

@@ -106,6 +106,7 @@
 	import type { SectionKey } from '$lib/settings/nav';
 	import type { ErrorAction, ErrorInfo } from '$lib/errorInfo';
 	import { planWaits } from '$lib/planStop.svelte';
+	import { isGateway } from '$lib/models/catalog';
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
 	import { parseDelivery } from '$lib/delivery';
@@ -360,6 +361,18 @@
 			if (!c.busy && c.lastError) void store.retryTurn(id, t('chat.planStop.resumeNote'), true);
 		});
 	}
+	// The plan's windows, live: after each request of a session on the
+	// gateway while this device pays with the plan, the plan is read again
+	// (a short wait folds a burst of requests into one read), so the
+	// remaining quota at the composer's foot, the account card and Settings
+	// follow the work, not a timer.
+	const viaGateway = $derived((chat.backendId === 'lynshen' && isGateway(chat.provider ?? '')) || !!session.gateway);
+	$effect(() => {
+		void chat.totalIn;
+		void chat.totalOut;
+		void chat.busy;
+		if (viaGateway) untrack(() => trial.funding === 'plan' && trial.refreshSoon());
+	});
 	// A new turn (sent, retried, from another device) ends the wait.
 	$effect(() => {
 		if (chat.busy) untrack(() => planWaits.cancel(session.id));
@@ -373,6 +386,7 @@
 		else if (action === 'useBalance') void payWithBalance(info);
 		else if (action === 'waitPlan') waitForPlan(info);
 		else if (action === 'providers') onOpenSettings?.('providers');
+		else if (action === 'devices') onOpenSettings?.('devices');
 		else if (action === 'compact') send({ op: 'command', input: '/compact' });
 		// The composer's model menu (its list is the engine's /model answer).
 		else if (action === 'model') {

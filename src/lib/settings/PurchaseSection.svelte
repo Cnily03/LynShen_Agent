@@ -14,7 +14,7 @@
 	import { openExternal } from '$lib/openExternal';
 	import { account } from '$lib/accountSession.svelte';
 	import { GatewayError, fetchMonoizeBalance, fetchStoreCatalog, fetchStoreOrders, readConfig } from '$lib/protocol';
-	import { planDate } from '$lib/trial';
+	import { planDate, planDevicesText } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
 	import { purchases } from '$lib/purchase.svelte';
 	import {
@@ -23,6 +23,7 @@
 		parseCatalog,
 		parseOrders,
 		parseYuanInput,
+		priceNow,
 		resumable,
 		windowRule,
 		withinMinor,
@@ -122,6 +123,16 @@
 		void trial.refreshStatus();
 		loadBalance();
 		void loadOrders();
+		void reloadCatalog();
+	}
+	// The plans again: what an upgrade costs depends on the plan in force.
+	async function reloadCatalog() {
+		try {
+			const read = parseCatalog(await fetchStoreCatalog());
+			if (read) catalog = read;
+		} catch {
+			/* the list stays as it was */
+		}
 	}
 	function closeDialog() {
 		buying = null;
@@ -161,7 +172,9 @@
 			id="purchase-plan"
 			title={plan ? plan.name.trim() || t('shell.trial.label') : t('settings.purchase.noPlan')}
 			tag={plan ? t('settings.purchase.inUse') : undefined}
-			description={plan ? t('settings.purchase.planUntil', { date: planDate(plan.expires_at, true) }) : undefined}
+			description={plan
+				? [t('settings.purchase.planUntil', { date: planDate(plan.expires_at, true) }), ...(plan.devices ? [planDevicesText(plan.devices)] : [])].join(' · ')
+				: undefined}
 		/>
 		<PlanFundingChoice id="purchase-funding" />
 		<SettingsRow id="purchase-balance" title={t('settings.purchase.balance')}>
@@ -188,7 +201,18 @@
 				{#snippet detail()}
 					{#if p.description.trim()}<span class="about" title={p.description}>{p.description}</span>{/if}
 				{/snippet}
-				<Button size="sm" onclick={() => buy(p)} disabled={optionsOf(p.price_minor).length === 0}>{t('settings.purchase.buy')}</Button>
+				{#if p.upgrade}
+					<!-- A higher plan: the gateway's price for moving up now. -->
+					<span class="quote">{t('settings.purchase.upgradeQuote', { price: yuan(p.upgrade.price_minor) })}</span>
+					<Button size="sm" onclick={() => buy(p)} disabled={optionsOf(p.upgrade.price_minor).length === 0}>{t('settings.purchase.upgrade')}</Button>
+				{:else if p.downgrade}
+					<!-- No downgrade: a lower plan is listed, not offered. -->
+					<span class="quote">{t('settings.purchase.lower')}</span>
+				{:else}
+					<Button size="sm" onclick={() => buy(p)} disabled={optionsOf(p.price_minor).length === 0}>
+						{t(isCurrent(p) ? 'settings.purchase.renew' : 'settings.purchase.buy')}
+					</Button>
+				{/if}
 			</SettingsRow>
 		{:else}
 			<p class="empty">{t('settings.purchase.noPlans')}</p>
@@ -251,8 +275,9 @@
 		<CheckoutDialog
 			product={buying.product}
 			customMinor={buying.customMinor}
-			options={optionsOf(buying.customMinor ?? buying.product.price_minor)}
+			options={optionsOf(buying.customMinor ?? priceNow(buying.product))}
 			currentPlan={plan}
+			currentProductId={plans.find(isCurrent)?.id ?? null}
 			userId={account.user?.id ?? ''}
 			resumeOrderId={buying.resume}
 			onClose={closeDialog}
@@ -262,6 +287,11 @@
 {/if}
 
 <style>
+	.quote {
+		color: var(--dim);
+		font-size: var(--fs-xs);
+		white-space: nowrap;
+	}
 	.amount {
 		color: var(--text);
 		font-family: var(--font-mono);

@@ -33,12 +33,13 @@
 	//   &models[=old]           a gateway session on the sample models
 	//                           (catalogSample.ts), described by the gateway's
 	//                           catalog, or (=old) by their ids only
-	//   &planStop=quota|inactive|none|notInPlan
+	//   &planStop=quota|inactive|none|notInPlan|devices
 	//                           the last turn stopped by the plan, as the
 	//                           gateway answers (notes/plan-balance-contract.md
 	//                           3): the 5-hour window used up (recovers in 2
 	//                           hours), the plan ended, no plan at all, a model
-	//                           outside the plan (with &trial and &funding=plan)
+	//                           outside the plan, a fourth device (429
+	//                           plan_device_limit) (with &trial and &funding=plan)
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it); `window.__shellChat` the conversation's
 	// chat (to send it more events), `window.__opened` what the chat asked the
@@ -194,7 +195,8 @@
 			quota: [402, 'Payment Required', { code: 'plan_quota_exhausted', type: 'invalid_request_error', param: null, message: '套餐 5 小时额度已用完', plan_name: '7 天体验套餐', window: '5h', retry_at: retry, windows: [win('5h', '4.00', '4.00', retry), win('7d', '10.00', '6.20', at(Date.now() + 5 * 86_400_000))] }],
 			inactive: [402, 'Payment Required', { code: 'plan_inactive', type: 'invalid_request_error', param: null, message: '套餐已结束', plan_name: 'Grove', ended_at: at(Date.now() - 3 * 3_600_000), reason: 'expired' }],
 			none: [402, 'Payment Required', { code: 'plan_inactive', type: 'invalid_request_error', param: null, message: '没有生效的套餐', plan_name: null, ended_at: null, reason: 'none' }],
-			notInPlan: [403, 'Forbidden', { code: 'model_not_in_plan', type: 'invalid_request_error', param: 'model', message: '模型不在套餐内', model: 'claude-opus-5-5', plan_name: '7 天体验套餐' }]
+			notInPlan: [403, 'Forbidden', { code: 'model_not_in_plan', type: 'invalid_request_error', param: 'model', message: '模型不在套餐内', model: 'claude-opus-5-5', plan_name: '7 天体验套餐' }],
+			devices: [429, 'Too Many Requests', { code: 'plan_device_limit', type: 'rate_limit_error', param: null, message: '套餐同时使用的设备已满', limit: 3, in_use: 3, plan_name: '7 天体验套餐' }]
 		};
 		const [status, text, error] = bodies[planStop] ?? bodies.quota;
 		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });

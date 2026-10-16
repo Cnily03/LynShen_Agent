@@ -60,6 +60,15 @@ describe('planStopOf, the gateway contract v1 (notes/plan-balance-contract.md 3)
 	});
 });
 
+describe('planStopOf, a fourth device (proposed v1.2)', () => {
+	it('reads plan_device_limit with the limit that was hit', () => {
+		const body = { error: { code: 'plan_device_limit', type: 'rate_limit_error', param: null, message: '…', limit: 3, in_use: 3, plan_name: 'Grove' } };
+		expect(planStopOf(`unexpected status 429 Too Many Requests: ${JSON.stringify(body)}`)).toEqual({ code: 'plan_device_limit', limit: 3, inUse: 3, planName: 'Grove' });
+		setLocale('zh');
+		expect(planStopText({ code: 'plan_device_limit', limit: 3 }, undefined, NOW).title).toBe('套餐已在 3 台设备上使用，已达上限');
+	});
+});
+
 describe('resetFromPlan', () => {
 	it('takes the window the error names, else the fullest one, and only a time ahead', () => {
 		expect(resetFromPlan(PLAN, '7d', NOW)).toBe(Date.parse('2026-10-20T08:00:00Z'));

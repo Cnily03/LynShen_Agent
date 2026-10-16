@@ -19,7 +19,8 @@ export type ErrorAction =
 	| 'renew'
 	| 'topUp'
 	| 'useBalance'
-	| 'waitPlan';
+	| 'waitPlan'
+	| 'devices';
 
 export interface ErrorInfo {
 	/** i18n key under `chat.err.<kind>` for the title and the hint. */
@@ -94,17 +95,20 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		return info('toolAuth', undefined, tool || undefined);
 	}
 	// The device pays with its plan, which never falls back to the balance:
-	// a used-up window, an ended plan or a model outside the plan stops the
-	// turn (not a balance problem), and the user picks the way on.
+	// a used-up window, an ended plan, a model outside the plan or a plan
+	// already in use on as many devices as it allows stops the turn (not a
+	// balance or rate problem), and the user picks the way on.
 	const stop = planStopOf(text);
 	if (stop) {
-		const actions: ErrorAction[] =
-			stop.code === 'plan_quota_exhausted'
-				? ['waitPlan', 'useBalance', 'purchase']
-				: stop.code === 'plan_inactive'
-					? [stop.reason === 'none' ? 'purchase' : 'renew', 'useBalance']
-					: ['model', 'useBalance'];
-		const kind = stop.code === 'plan_quota_exhausted' ? 'planQuota' : stop.code === 'plan_inactive' ? 'planInactive' : 'notInPlan';
+		const ACTIONS: Record<typeof stop.code, ErrorAction[]> = {
+			plan_quota_exhausted: ['waitPlan', 'useBalance', 'purchase'],
+			plan_inactive: [stop.reason === 'none' ? 'purchase' : 'renew', 'useBalance'],
+			model_not_in_plan: ['model', 'useBalance'],
+			plan_device_limit: ['useBalance', 'devices']
+		};
+		const KINDS = { plan_quota_exhausted: 'planQuota', plan_inactive: 'planInactive', model_not_in_plan: 'notInPlan', plan_device_limit: 'planDevices' };
+		const actions = ACTIONS[stop.code];
+		const kind = KINDS[stop.code];
 		return { ...info(kind, actions, stop.model), plan: stop };
 	}
 	// Through the LynShen gateway the balance is topped up in the app; a key

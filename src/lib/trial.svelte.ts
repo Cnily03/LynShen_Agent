@@ -198,6 +198,17 @@ class Trial {
 		}
 	}
 
+	#soon: ReturnType<typeof setTimeout> | undefined;
+	/** Reads the plan again shortly (a gateway request just ran on the plan:
+	 *  its windows moved); calls within the wait share one read. */
+	refreshSoon(delay = 2_000) {
+		if (this.#soon) return;
+		this.#soon = setTimeout(() => {
+			this.#soon = undefined;
+			void this.refreshStatus();
+		}, delay);
+	}
+
 	/** Sets who pays; answers what went wrong, or '' once the gateway has
 	 *  the latest choice. The choice shows at once. One change is sent at a
 	 *  time: a pick made meanwhile is sent when the gateway answers, if it
@@ -301,6 +312,8 @@ class Trial {
 		this.fundingError = '';
 		clearTimeout(this.#timer);
 		clearTimeout(this.#recoverTimer);
+		clearTimeout(this.#soon);
+		this.#soon = undefined;
 		this.#key = null;
 		this.#retries = 0;
 		this.#statusGeneration++;

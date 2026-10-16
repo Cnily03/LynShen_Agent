@@ -1449,6 +1449,7 @@ try {
   await expect(planGroup.locator('.win').first()).toContainText(/5 小时\s*1\.36 \/ 4\.00 积分/);
   await expect(planGroup.locator('.win').last()).toContainText(/7 天\s*3\.58 \/ 10\.00 积分/);
   await expect(planGroup.locator('.win').first()).toContainText(/恢复/);
+  await expect(planGroup).toContainText('套餐正在使用：1 / 3 台设备');
   await choice.evaluate((el) => {
     window.__shown = [el.querySelector('.opt.on')?.textContent?.trim()];
     new MutationObserver(() => {
@@ -1514,6 +1515,11 @@ try {
     await card.getByRole('button',{name:'改用余额继续'}).click();
     await expect(pp.getByText('本设备已改为余额计费')).toBeVisible();
     assert.deepEqual(await puts(), ['balance']);
+    // A fourth device on a plan for three: which limit, the balance, the devices.
+    await pp.goto(base + '?shell&empty&trial&funding=plan&planStop=devices');
+    const full = pp.locator('.err').filter({hasText:'套餐已在 3 台设备上使用，已达上限'});
+    await expect(full).toBeVisible({timeout:30000});
+    await expect(full.locator('.foot button')).toHaveText(['改用余额继续', '查看设备', '原始信息']);
     // The plan ended: renew, or the balance.
     await pp.goto(base + '?shell&empty&trial=ended&funding=plan&planStop=inactive');
     const ended = pp.locator('.err').filter({hasText:'Grove 已结束'});
@@ -1535,6 +1541,13 @@ try {
     await expect(mrow(quick, 'Claude Opus 5.5')).toHaveClass(/outside/);
     await expect(mrow(quick, 'GLM-5.3').locator('.aside')).toHaveText('套餐内');
     await pp.keyboard.press('Escape');
+    // The windows follow the work: a request of the session reads the plan
+    // again (once for a burst), not a timer.
+    const reads = () => pp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_desktop_plan').length);
+    await pp.waitForTimeout(2500);
+    const before = await reads();
+    await pp.evaluate(() => { for (let i = 0; i < 3; i++) window.__shellChat.handle({type: 'usage', input_tokens: 1200, output_tokens: 80}); });
+    await expect.poll(reads, {timeout:6000}).toBe(before + 1);
     // On the balance the plan is not mentioned.
     await pp.goto(base + '?shell&empty&models&trial');
     await answerTrialCard();
@@ -1572,7 +1585,7 @@ try {
     await expect(dialog).toContainText('购买 Sprout');
     await expect(dialog).toContainText(/付款后立即生效，30 天内有效，\d+月\d+日到期。/);
     await expect(dialog).toContainText('付款后本设备由套餐支付，可以随时改用余额。');
-    await expect(dialog).toContainText('套餐仅在 Aogiri 桌面端 / LynShen CLI 中使用；API Key 调用按余额计费。');
+    await expect(dialog).toContainText('套餐仅在 Aogiri 桌面端 / LynShen CLI 中使用；API Key 调用始终按余额计费。');
     await dialog.getByRole('button',{name:'微信',exact:true}).click();
     await dialog.getByRole('button',{name:'去支付'}).click();
     await expect(dialog.locator('.qr svg')).toBeVisible();
@@ -1602,13 +1615,14 @@ try {
     await expect(sproutRow).toContainText('使用中');
     const orders = sp.locator('#set-purchase-orders');
     await expect(orders.locator('.row', {hasText:'Sprout · ¥49'})).toContainText('已完成');
-    // Under a plan in force the dialog says what the new one replaces.
+    // Under a plan in force (the catalog read again): a higher plan is an
+    // upgrade at the quoted price; the same plan renews from its end.
     await sp.evaluate(() => { window.__storePaid = false; });
-    await plansSec.locator('.row', {hasText:'Branch'}).getByRole('button',{name:'购买'}).click();
-    await expect(dialog).toContainText('付款后新套餐立即生效，替换当前的「Sprout」');
+    await plansSec.locator('.row', {hasText:'Branch'}).getByRole('button',{name:'升级'}).click();
+    await expect(dialog).toContainText('付款后立即从「Sprout」升级到「Branch」');
     await dialog.getByRole('button',{name:'取消'}).click();
-    await sproutRow.getByRole('button',{name:'购买'}).click();
-    await expect(dialog).toContainText('付款后立即重新开始一个 30 天的「Sprout」');
+    await sproutRow.getByRole('button',{name:'续费'}).click();
+    await expect(dialog).toContainText('续费：到期时间从当前到期日顺延 30 天');
     await dialog.getByRole('button',{name:'取消'}).click();
     // ¥50 by the Alipay page in the browser; closing only stops waiting.
     await topUp.locator('.row', {hasText:'¥50'}).getByRole('button',{name:'充值'}).click();
@@ -1641,6 +1655,39 @@ try {
     await expect(dialog).toContainText('充值 ¥23.50');
     await dialog.getByRole('button',{name:'取消'}).click();
     await sp.close();
+  }
+  {
+    // A plan in force (Sprout, 12 days left): the same plan renews from its
+    // end with the usage kept; a higher one is an upgrade at the price the
+    // gateway quotes, ordered as such; a lower one is listed, not offered.
+    const up = await browser.newPage({viewport:{width:1280,height:900}});
+    up.on('pageerror', e => errors.push(e.message));
+    await up.goto(base + '?purchase&current=sprout&section=purchase');
+    const ud = up.getByRole('dialog').last();
+    const rows = up.locator('#set-purchase-plans .row');
+    await expect(rows.filter({hasText:'Sprout'}).getByRole('button')).toHaveText('续费', {timeout:30000});
+    await expect(rows.filter({hasText:'Branch'})).toContainText('补 ¥50 升级');
+    await expect(up.locator('#set-purchase-plan')).toContainText('套餐正在使用：1 / 3 台设备');
+    await rows.filter({hasText:'Sprout'}).getByRole('button',{name:'续费'}).click();
+    await expect(ud).toHaveAttribute('aria-label', '续费 Sprout');
+    await expect(ud).toContainText(/续费：到期时间从当前到期日顺延 30 天，到 \d+月\d+日；已用额度保留。/);
+    await ud.getByRole('button',{name:'取消'}).click();
+    await rows.filter({hasText:'Branch'}).getByRole('button',{name:'升级'}).click();
+    await expect(ud).toHaveAttribute('aria-label', '升级到 Branch');
+    await expect(ud).toContainText('¥50');
+    await expect(ud).toContainText(/付款后立即从「Sprout」升级到「Branch」，价格按服务端报价，\d+月\d+日 到期。/);
+    await ud.getByRole('button',{name:'微信',exact:true}).click();
+    await ud.getByRole('button',{name:'去支付'}).click();
+    await expect(ud.locator('.qr svg')).toBeVisible();
+    const order = await up.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_store_order').map((c) => [c.args.productId, c.args.upgradeFrom]));
+    assert.deepEqual(order, [['branch', 'sprout']], 'the upgrade was not ordered as one');
+    await up.evaluate(() => { window.__storePaid = true; });
+    await expect(ud).toContainText('本设备现在由 Branch 支付', {timeout:10000});
+    await ud.getByRole('button',{name:'完成'}).click();
+    // Now on Branch: Sprout is lower, and has no button.
+    await expect(rows.filter({hasText:'Sprout'})).toContainText('低于当前套餐');
+    await expect(rows.filter({hasText:'Sprout'}).getByRole('button')).toHaveCount(0);
+    await up.close();
   }
   {
     // A gateway that leaves the device on the balance at fulfilment: the app
@@ -2087,5 +2134,5 @@ try {
     await cp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, a plan bought paying by default with 改用余额 and its end date, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

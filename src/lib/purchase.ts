@@ -31,6 +31,12 @@ export interface StoreProduct {
 	groups: string[];
 	windows: QuotaWindow[];
 	balance: StoreBalance | null;
+	/** A higher plan than the one in force: what the gateway quotes to move
+	 *  up to it now (the price, and the end the plan will have), and the plan
+	 *  it replaces. Absent: an ordinary purchase. */
+	upgrade?: { price_minor: string; expires_at: string | null; from: string | null };
+	/** A lower plan than the one in force: not offered (no downgrade). */
+	downgrade?: boolean;
 }
 
 export type ActionKind = 'qr' | 'redirect';
@@ -125,9 +131,23 @@ function parseProduct(v: unknown): StoreProduct | null {
 		duration_seconds: duration,
 		groups: Array.isArray(p.groups) ? p.groups.filter((g): g is string => typeof g === 'string') : [],
 		windows: Array.isArray(p.windows) ? p.windows.flatMap((w) => parseWindow(w) ?? []) : [],
-		balance: kind === 'balance' ? balance : null
+		balance: kind === 'balance' ? balance : null,
+		...(kind === 'plan' && upgradeOf(p.upgrade) ? { upgrade: upgradeOf(p.upgrade)! } : {}),
+		...(kind === 'plan' && p.downgrade === true ? { downgrade: true } : {})
 	};
 }
+
+/** The gateway's upgrade quote: `{price_minor, expires_at, from}`. */
+function upgradeOf(v: unknown): StoreProduct['upgrade'] | null {
+	const u = obj(v);
+	const price = minor(u?.price_minor);
+	if (!u || !price || price === '0') return null;
+	const ends = str(u.expires_at);
+	return { price_minor: price, expires_at: ends && !Number.isNaN(Date.parse(ends)) ? ends : null, from: str(u.from) ?? null };
+}
+
+/** What a product costs now: the upgrade quote when there is one. */
+export const priceNow = (p: StoreProduct): string => p.upgrade?.price_minor ?? p.price_minor;
 
 function parseOption(v: unknown): PaymentOption | null {
 	const o = obj(v);

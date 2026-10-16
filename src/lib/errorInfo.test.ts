@@ -81,6 +81,11 @@ describe('describeError', () => {
 			kind: 'planInactive',
 			actions: ['purchase', 'useBalance']
 		});
+		// A fourth device: not a rate limit, and never retried by itself.
+		expect(describeError('unexpected status 429 Too Many Requests: {"error":{"code":"plan_device_limit","limit":3,"in_use":3}}', 'codex')).toMatchObject({
+			kind: 'planDevices',
+			actions: ['useBalance', 'devices']
+		});
 		// Without details: still the plan's, not a balance or permission problem.
 		expect(describeError('API Error: 402 plan quota exhausted')).toMatchObject({ kind: 'planQuota', plan: { code: 'plan_quota_exhausted' } });
 		expect(describeError('API Error: 403 model_not_in_plan')?.kind).toBe('notInPlan');

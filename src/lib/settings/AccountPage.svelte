@@ -36,7 +36,7 @@
 	import { openExternal } from '$lib/openExternal';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
-	import { planDate } from '$lib/trial';
+	import { planDate, planDevicesText } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
 	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 	import PlanUsage from '$lib/PlanUsage.svelte';
@@ -161,7 +161,12 @@
 
 <SettingsSection title={t('settings.accountPage.planSection')} id="account-plan">
 	{#if deskPlan}
-		<SettingsRow stacked title={deskPlan.name.trim() || t('shell.trial.label')} tag={t('settings.accountPage.planActive')} description={t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) })}>
+		<SettingsRow
+			stacked
+			title={deskPlan.name.trim() || t('shell.trial.label')}
+			tag={t('settings.accountPage.planActive')}
+			description={[t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) }), ...(deskPlan.devices ? [planDevicesText(deskPlan.devices)] : [])].join(' · ')}
+		>
 			<PlanUsage plan={deskPlan} />
 		</SettingsRow>
 	{:else}

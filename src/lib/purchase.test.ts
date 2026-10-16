@@ -19,6 +19,7 @@ import {
 	parseOrders,
 	parseYuanInput,
 	pendingAfterFailure,
+	priceNow,
 	phaseOf,
 	preparePending,
 	resumable,
@@ -105,6 +106,24 @@ describe('the catalog and orders', () => {
 		expect(catalog.custom).toEqual({ product_id: 'b10', min_minor: '100', max_minor: '100000000' });
 		expect(parseCatalog({ products: [] })).toBeNull();
 		expect(parseCatalog(null)).toBeNull();
+	});
+
+	it('reads the gateway\'s upgrade quote and a lower plan, and prices an upgrade by the quote', () => {
+		const sprout = CATALOG.products.find((p: { id: string }) => p.id === 'sprout')!;
+		const catalog = parseCatalog({
+			...CATALOG,
+			products: [
+				{ ...sprout, id: 'branch', name: 'Branch', price_minor: '9900', upgrade: { price_minor: '5000', expires_at: '2026-11-16T00:00:00Z', from: 'sprout' } },
+				{ ...sprout, id: 'seed', name: 'Seed', price_minor: '1900', downgrade: true },
+				{ ...sprout, id: 'odd', upgrade: { price_minor: '0' } }
+			]
+		})!;
+		const [branch, seed, odd] = catalog.products;
+		expect(branch.upgrade).toEqual({ price_minor: '5000', expires_at: '2026-11-16T00:00:00Z', from: 'sprout' });
+		expect(priceNow(branch)).toBe('5000');
+		expect(seed.downgrade).toBe(true);
+		expect(priceNow(seed)).toBe('1900');
+		expect(odd.upgrade).toBeUndefined();
 	});
 
 	it('offers only the ways to pay that take the amount', () => {

@@ -39,10 +39,14 @@ const modelsMode = params0.get('models');
 // =404: a gateway without the store; =reject: the first payment attempt is
 // refused (payment_provider_rejected); =offline: the first order fails on the
 // network. &nofundswitch: fulfilling a plan leaves the device's funding as it
-// was (a gateway before contract v1.2).
+// was (a gateway before contract v1.2). &current=sprout|branch: that plan is
+// in force already (12 days left): a higher plan is an upgrade at a quoted
+// price, a lower one is not offered, the same one renews.
 const purchaseMode = params0.get('purchase');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
 let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
+// ?devices=<n>: the devices using the plan now (of 3 at most; default 1).
+const planDevices = () => ({in_use: Number(params0.get('devices') ?? 1), limit: 3, this_device: true});
 const planRefused = () => JSON.stringify({status: 409, code: 'plan_inactive', message: '现在没有生效的套餐'});
 const STORE_CATALOG = {
   currency: 'CNY',
@@ -65,6 +69,26 @@ const store = {
   plan: null as any
 };
 const storeRefusal = (status: number | null, code: string | null, message: string) => JSON.stringify({status, code, message});
+// A plan of the store in force (&current=<product id>: one bought before).
+const storePlan = (id: string, endsAt: number) => {
+  const product = STORE_CATALOG.products.find((p) => p.id === id)!;
+  const kinds = product.windows.map((w: any) => [w.window_seconds === 18000 ? '5h' : '7d', (Number(w.quota_fen_cny) / 100).toFixed(2)]);
+  return {id, name: product.name, group: '套餐专用', windows: kinds.map(([kind, quota]) => ({kind, quota_cny: quota, used_cny: '0.00', resets_at: null})), expires_at: new Date(endsAt).toISOString(), trial: false, active: true, devices: planDevices()};
+};
+if (params0.get('current')) { store.plan = storePlan(params0.get('current')!, Date.now() + 12 * 86_400_000); planFunding = 'plan'; }
+// The catalog as the gateway sends it to an account with a paid plan: a
+// higher plan carries the upgrade quote (placeholder numbers: the price
+// difference; the formula is the gateway's), a lower one is not offered.
+function storeCatalog() {
+  const current = store.plan ? STORE_CATALOG.products.find((p) => p.id === store.plan.id) : null;
+  if (!current) return STORE_CATALOG;
+  return {...STORE_CATALOG, products: STORE_CATALOG.products.map((p) => {
+    if (p.kind !== 'plan' || p.id === current.id) return p;
+    if (Number(p.price_minor) > Number(current.price_minor))
+      return {...p, upgrade: {price_minor: String(Number(p.price_minor) - Number(current.price_minor)), expires_at: store.plan.expires_at, from: current.id}};
+    return {...p, downgrade: true};
+  })};
+}
 // The trial's windows: unused, used, or (=full) the 5-hour one used up.
 const planStartedAt = Date.now();
 // Plans end at a fixed time (the same plan on the next load), 6.5 to 7.5 days
@@ -112,21 +136,27 @@ Object.assign(window, {
             // The gateway moves the account's devices to a plan bought (contract
             // v1.2); &nofundswitch: a gateway that does not.
             if (o.kind === 'plan' && !params0.has('nofundswitch')) planFunding = 'plan';
-            if (o.kind === 'plan') store.plan = {name: o.name, group: '套餐专用', windows: [{kind: '5h', quota_cny: '8.00', used_cny: '0.00', resets_at: null}, {kind: '7d', quota_cny: '23.00', used_cny: '0.00', resets_at: null}], expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(), trial: false, active: true};
+            // Renewal: 30 days from the current end; an upgrade keeps the quoted end;
+            // otherwise 30 days from now (contract v1.2 section 5).
+            if (o.kind === 'plan') {
+              const renewed = store.plan?.id === o.product_id ? Date.parse(store.plan.expires_at) + 30 * 86_400_000 : null;
+              const upgraded = o.upgrade_from && store.plan ? Date.parse(store.plan.expires_at) : null;
+              store.plan = storePlan(o.product_id, renewed ?? upgraded ?? Date.now() + 30 * 86_400_000);
+            }
           }
           return {...o};
         };
         switch (command) {
-          case 'monoize_store_catalog': return STORE_CATALOG;
+          case 'monoize_store_catalog': return storeCatalog();
           case 'monoize_store_orders': return {orders: store.orders.slice().reverse().slice(0, args.limit).map(view)};
           case 'monoize_store_order': {
             if (store.orderFailures > 0) { store.orderFailures--; throw storeRefusal(null, null, 'all gateways unreachable'); }
             const kept = store.orders.find((o) => o.request_id === args.requestId);
             if (kept) return view(kept);
-            const product = STORE_CATALOG.products.find((p) => p.id === args.productId)!;
-            const amount = args.customMinor ?? product.price_minor;
+            const product = storeCatalog().products.find((p: any) => p.id === args.productId)! as any;
+            const amount = args.customMinor ?? product.upgrade?.price_minor ?? product.price_minor;
             const order = {
-              id: `order-${store.orders.length + 1}`, order_number: `LS-${store.orders.length + 1}`, request_id: args.requestId, product_id: product.id,
+              id: `order-${store.orders.length + 1}`, order_number: `LS-${store.orders.length + 1}`, request_id: args.requestId, product_id: product.id, upgrade_from: args.upgradeFrom ?? null,
               kind: product.kind, name: product.name, amount_minor: amount, currency: 'CNY', payment_state: 'unpaid', fulfillment_state: 'pending', state: 'awaiting_payment',
               balance: product.kind === 'balance' ? (args.customMinor ? {recharge_minor: amount, bonus_minor: '0', actual_received_minor: amount} : product.balance) : null,
               expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), created_at: new Date().toISOString()
@@ -183,8 +213,8 @@ Object.assign(window, {
           {
             // The gateway stores a change as it arrives and answers later.
             const plan = trialReply === 'ended' ? null
-              : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true}
-              : {...trialPlan(trialReply === 'used'), trial: true, active: true};
+              : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true, devices: planDevices()}
+              : {...trialPlan(trialReply === 'used'), trial: true, active: true, devices: planDevices()};
             const answer = {plan, plan_funding: planFunding, bucket: planFunding};
             if (latency != null) await slow();
             return answer;

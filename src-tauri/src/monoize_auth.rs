@@ -383,7 +383,16 @@ fn store_order_id(id: &str) -> Result<&str, String> {
 }
 
 /// The body of `POST /api/desktop/oauth/store/orders` (gateway DP-O1).
-fn store_order_request(product_id: &str, channel_id: &str, custom_minor: Option<&str>, request_id: &str) -> Value {
+/// `upgrade_from`: the plan in force that a higher plan replaces at the
+/// gateway's quoted upgrade price (notes/plan-balance-contract.md, v1.2
+/// proposal); absent for any other order.
+fn store_order_request(
+    product_id: &str,
+    channel_id: &str,
+    custom_minor: Option<&str>,
+    request_id: &str,
+    upgrade_from: Option<&str>,
+) -> Value {
     let mut body = json!({
         "product_id": product_id,
         "payment_channel_id": channel_id,
@@ -391,6 +400,9 @@ fn store_order_request(product_id: &str, channel_id: &str, custom_minor: Option<
     });
     if let Some(minor) = custom_minor {
         body["custom_recharge_minor"] = json!(minor);
+    }
+    if let Some(from) = upgrade_from {
+        body["upgrade_from"] = json!(from);
     }
     body
 }
@@ -425,17 +437,25 @@ pub fn monoize_store_orders(limit: u32) -> Result<Value, String> {
 
 /// Creates an order for a product (`POST /api/desktop/oauth/store/orders`);
 /// the same `request_id` returns the same order, so a retry cannot buy twice.
+/// `upgrade_from`: an upgrade of the plan in force (the gateway prices it).
 #[tauri::command(async)]
 pub fn monoize_store_order(
     product_id: String,
     channel_id: String,
     custom_minor: Option<String>,
     request_id: String,
+    upgrade_from: Option<String>,
 ) -> Result<Value, String> {
     gateway_key_call(
         "POST",
         "/api/desktop/oauth/store/orders",
-        Some(store_order_request(&product_id, &channel_id, custom_minor.as_deref(), &request_id)),
+        Some(store_order_request(
+            &product_id,
+            &channel_id,
+            custom_minor.as_deref(),
+            &request_id,
+            upgrade_from.as_deref(),
+        )),
     )
 }
 
@@ -702,12 +722,16 @@ mod tests {
     #[test]
     fn store_requests_carry_only_what_was_chosen() {
         assert_eq!(
-            store_order_request("p1", "store-channel-epay", None, "req-1"),
+            store_order_request("p1", "store-channel-epay", None, "req-1", None),
             json!({ "product_id": "p1", "payment_channel_id": "store-channel-epay", "request_id": "req-1" })
         );
         assert_eq!(
-            store_order_request("p1", "c1", Some("2345"), "req-2")["custom_recharge_minor"],
+            store_order_request("p1", "c1", Some("2345"), "req-2", None)["custom_recharge_minor"],
             "2345"
+        );
+        assert_eq!(
+            store_order_request("branch", "c1", None, "req-4", Some("sprout"))["upgrade_from"],
+            "sprout"
         );
         assert_eq!(
             store_attempt_request(Some("wxpay"), "req-3"),

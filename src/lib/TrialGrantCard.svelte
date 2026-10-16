@@ -30,6 +30,17 @@
 		if (error) toast.error(t('shell.trial.fundingFailed', { error }));
 		else if (switched) toast.success(t(usePlan ? 'shell.funding.toPlan' : 'shell.trial.fundingToBalance'));
 	}
+	// The claim put this device on the trial (contract v1.2): the balance instead.
+	const useBalance = () =>
+		choose(
+			false,
+			async () => {
+				const error = await trial.setFunding('balance');
+				if (!error) trial.acknowledge();
+				return error;
+			},
+			true
+		);
 	const useTrial = () =>
 		choose(true, async () => {
 			const error = await trial.setFunding('plan');
@@ -53,7 +64,10 @@
 			{:else}
 				{#if trial.funding === 'plan'}<p class="ask">{t('shell.trial.grantOnPlan')}</p>{/if}
 				<div class="acts">
-					<Button variant="primary" size="sm" onclick={() => trial.acknowledge()}>{t('shell.trial.ok')}</Button>
+					{#if trial.funding === 'plan'}
+						<Button size="sm" disabled={busy} onclick={useBalance}>{t('shell.funding.toBalance')}</Button>
+					{/if}
+					<Button variant="primary" size="sm" disabled={busy} onclick={() => trial.acknowledge()}>{t('shell.trial.ok')}</Button>
 				</div>
 			{/if}
 		</div>

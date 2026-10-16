@@ -763,9 +763,11 @@ export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) 
 export const fetchStoreCatalog = () => gatewayCall<unknown>('monoize_store_catalog');
 /** The account's recent orders, newest first. */
 export const fetchStoreOrders = (limit: number) => gatewayCall<unknown>('monoize_store_orders', { limit });
-/** Creates an order (CNY); `requestId` makes a retry return the same order. */
-export const createStoreOrder = (productId: string, channelId: string, customMinor: string | null, requestId: string) =>
-	gatewayCall<unknown>('monoize_store_order', { productId, channelId, customMinor, requestId });
+/** Creates an order (CNY); `requestId` makes a retry return the same order.
+ *  `upgradeFrom`: the plan in force a higher plan replaces at the gateway's
+ *  quoted price. */
+export const createStoreOrder = (productId: string, channelId: string, customMinor: string | null, requestId: string, upgradeFrom: string | null = null) =>
+	gatewayCall<unknown>('monoize_store_order', { productId, channelId, customMinor, requestId, upgradeFrom });
 /** Starts paying an order with `method` (`wxpay`, `alipay`, `card`): a QR
  *  code or a payment page. `requestId` makes a retry return the same one. */
 export const payStoreOrder = (orderId: string, method: string | null, requestId: string) =>
