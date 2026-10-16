@@ -1015,9 +1015,9 @@ mod tests {
         assert!(found.iter().find(|f| f.id == id("0001")).unwrap().imported);
         let again = sessions::import(&roots, &pick("0001")).unwrap();
         assert!(again.reused && again.id == done.id);
-        let old = sessions::import(&roots, &pick("0006")).unwrap_err();
+        let old = sessions::import(&roots, &pick("0006")).map(|done| done.id).unwrap_err();
         assert!(old.contains("open the conversation in DSH once"), "{old}");
-        let newer = sessions::import(&roots, &pick("0010")).unwrap_err();
+        let newer = sessions::import(&roots, &pick("0010")).map(|done| done.id).unwrap_err();
         assert!(newer.contains("newer DSH"), "{newer}");
         assert!(sessions::import(&roots, &pick("../0001")).is_err());
         // DSH's own files are untouched.
