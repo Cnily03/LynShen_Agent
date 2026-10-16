@@ -208,8 +208,9 @@ export function installCliCommand(): Promise<string> {
 }
 
 // Conversations Claude Code / Codex saved in their own apps, imported as a
-// cleaned copy that LynShen resumes (src-tauri/src/native_import.rs).
-export type NativeSource = 'claude' | 'codex' | 'opencode';
+// cleaned copy that LynShen resumes (src-tauri/src/native_import.rs). DSH's
+// become LynShen sessions (src-tauri/src/agent_import/dsh.rs).
+export type NativeSource = 'claude' | 'codex' | 'opencode' | 'dsh';
 export interface NativeSession {
 	id: string;
 	title: string;
@@ -217,11 +218,13 @@ export interface NativeSession {
 	origin: string;
 	/** The LynShen copy when it was imported before. */
 	imported: string | null;
+	/** Why it cannot be imported, when it cannot (DSH lists such ones). */
+	unreadable?: ImportSkipKind | null;
 }
 export function nativeSessions(source: NativeSource, cwd: string): Promise<NativeSession[]> {
 	return invoke('native_sessions', { source, cwd });
 }
-export function importNativeSession(source: 'claude' | 'codex', cwd: string, id: string): Promise<{ id: string; title: string }> {
+export function importNativeSession(source: 'claude' | 'codex' | 'dsh', cwd: string, id: string): Promise<{ id: string; title: string }> {
 	return invoke('import_native_session', { source, cwd, id });
 }
 /** Records that OpenCode conversation `from` continues in daemon session `to`
@@ -233,7 +236,7 @@ export function recordOpencodeCopy(from: string, to: string): Promise<void> {
 
 // 一键导入: what the other coding agents on this machine have — conversations
 // in every folder, skills and MCP servers (src-tauri/src/agent_import).
-export type ImportSource = 'claude' | 'codex' | 'opencode' | 'zcode' | 'omp';
+export type ImportSource = 'claude' | 'codex' | 'opencode' | 'zcode' | 'omp' | 'dsh';
 export interface ImportSession {
 	source: ImportSource;
 	id: string;
@@ -270,17 +273,29 @@ export interface ImportMcp {
 }
 /** Conversations of one tool the scan found but could not read, for one
  *  reason (`count` 0: a whole store, such as a database, did not open). */
-/** Why conversations were left out; `reason` is the engine's English detail for the log. */
-export type ImportSkipKind = 'unreadable' | 'unrecognised' | 'no_folder' | 'compressed';
+/** Why conversations were left out; `reason` is the engine's English detail for the log.
+ *  `old_format`: saved by an older DSH, which updates it when it is opened there. */
+export type ImportSkipKind = 'unreadable' | 'unrecognised' | 'no_folder' | 'compressed' | 'old_format' | 'newer_format';
 export interface ImportSkipped {
 	source: ImportSource;
 	count: number;
 	kind: ImportSkipKind;
 	reason: string;
 }
+/** One conversation the scan found but cannot import, and why (only DSH
+ *  can name them). `cwd` is empty when none is recorded. */
+export interface ImportUnreadable {
+	source: ImportSource;
+	id: string;
+	title: string;
+	cwd: string;
+	updated_at_ms: number;
+	kind: ImportSkipKind;
+}
 export interface ImportScan {
 	sessions: ImportSession[];
 	skipped: ImportSkipped[];
+	unreadable?: ImportUnreadable[];
 	skills: ImportSkill[];
 	mcp: ImportMcp[];
 }

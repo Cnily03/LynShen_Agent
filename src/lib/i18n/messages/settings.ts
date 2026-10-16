@@ -105,7 +105,7 @@ const settings = {
 		},
 		import: {
 			title: '从其他工具导入',
-			intro: '把本机 Claude Code、Codex、opencode、zcode、omp 里的会话、技能和 MCP 服务器导入 Aogiri。原工具的文件不会改动。',
+			intro: '把本机 Claude Code、Codex、opencode、zcode、omp、DSH（DeepSeek Harness）里的会话、技能和 MCP 服务器导入 Aogiri。原工具的文件不会改动。',
 			scan: '扫描',
 			rescan: '重新扫描',
 			scanning: '正在扫描…',
@@ -139,11 +139,15 @@ const settings = {
 			unreadable: '{n} 个会话无法读取',
 			unreadableStore: '会话无法读取',
 			unreadableLine: '{tool}：{what}（{why}）',
+			cannotImport: '{n} 个无法导入',
+			noFolder: '（没有工作目录）',
 			skip: {
 				unreadable: '文件打不开',
 				unrecognised: '格式无法识别',
 				no_folder: '没有记录工作目录',
 				compressed: '压缩格式，这个版本还不支持',
+				old_format: '旧版本格式：在 DSH 里打开一次这个对话后再导入',
+				newer_format: '由更新的版本保存，这个版本的 Aogiri 还读不了',
 				store: '数据库打不开'
 			},
 			skipCount: '{why} {n} 个',
@@ -1185,7 +1189,7 @@ const settings = {
 		},
 		import: {
 			title: 'Import from other tools',
-			intro: 'Bring conversations, skills and MCP servers over from Claude Code, Codex, opencode, zcode and omp on this computer. Their files are left as they are.',
+			intro: 'Bring conversations, skills and MCP servers over from Claude Code, Codex, opencode, zcode, omp and DSH (DeepSeek Harness) on this computer. Their files are left as they are.',
 			scan: 'Scan',
 			rescan: 'Scan again',
 			scanning: 'Scanning…',
@@ -1219,11 +1223,15 @@ const settings = {
 			unreadable: '{n} conversations could not be read',
 			unreadableStore: 'Conversations could not be read',
 			unreadableLine: '{tool}: {what} ({why})',
+			cannotImport: '{n} cannot be imported',
+			noFolder: '(no working folder)',
 			skip: {
 				unreadable: 'file cannot be opened',
 				unrecognised: 'format not recognised',
 				no_folder: 'no working folder recorded',
 				compressed: 'compressed, not supported in this version yet',
+				old_format: 'saved by an older DSH: open this conversation in DSH once, then import it',
+				newer_format: 'saved by a newer version, which this version of Aogiri cannot read yet',
 				store: 'database cannot be opened'
 			},
 			skipCount: '{why}: {n}',

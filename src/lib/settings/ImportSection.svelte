@@ -1,7 +1,9 @@
 <script lang="ts">
 	// Settings → 导入: one scan over the other coding agents on this machine
-	// (Claude Code, Codex, opencode, zcode, omp), a checklist of what they
-	// have, and one button that brings the picked items over. Conversations
+	// (Claude Code, Codex, opencode, zcode, omp, DSH), a checklist of what they
+	// have, and one button that brings the picked items over. Conversations a
+	// tool has but this version cannot read are listed where the tool can name
+	// them (DSH), each with why, and summed up per tool below the list. Conversations
 	// and skills are imported on the Rust side (agent_import); MCP servers go
 	// to the daemon with `mcp_set`, the way Settings → MCP adds one. With an
 	// OpenCode agent registered, OpenCode conversations continue in OpenCode
@@ -24,7 +26,6 @@
 	import { parseConfigServers } from '$lib/mcp';
 	import {
 		SOURCE_LABELS,
-		byProject,
 		bySource,
 		defaultPicks,
 		folderName,
@@ -32,6 +33,8 @@
 		isPath,
 		mcpKey,
 		planMcp,
+		projectRows,
+		sessionGroups as groupSessions,
 		sessionKey,
 		skillKey,
 		skippedBySource,
@@ -61,7 +64,7 @@
 	let folders = $state<string[]>([]);
 	let foldersAdded = $state(false);
 
-	const sessionGroups = $derived(found ? bySource(found.sessions) : []);
+	const sessionGroups = $derived(found ? groupSessions(found) : []);
 	// Conversations that are there but could not be read, per tool.
 	const skippedGroups = $derived(found ? skippedBySource(found.skipped ?? []) : []);
 	const skillGroups = $derived(found ? bySource(found.skills) : []);
@@ -199,13 +202,16 @@
 	{/if}
 </SettingsSection>
 
-{#snippet groupHead(kind: string, source: ImportSource, keys: string[], total: number)}
+{#snippet groupHead(kind: string, source: ImportSource, keys: string[], total: number, blocked = 0)}
 	{@const id = `${kind}:${source}`}
 	<div class="ghead">
 		<Checkbox checked={allOn(keys)} disabled={!keys.length || running} onchange={(on) => setAll(keys, on)} />
 		<button class="gtoggle" aria-expanded={!!open[id]} onclick={() => (open[id] = !open[id])}>
 			<span class="gname">{label(source)}</span>
-			<span class="gcount">{t('settings.import.selected', { n: count(keys), total })}</span>
+			<span class="gcount">
+				{t('settings.import.selected', { n: count(keys), total })}
+				{#if blocked}· <span class="gblocked">{t('settings.import.cannotImport', { n: blocked })}</span>{/if}
+			</span>
 			<span class="chev" class:on={open[id]}><CaretRightIcon size={12} /></span>
 		</button>
 	</div>
@@ -224,11 +230,11 @@
 		{#snippet action()}{@render selectAll(sessionKeys(found!.sessions))}{/snippet}
 		{#each sessionGroups as g (g.source)}
 			<div class="group">
-				{@render groupHead('session', g.source, sessionKeys(g.items), g.items.length)}
+				{@render groupHead('session', g.source, sessionKeys(g.items), g.items.length, g.unreadable.length)}
 				<Collapse open={!!open[`session:${g.source}`]}>
-					{#each byProject(g.items) as p (p.cwd)}
+					{#each projectRows(g.items, g.unreadable) as p (p.cwd)}
 						<div class="proj" title={p.cwd}>
-							<span class="pname">{folderName(p.cwd)}</span>
+							<span class="pname">{p.cwd ? folderName(p.cwd) : t('settings.import.noFolder')}</span>
 							<span class="ppath">{p.cwd}</span>
 						</div>
 						{#each p.sessions as s (s.id)}
@@ -242,6 +248,15 @@
 									{t('settings.import.prompts', { n: s.messages })} · {date(s.updated_at_ms)}
 								</span>
 							</div>
+						{/each}
+						{#each p.unreadable as u (u.id)}
+							<div class="item off" title={u.id}>
+								<Checkbox checked={false} disabled>
+									<span class="iname">{u.title || t('settings.import.untitled')}</span>
+								</Checkbox>
+								<span class="imeta">{date(u.updated_at_ms)}</span>
+							</div>
+							<div class="ireason">{t(`settings.import.skip.${u.kind}`)}</div>
 						{/each}
 					{/each}
 				</Collapse>
@@ -501,6 +516,19 @@
 		color: var(--accent);
 		flex-shrink: 0;
 		white-space: nowrap;
+	}
+	.gblocked {
+		color: var(--warn);
+	}
+	.item.off {
+		padding-bottom: 0;
+	}
+	/* Why a conversation cannot be imported, under its name (past the checkbox). */
+	.ireason {
+		padding: 0 0 5px 52px;
+		font-size: var(--fs-xs);
+		color: var(--warn);
+		overflow-wrap: anywhere;
 	}
 	.why {
 		overflow-wrap: anywhere;

@@ -55,6 +55,7 @@
 		resolveFileRef,
 		readConfig,
 		writeConfig,
+		type ImportSkipKind,
 		type Op
 	} from '$lib/protocol';
 	import { buildModelRows, splitRoute, stripGroupSuffix, toolModels, type ToolModel } from '$lib/composer/modelRows';
@@ -343,19 +344,31 @@
 	// The project history picker's sources: LynShen's own conversations, or the
 	// ones Claude Code / Codex saved in their own apps (picking one imports it).
 	// OpenCode's, once an OpenCode agent is registered: picking one continues
-	// it in OpenCode, on a copy.
+	// it in OpenCode, on a copy. DSH's (DeepSeek Harness), when it has some for
+	// this project: picking one converts it into a LynShen conversation once.
 	let opencodeListed = $state(false);
+	let dshListed = $state(false);
 	const historySources = $derived([
 		{ value: 'lynshen', label: 'LynShen' },
 		{ value: 'claude', label: 'Claude Code' },
 		{ value: 'codex', label: 'Codex' },
-		...(opencodeListed ? [{ value: 'opencode', label: 'OpenCode' }] : [])
+		...(opencodeListed ? [{ value: 'opencode', label: 'OpenCode' }] : []),
+		...(dshListed ? [{ value: 'dsh', label: 'DSH' }] : [])
 	]);
 	/** OpenCode conversation → the daemon session its copy continues in. */
 	const opencodeCopies = new Map<string, string>();
+	/** DSH conversation → why it cannot be imported. */
+	const dshUnreadable = new Map<string, ImportSkipKind>();
 	$effect(() => {
 		if (chat.picker?.kind !== 'resume' || !chat.picker.history) return;
-		untrack(() => store.opencodeAgent().then((agent) => (opencodeListed = !!agent)));
+		untrack(() => {
+			store.opencodeAgent().then((agent) => (opencodeListed = !!agent));
+			const path = project?.path;
+			if (path)
+				nativeSessions('dsh', path)
+					.then((list) => (dshListed = list.length > 0))
+					.catch(() => (dshListed = false));
+		});
 	});
 	// The selected tab follows the list shown (each opening starts on LynShen);
 	// a switch applies only if it is still the latest and the picker is open.
@@ -369,24 +382,37 @@
 		if (!proj) return;
 		const req = ++historyReq;
 		const current = () => req === historyReq && chat.picker?.kind === 'resume' && !!chat.picker.history;
-		const from = source === 'claude' || source === 'codex' || source === 'opencode' ? source : 'lynshen';
+		const from =
+			source === 'claude' || source === 'codex' || source === 'opencode' || source === 'dsh' ? source : 'lynshen';
 		try {
 			const items =
 				from === 'lynshen'
 					? await store.historyItems(proj, chat)
 					: (await nativeSessions(from, proj.path)).map((s) => {
 							if (from === 'opencode' && s.imported) opencodeCopies.set(s.id, s.imported);
+							if (from === 'dsh' && s.unreadable) dshUnreadable.set(s.id, s.unreadable);
 							return s;
 						}).map((s) => ({
 							id: s.id,
 							label: s.title || s.id.slice(0, 8),
-							detail: [s.origin, new Date(s.mtime_ms).toLocaleString(), s.imported ? t('shell.historySource.imported') : '']
+							detail: [
+								s.origin,
+								new Date(s.mtime_ms).toLocaleString(),
+								s.imported ? t('shell.historySource.imported') : '',
+								s.unreadable ? t(`settings.import.skip.${s.unreadable}`) : ''
+							]
 								.filter(Boolean)
 								.join(' · '),
 							active: false
 						}));
 			if (current())
-				chat.picker = { kind: 'resume', history: true, source: from, backend: from === 'opencode' ? 'acp' : from, items };
+				chat.picker = {
+					kind: 'resume',
+					history: true,
+					source: from,
+					backend: from === 'opencode' ? 'acp' : from === 'dsh' ? 'lynshen' : from,
+					items
+				};
 		} catch (e) {
 			if (!current()) return;
 			toast.error(t('shell.historyFail', { msg: String(e) }));
@@ -1142,12 +1168,18 @@
 				});
 				return;
 			}
-			if (source === 'claude' || source === 'codex') {
+			if (source === 'claude' || source === 'codex' || source === 'dsh') {
 				const proj = project;
 				const title = item?.label ?? '';
+				// A DSH conversation this version cannot read says why instead.
+				const why = source === 'dsh' ? dshUnreadable.get(sid) : undefined;
+				if (why) {
+					toast.error(t(`settings.import.skip.${why}`));
+					return;
+				}
 				const notice = toast.info(t('shell.historySource.importing', { title }), { duration: 0 });
 				importNativeSession(source, proj.path, sid)
-					.then((copy) => store.openSaved(proj, copy.id, copy.title || title, source))
+					.then((copy) => store.openSaved(proj, copy.id, copy.title || title, source === 'dsh' ? 'lynshen' : source))
 					.catch((e) => toast.error(t('shell.historySource.importFail', { msg: String(e) })))
 					.finally(() => toast.dismiss(notice));
 				return;
