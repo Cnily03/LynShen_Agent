@@ -38,7 +38,8 @@ const modelsMode = params0.get('models');
 // `window.__storePaid = true` makes the next status check see the payment.
 // =404: a gateway without the store; =reject: the first payment attempt is
 // refused (payment_provider_rejected); =offline: the first order fails on the
-// network.
+// network. &nofundswitch: fulfilling a plan leaves the device's funding as it
+// was (a gateway before contract v1.2).
 const purchaseMode = params0.get('purchase');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
 let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
@@ -108,6 +109,9 @@ Object.assign(window, {
         const view = (o: any) => {
           if ((window as any).__storePaid && o.state === 'awaiting_payment') {
             o.state = 'completed';
+            // The gateway moves the account's devices to a plan bought (contract
+            // v1.2); &nofundswitch: a gateway that does not.
+            if (o.kind === 'plan' && !params0.has('nofundswitch')) planFunding = 'plan';
             if (o.kind === 'plan') store.plan = {name: o.name, group: '套餐专用', windows: [{kind: '5h', quota_cny: '8.00', used_cny: '0.00', resets_at: null}, {kind: '7d', quota_cny: '23.00', used_cny: '0.00', resets_at: null}], expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(), trial: false, active: true};
           }
           return {...o};

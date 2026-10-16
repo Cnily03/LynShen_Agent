@@ -4,8 +4,9 @@
 	// device on the balance is asked whether the trial should pay (the plan
 	// only by an explicit choice); "知道了" or an answer dismisses it for good,
 	// until then it shows again at the next start. In the same place, once:
-	// a plan in force that this device does not pay with (bought on the
-	// website, given by an admin), with the same question.
+	// a plan new to this device (bought on the website, given by an admin)
+	// with who pays now: the plan (the default after a purchase) with 改用余额,
+	// or, for a device left on the balance, the question.
 	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
 	import CreditCardIcon from 'phosphor-svelte/lib/CreditCardIcon';
 	import Button from '$lib/ui/Button.svelte';
@@ -21,12 +22,13 @@
 	const offer = $derived(plan ? null : trial.offer);
 	let busy = $state(false);
 
-	async function choose(usePlan: boolean, answer: () => void | Promise<string>) {
+	/** Sends the answer; says so when it changed who pays (`switched`). */
+	async function choose(usePlan: boolean, answer: () => void | Promise<string>, switched = usePlan) {
 		busy = true;
 		const error = (await answer()) || '';
 		busy = false;
 		if (error) toast.error(t('shell.trial.fundingFailed', { error }));
-		else if (usePlan) toast.success(t('shell.funding.toPlan'));
+		else if (switched) toast.success(t(usePlan ? 'shell.funding.toPlan' : 'shell.trial.fundingToBalance'));
 	}
 	const useTrial = () =>
 		choose(true, async () => {
@@ -57,16 +59,28 @@
 		</div>
 	</section>
 {:else if offer}
+	{@const name = offer.name.trim() || t('shell.trial.label')}
 	<section class="trial-grant" aria-label={t('shell.funding.label')}>
 		<span class="ico" aria-hidden="true"><CreditCardIcon size={18} /></span>
 		<div class="txt">
-			<h2>{t('shell.funding.offerTitle', { name: offer.name.trim() || t('shell.trial.label') })}</h2>
-			<p>{t('shell.trial.until', { date: planDate(offer.expires_at) })}</p>
-			<p class="ask">{t('shell.funding.offerBody')}</p>
-			<div class="acts">
-				<Button size="sm" disabled={busy} onclick={() => choose(false, () => trial.answerOffer(false))}>{t('shell.funding.offerKeep')}</Button>
-				<Button variant="primary" size="sm" disabled={busy} onclick={() => choose(true, () => trial.answerOffer(true))}>{t('shell.funding.offerUse')}</Button>
-			</div>
+			{#if trial.funding === 'plan'}
+				<!-- The plan pays (the default after a purchase): said once, the balance one tap away. -->
+				<h2>{t('shell.funding.nowTitle', { name })}</h2>
+				<p>{t('shell.trial.until', { date: planDate(offer.expires_at) })}</p>
+				<p class="ask">{t('shell.funding.nowBody')}</p>
+				<div class="acts">
+					<Button size="sm" disabled={busy} onclick={() => choose(false, () => trial.answerOffer(false), true)}>{t('shell.funding.toBalance')}</Button>
+					<Button variant="primary" size="sm" disabled={busy} onclick={() => trial.markOffered(offer)}>{t('shell.trial.ok')}</Button>
+				</div>
+			{:else}
+				<h2>{t('shell.funding.offerTitle', { name })}</h2>
+				<p>{t('shell.trial.until', { date: planDate(offer.expires_at) })}</p>
+				<p class="ask">{t('shell.funding.offerBody')}</p>
+				<div class="acts">
+					<Button size="sm" disabled={busy} onclick={() => choose(false, () => trial.answerOffer(false))}>{t('shell.funding.offerKeep')}</Button>
+					<Button variant="primary" size="sm" disabled={busy} onclick={() => choose(true, () => trial.answerOffer(true))}>{t('shell.funding.offerUse')}</Button>
+				</div>
+			{/if}
 		</div>
 	</section>
 {/if}

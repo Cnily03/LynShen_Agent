@@ -931,6 +931,9 @@ const shell = {
 			offerBody: '本设备现在由余额支付。改用套餐后只用套餐额度，用完会暂停并提示，不会自动扣余额。',
 			offerUse: '本设备改用套餐',
 			offerKeep: '继续用余额',
+			nowTitle: '本设备现在由套餐 {name} 支付',
+			nowBody: '只用套餐额度，用完会暂停并提示，不会自动扣余额。可以随时改用余额。',
+			toBalance: '改用余额',
 			recovered: '{name} 的额度已恢复，改回套餐？',
 			backToPlan: '改回套餐',
 			toPlan: '本设备已改为套餐计费'
@@ -1960,6 +1963,9 @@ const shell = {
 			offerBody: 'This device pays with the balance now. With the plan, only the plan pays; when it runs out, requests pause and the balance is not used.',
 			offerUse: 'Pay with the plan',
 			offerKeep: 'Keep the balance',
+			nowTitle: 'This device now pays with {name}',
+			nowBody: 'Only the plan pays; when it runs out, requests pause and the balance is not used. You can switch to the balance at any time.',
+			toBalance: 'Use balance',
 			recovered: 'The quota of {name} has recovered. Pay with the plan again?',
 			backToPlan: 'Use the plan',
 			toPlan: 'This device now pays with the plan'

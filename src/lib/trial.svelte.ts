@@ -7,10 +7,10 @@
 // pays this device's requests from GET /api/desktop/oauth/plan
 // (refreshStatus), and the user changes that (setFunding): the plan only or
 // the balance only, never both, never switched for the user
-// (notes/plan-balance-separation.md 3.4, 3.6, 3.8). A plan this device does
-// not pay with is offered once (`offer`), and after the user moved to the
-// balance because the plan's window was used up, the plan is offered again
-// once the window recovers (remindRecovery).
+// (notes/plan-balance-separation.md 3.4, 3.6, 3.8). A plan new to this
+// device is shown once with who pays (`offer`), and after the user moved to
+// the balance because the plan's window was used up, the plan is offered
+// again once the window recovers (remindRecovery).
 import { claimTrial, desktopInstallationId, fetchDesktopPlan, monoizeSession, setPlanFunding } from '$lib/protocol';
 import { t } from '$lib/i18n';
 import { toast } from '$lib/ui/toast.svelte';
@@ -116,13 +116,16 @@ class Trial {
 		return this.funding != null && (this.plan != null || this.funding === 'plan');
 	}
 
-	/** A plan in force that this device does not pay with and was not offered
-	 *  yet (bought on the website, given by an admin): offered once. Not
-	 *  while the trial's card or the step after a purchase asks the same. */
+	/** A plan in force not yet put to the user on this device (bought on the
+	 *  website, given by an admin, or in force when the app updated): shown
+	 *  once, with who pays now. A plan bought pays by default (the gateway
+	 *  moves the devices to it), and the card offers the balance; a device
+	 *  left on the balance is asked whether the plan should pay. Not while
+	 *  the trial's card or the step after a purchase says the same. */
 	get offer(): TrialPlan | null {
 		void this.#offered;
 		const plan = this.plan;
-		if (!plan || !this.status || this.status.funding !== 'balance' || this.desired != null || this.saving) return null;
+		if (!plan || !this.status || this.desired != null || this.saving) return null;
 		if (this.offerHeld || this.grant || !this.#key) return null;
 		return readJson<Record<string, number>>(OFFERED_KEY, {})[`${this.#key}|${planKey(plan)}`] ? null : plan;
 	}
@@ -135,10 +138,12 @@ class Trial {
 		writeJson(OFFERED_KEY, all);
 		this.#offered++;
 	}
-	/** The offer's answer: pay with the plan, or keep the balance. */
+	/** The card's answer: who pays from now on (nothing is sent when it
+	 *  stays as it is). */
 	async answerOffer(usePlan: boolean): Promise<string> {
 		this.markOffered();
-		return usePlan ? this.setFunding('plan') : '';
+		const want: PlanFunding = usePlan ? 'plan' : 'balance';
+		return this.status?.funding === want ? '' : this.setFunding(want);
 	}
 
 	/** The device moved to the balance because the plan's window was used up:

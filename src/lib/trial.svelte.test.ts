@@ -206,8 +206,25 @@ describe('the trial runner', () => {
 			expect(trial.offer).toBeNull();
 		});
 
-		it('is not offered on the plan, while held, or for a choice made in Settings', async () => {
-			expect((await signedIn('plan')).offer).toBeNull();
+		it('is shown once on the plan too (the default after a purchase), with the balance one answer away', async () => {
+			let trial = await signedIn('plan');
+			expect(trial.offer).toEqual(paid);
+			// 知道了: nothing is sent.
+			trial.markOffered(trial.offer);
+			expect(trial.offer).toBeNull();
+			expect(gateway.funding).toEqual([]);
+			localStorage.setItem('lynshen-funding-offered', '{}');
+			trial = await signedIn('plan');
+			expect(await trial.answerOffer(true)).toBe('');
+			expect(gateway.funding).toEqual([]);
+			localStorage.setItem('lynshen-funding-offered', '{}');
+			trial = await signedIn('plan');
+			expect(await trial.answerOffer(false)).toBe('');
+			expect(gateway.funding).toEqual(['balance']);
+			expect(trial.offer).toBeNull();
+		});
+
+		it('is not shown while held, or after a choice made in Settings', async () => {
 			const trial = await signedIn('balance');
 			trial.offerHeld = true;
 			expect(trial.offer).toBeNull();

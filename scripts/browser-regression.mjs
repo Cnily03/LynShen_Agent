@@ -1415,6 +1415,19 @@ try {
   await offerCard.getByRole('button',{name:'本设备改用套餐'}).click();
   await expect.poll(fundingPuts).toEqual(['plan']);
   await expect(offerCard).toHaveCount(0);
+  // The gateway moved this device to the plan bought: said once, with 改用余额.
+  await openTrial('?shell&trial=web&funding=plan', {fresh: true});
+  await expect(offerCard.getByRole('heading',{name:'本设备现在由套餐 Grove 支付'})).toBeVisible();
+  await offerCard.getByRole('button',{name:'改用余额'}).click();
+  await expect.poll(fundingPuts).toEqual(['balance']);
+  await expect(offerCard).toHaveCount(0);
+  await openTrial('?shell&trial=web&funding=plan', {fresh: true});
+  await offerCard.getByRole('button',{name:'知道了'}).click();
+  await expect(offerCard).toHaveCount(0);
+  await openTrial('?shell&trial=web&funding=plan');
+  await trialPage.waitForTimeout(500);
+  await expect(offerCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], '知道了 changed the funding');
   await trialPage.close();
 
   // Who pays (Settings → 账户) against a slow gateway (each answer 300–1500
@@ -1512,6 +1525,8 @@ try {
     // lists it marked 套餐外.
     await pp.goto(base + '?shell&empty&models&trial&funding=plan&planStop=notInPlan');
     await answerTrialCard();
+    // The composer's foot says who pays.
+    await expect(pp.locator('.fbtn.payer')).toHaveText(/^套餐 · (5 小时|7 天)剩 \d+(\.\d+)? 积分$/);
     const outside = pp.locator('.err').filter({hasText:'不在套餐内'});
     await expect(outside.locator('.foot button')).toHaveText(['换个模型', '改用余额继续', '原始信息']);
     await outside.getByRole('button',{name:'换个模型'}).click();
@@ -1526,6 +1541,7 @@ try {
     await pp.locator('.fbtn.model').click();
     await expect(quick.locator('.mline').first()).toBeVisible();
     await expect(quick.getByText(/套餐内|套餐外/)).toHaveCount(0);
+    await expect(pp.locator('.fbtn.payer')).toHaveText('余额支付');
     await pp.close();
   }
 
@@ -1554,7 +1570,8 @@ try {
     const sproutRow = plansSec.locator('.row', {hasText:'Sprout'});
     await sproutRow.getByRole('button',{name:'购买'}).click();
     await expect(dialog).toContainText('购买 Sprout');
-    await expect(dialog).toContainText('付款后立即生效，30 天内有效。');
+    await expect(dialog).toContainText(/付款后立即生效，30 天内有效，\d+月\d+日到期。/);
+    await expect(dialog).toContainText('付款后本设备由套餐支付，可以随时改用余额。');
     await expect(dialog).toContainText('套餐仅在 Aogiri 桌面端 / LynShen CLI 中使用；API Key 调用按余额计费。');
     await dialog.getByRole('button',{name:'微信',exact:true}).click();
     await dialog.getByRole('button',{name:'去支付'}).click();
@@ -1566,17 +1583,22 @@ try {
     await sp.evaluate(() => { window.__storePaid = true; });
     await expect(dialog).toContainText('支付成功，Sprout 已生效', {timeout:10000});
     assert.ok((await storeCalls('monoize_store_query')).length >= 1, 'the payment was not checked');
-    // The device paid with the balance: it is asked, and nothing is sent before the answer.
-    await expect(dialog).toContainText('本设备使用此套餐？');
-    assert.deepEqual(await storeCalls('monoize_set_plan_funding'), [], 'the purchase switched the device by itself');
+    // A plan bought pays by default (the gateway moved the device at
+    // fulfilment): the dialog says so, with the end counted from the
+    // purchase, and 改用余额 is one tap away.
+    await expect(dialog).toContainText('本设备现在由 Sprout 支付');
+    await expect(dialog).toContainText(/\d+月\d+日 \d\d:\d\d 到期（30 天）/);
+    assert.deepEqual(await storeCalls('monoize_set_plan_funding'), [], 'the app sent a choice the gateway had made');
+    await dialog.getByRole('button',{name:'改用余额'}).click();
+    await expect(dialog).toContainText('本设备仍由余额支付');
+    assert.deepEqual((await storeCalls('monoize_set_plan_funding')).map((a) => a.funding), ['balance']);
     await dialog.getByRole('button',{name:'使用此套餐'}).click();
-    await expect(dialog).toContainText('本设备的请求由 Sprout 支付。');
-    assert.deepEqual((await storeCalls('monoize_set_plan_funding')).map((a) => a.funding), ['plan']);
+    await expect(dialog).toContainText('本设备现在由 Sprout 支付');
+    assert.deepEqual((await storeCalls('monoize_set_plan_funding')).map((a) => a.funding), ['balance', 'plan']);
     await dialog.getByRole('button',{name:'完成'}).click();
     await expect(sp.getByRole('dialog')).toHaveCount(0);
     await expect(sp.locator('#set-purchase-plan')).toContainText('Sprout');
     await expect(sp.locator('#set-purchase-funding .opt.on')).toHaveText('套餐 · Sprout');
-    await expect(sp.getByRole('region',{name:'套餐'})).toHaveCount(0);
     await expect(sproutRow).toContainText('使用中');
     const orders = sp.locator('#set-purchase-orders');
     await expect(orders.locator('.row', {hasText:'Sprout · ¥49'})).toContainText('已完成');
@@ -1619,6 +1641,22 @@ try {
     await expect(dialog).toContainText('充值 ¥23.50');
     await dialog.getByRole('button',{name:'取消'}).click();
     await sp.close();
+  }
+  {
+    // A gateway that leaves the device on the balance at fulfilment: the app
+    // makes the plan pay, as a purchase does by default.
+    const fp = await browser.newPage({viewport:{width:1280,height:900}});
+    fp.on('pageerror', e => errors.push(e.message));
+    await fp.goto(base + '?purchase&nofundswitch&section=purchase');
+    const fd = fp.getByRole('dialog').last();
+    await fp.locator('#set-purchase-plans .row', {hasText:'Sprout'}).getByRole('button',{name:'购买'}).click({timeout:30000});
+    await fd.getByRole('button',{name:'微信',exact:true}).click();
+    await fd.getByRole('button',{name:'去支付'}).click();
+    await expect(fd.locator('.qr svg')).toBeVisible();
+    await fp.evaluate(() => { window.__storePaid = true; });
+    await expect(fd).toContainText('本设备现在由 Sprout 支付', {timeout:10000});
+    assert.deepEqual(await fp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding)), ['plan']);
+    await fp.close();
   }
   {
     // Refused for certain: a new attempt on the same order.
@@ -2049,5 +2087,5 @@ try {
     await cp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan bought elsewhere offered once), a turn the plan stopped (the window and its recovery, waiting, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, the question after buying a plan, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, a plan bought paying by default with 改用余额 and its end date, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

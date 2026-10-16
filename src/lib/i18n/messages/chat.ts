@@ -324,6 +324,15 @@ const chat = {
 			now: '正在重新连接…',
 			reason: '原因'
 		},
+		// Who pays a gateway session, at the composer's foot.
+		payer: {
+			plan: '套餐支付',
+			planLeft: '套餐 · {window}剩 {n} 积分',
+			planTitle: '本设备由 {name} 支付：只用套餐额度，用完会暂停并提示，不会自动扣余额。在 设置 → 账户 里改。',
+			balance: '余额支付',
+			balanceTitle: '本设备由余额支付，不用套餐。在 设置 → 账户 里改。',
+			ended: '套餐已结束'
+		},
 		// A request the plan refused (planStop.ts): the card's words.
 		planStop: {
 			quotaTitle: '套餐额度用完了',
@@ -846,6 +855,14 @@ const chat = {
 			in: 'retrying in {s}s',
 			now: 'reconnecting…',
 			reason: 'Reason'
+		},
+		payer: {
+			plan: 'Plan pays',
+			planLeft: 'Plan · {n} credits left of {window}',
+			planTitle: 'This device pays with {name}: only the plan pays; when it runs out, requests pause and the balance is not used. Change it in Settings → Account.',
+			balance: 'Balance pays',
+			balanceTitle: 'This device pays with the balance; the plan is not used. Change it in Settings → Account.',
+			ended: 'Plan ended'
 		},
 		planStop: {
 			quotaTitle: 'Plan quota used up',

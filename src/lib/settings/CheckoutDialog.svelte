@@ -4,10 +4,9 @@
 	// scan in the dialog or a payment page in the browser, and the outcome,
 	// asked of the gateway every few seconds. Request ids are kept
 	// (localStorage) so a retry, a reopened dialog or a restart cannot order
-	// or pay twice; closing the dialog only stops waiting. A plan bought by a
-	// device that pays with the balance ends with the question whether this
-	// device should pay with it (the plan only by an explicit choice,
-	// notes/plan-balance-separation.md 3.6); the answer is sent at once.
+	// or pay twice; closing the dialog only stops waiting. A plan bought
+	// ends with who pays this device now: the plan, with its end, and the
+	// balance one tap away.
 	import { trial } from '$lib/trial.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { onDestroy, untrack } from 'svelte';
@@ -21,7 +20,7 @@
 	import { t } from '$lib/i18n';
 	import { openExternal } from '$lib/openExternal';
 	import { GatewayError, createStoreOrder, payStoreOrder, queryStoreOrder } from '$lib/protocol';
-	import type { TrialPlan } from '$lib/trial';
+	import { planDate, type TrialPlan } from '$lib/trial';
 	import {
 		POLL_INTERVAL_MS,
 		clearPending,
@@ -106,40 +105,56 @@
 	let now = $state(Date.now());
 	let alive = true;
 
-	// After a plan is paid: does this device pay with it? Asked when it pays
-	// with the balance (the gateway's choice as the dialog reached `done`);
-	// a device already on the plan keeps it. Meanwhile the one-time offer
-	// elsewhere waits, and answered or not, this plan is not offered again.
-	let ask = $state<'ask' | 'saving' | 'using' | 'kept' | null>(null);
-	let askError = $state('');
+	// After a plan is paid, this device pays with it: the default after a
+	// purchase (owner, 2026-10-17; the gateway moves the account's devices to
+	// the plan at fulfilment). The dialog confirms it, with the plan's end,
+	// and offers 改用余额 at once (also later in Settings → 账户). A gateway
+	// that left this device on the balance gets the plan here. Meanwhile the
+	// one-time notice elsewhere waits; this plan is not announced again.
+	let payer = $state<'checking' | 'plan' | 'balance' | 'saving' | null>(null);
+	let payerError = $state('');
 	$effect(() => {
-		if (step !== 'done' || order?.kind !== 'plan' || ask) return;
+		if (step !== 'done' || order?.kind !== 'plan' || payer) return;
 		untrack(() => {
-			ask = trial.funding === 'balance' ? 'ask' : trial.funding === 'plan' ? 'using' : null;
+			payer = 'checking';
 			trial.offerHeld = true;
+			void settlePayer();
 		});
 	});
-	onDestroy(() => {
-		if (!ask) return;
-		trial.offerHeld = false;
-		// The plan the dialog asked about (read again after the purchase).
-		const now = trial.plan;
-		if (now && now.name.trim() === (order?.name || product.name).trim()) trial.markOffered(now);
-	});
-	async function usePlan() {
-		ask = 'saving';
-		askError = '';
-		const error = await trial.setFunding('plan');
+	async function settlePayer() {
+		await trial.refreshStatus();
 		if (!alive) return;
-		if (error) {
-			askError = t('shell.trial.fundingFailed', { error });
-			ask = 'ask';
-		} else {
-			ask = 'using';
-			toast.success(t('shell.funding.toPlan'));
+		if (trial.funding === 'balance') {
+			const error = await trial.setFunding('plan');
+			if (!alive) return;
+			if (error) payerError = t('shell.trial.fundingFailed', { error });
 		}
+		payer = trial.funding === 'balance' ? 'balance' : 'plan';
 	}
+	async function switchPayer(to: 'plan' | 'balance') {
+		payer = 'saving';
+		payerError = '';
+		const error = await trial.setFunding(to);
+		if (!alive) return;
+		if (error) payerError = t('shell.trial.fundingFailed', { error });
+		else toast.success(t(to === 'plan' ? 'shell.funding.toPlan' : 'shell.trial.fundingToBalance'));
+		payer = trial.funding === 'balance' ? 'balance' : 'plan';
+	}
+	onDestroy(() => {
+		if (!payer) return;
+		trial.offerHeld = false;
+		const now = trial.plan;
+		if (now && now.name.trim() === planName.trim()) trial.markOffered(now);
+	});
 	const planName = $derived(order?.name || product.name);
+	// The plan's end, counted from the purchase: the gateway's, else the
+	// product's length from now.
+	const planEnds = $derived.by(() => {
+		const now = trial.plan;
+		if (now && now.name.trim() === planName.trim()) return now.expires_at;
+		return product.duration_seconds ? new Date(Date.now() + product.duration_seconds * 1000).toISOString() : null;
+	});
+	const endsAround = $derived(product.duration_seconds ? new Date(Date.now() + product.duration_seconds * 1000).toISOString() : null);
 
 	const replacing = $derived(product.kind === 'plan' && currentPlan != null);
 	const sameProduct = $derived(replacing && currentPlan?.name.trim() === product.name.trim());
@@ -348,9 +363,13 @@
 						: t('settings.purchase.replaceNotice', { current: currentPlan.name.trim() || t('shell.trial.label') })}
 				</Notice>
 			{:else}
-				<p class="note">{t('settings.purchase.startNotice', { duration: durationText(product.duration_seconds) })}</p>
+				<p class="note">
+					{endsAround
+						? t('settings.purchase.startNoticeAt', { duration: durationText(product.duration_seconds), date: planDate(endsAround) })
+						: t('settings.purchase.startNotice', { duration: durationText(product.duration_seconds) })}
+				</p>
 			{/if}
-			<p class="note">{t('settings.purchase.planScope')}</p>
+			<p class="note">{t('settings.purchase.planDefault')} {t('settings.purchase.planScope')}</p>
 		{/if}
 		{#if step === 'error'}
 			<p class="err" role="alert">{failure}</p>
@@ -389,14 +408,23 @@
 					: t('settings.purchase.doneBalance', { amount: yuan(order.balance?.actual_received_minor ?? amount) })}
 			</p>
 		</div>
-		{#if ask === 'ask' || ask === 'saving'}
-			<div class="ask" role="group" aria-label={t('settings.purchase.askUse')}>
-				<p class="lead">{t('settings.purchase.askUse')}</p>
-				<p class="small">{t('settings.purchase.askUseHint')}</p>
-				{#if askError}<p class="err" role="alert">{askError}</p>{/if}
+		{#if payer}
+			<!-- Who pays now: the plan (the default after a purchase), with its end; the balance one tap away. -->
+			<div class="payer" role="status" aria-busy={payer === 'checking' || payer === 'saving'}>
+				{#if payer === 'checking'}
+					<p class="small"><CircleNotchIcon size={12} class="spin" /> {t('settings.purchase.checkingPayer')}</p>
+				{:else}
+					<p class="lead">
+						{payer === 'balance' ? t('settings.purchase.stillBalance') : t('settings.purchase.nowPlan', { name: planName })}
+					</p>
+					<p class="small">
+						{planEnds
+							? t('settings.purchase.planEnds', { date: planDate(planEnds, true), duration: durationText(product.duration_seconds) })
+							: ''}{payer === 'balance' ? t('settings.purchase.stillBalanceHint') : t('settings.purchase.nowPlanHint')}
+					</p>
+				{/if}
+				{#if payerError}<p class="err" role="alert">{payerError}</p>{/if}
 			</div>
-		{:else if ask === 'using'}
-			<p class="note center">{t('settings.purchase.usingPlan', { name: planName })}</p>
 		{/if}
 	{:else if step === 'slow'}
 		<p class="lead">{t('settings.purchase.slow')}</p>
@@ -419,12 +447,12 @@
 		{:else if step === 'pay' && checkout?.action.kind === 'redirect'}
 			<Button onclick={reopen}>{t('settings.purchase.reopen')}</Button>
 			<Button onclick={onClose}>{t('settings.purchase.close')}</Button>
-		{:else if step === 'done' && (ask === 'ask' || ask === 'saving')}
-			<Button onclick={() => ((ask = 'kept'), onClose())} disabled={ask === 'saving'}>{t('settings.purchase.keepBalance')}</Button>
-			<Button variant="primary" onclick={usePlan} disabled={ask === 'saving'}>
-				{#if ask === 'saving'}<CircleNotchIcon size={13} class="spin" />{/if}
-				{t('settings.purchase.usePlan')}
+		{:else if step === 'done' && payer}
+			<Button onclick={() => switchPayer(payer === 'balance' ? 'plan' : 'balance')} disabled={payer === 'checking' || payer === 'saving'}>
+				{#if payer === 'saving'}<CircleNotchIcon size={13} class="spin" />{/if}
+				{t(payer === 'balance' ? 'settings.purchase.toPlan' : 'settings.purchase.toBalance')}
 			</Button>
+			<Button variant="primary" onclick={onClose}>{t('settings.purchase.done')}</Button>
 		{:else if step === 'done'}
 			<Button variant="primary" onclick={onClose}>{t('settings.purchase.done')}</Button>
 		{:else if step === 'expired'}
@@ -517,7 +545,7 @@
 		display: inline-flex;
 		color: var(--ok);
 	}
-	.ask {
+	.payer {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
@@ -527,10 +555,13 @@
 		background: var(--surface);
 		text-align: left;
 	}
-	.ask .lead {
+	.payer .lead {
 		font-weight: 500;
 	}
-	.center {
-		text-align: center;
+	.payer .small {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		line-height: 1.5;
 	}
 </style>
