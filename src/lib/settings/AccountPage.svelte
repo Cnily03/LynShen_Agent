@@ -2,7 +2,8 @@
 	// Settings → 账户 for a signed-in LynShen Console account, in the manner
 	// of macOS System Settings: who it is (the avatar changes on a click, and
 	// the website shows it too), then full-width groups of rows:
-	//   套餐与余额  the plan (state, end, its windows), who pays, the balance
+	//   套餐与余额  the plan (state, end, its windows), who pays (the plan
+	//              only or the balance only, PlanFundingChoice), the balance
 	//              with 充值, the currency; 购买套餐 and 充值 open Settings →
 	//              套餐与充值 (PurchaseSection), where both are bought in the app;
 	//   用量       用量明细, with the last minute's usage as its second line;
@@ -163,7 +164,6 @@
 		<SettingsRow stacked title={deskPlan.name.trim() || t('shell.trial.label')} tag={t('settings.accountPage.planActive')} description={t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) })}>
 			<PlanUsage plan={deskPlan} />
 		</SettingsRow>
-		<PlanFundingChoice />
 	{:else}
 		<SettingsRow id="account-noplan" title={t('shell.account.plan')} description={billingPlan || t('settings.accountPage.noPlan')}>
 			{#if !billingPlan}
@@ -171,6 +171,8 @@
 			{/if}
 		</SettingsRow>
 	{/if}
+	<!-- Who pays: with a plan in force, or while the device still pays with one that ended. -->
+	<PlanFundingChoice />
 	<SettingsRow
 		id="account-balance"
 		title={t('settings.usage.balance')}

@@ -158,13 +158,92 @@ describe('the trial runner', () => {
 		gateway.plan = { fail: { status: 503, code: null } };
 		expect(await trial.setFunding('plan')).toBe('refused');
 		expect(trial.funding).toBe('balance');
-		// The gateway says the plan ended: nothing shows, whatever the claim said.
+		// The gateway says the plan ended: no plan, whatever the claim said;
+		// a device on the balance has nothing to choose.
 		gateway.plan = { plan: null, plan_funding: 'balance' };
 		await trial.refreshStatus();
 		expect(trial.plan).toBeNull();
-		expect(trial.funding).toBeNull();
+		expect(trial.funding).toBe('balance');
+		expect(trial.choiceShown).toBe(false);
+		// A device still on an ended plan sees the choice (its requests stop).
+		gateway.plan = { plan: null, plan_funding: 'plan' };
+		await trial.refreshStatus();
+		expect(trial.funding).toBe('plan');
+		expect(trial.choiceShown).toBe(true);
 		trial.signedOut();
 		expect(trial.status).toBeNull();
+		expect(trial.funding).toBeNull();
+	});
+
+	describe('a plan the device does not pay with', () => {
+		const paid = { ...PLAN, name: 'Grove', group: '套餐专用', active: true, trial: false };
+		async function signedIn(funding: 'plan' | 'balance') {
+			const { trial } = await fresh();
+			gateway.plan = { plan: paid, plan_funding: funding };
+			gateway.replies = [{ status: 'not_eligible' }];
+			await trial.signedIn();
+			await vi.advanceTimersByTimeAsync(0);
+			return trial;
+		}
+
+		it('is offered once, and the answer is the user\'s', async () => {
+			let trial = await signedIn('balance');
+			expect(trial.offer).toEqual(paid);
+			expect(await trial.answerOffer(false)).toBe('');
+			expect(gateway.funding).toEqual([]);
+			expect(trial.offer).toBeNull();
+			// Not again at the next start.
+			trial = await signedIn('balance');
+			expect(trial.offer).toBeNull();
+			expect(trial.funding).toBe('balance');
+		});
+
+		it('moves to the plan only when the user says so', async () => {
+			const trial = await signedIn('balance');
+			expect(await trial.answerOffer(true)).toBe('');
+			expect(gateway.funding).toEqual(['plan']);
+			expect(trial.funding).toBe('plan');
+			expect(trial.offer).toBeNull();
+		});
+
+		it('is not offered on the plan, while held, or for a choice made in Settings', async () => {
+			expect((await signedIn('plan')).offer).toBeNull();
+			const trial = await signedIn('balance');
+			trial.offerHeld = true;
+			expect(trial.offer).toBeNull();
+			trial.offerHeld = false;
+			expect(await trial.setFunding('balance')).toBe('');
+			expect(trial.offer).toBeNull();
+		});
+
+		it('is offered again once a used-up window recovers, after a move to the balance', async () => {
+			const trial = await signedIn('plan');
+			// The toasts of this copy of the modules (fresh() reloads them).
+			const { toast } = await import('$lib/ui/toast.svelte');
+			expect(await trial.setFunding('balance')).toBe('');
+			gateway.plan = { plan: paid, plan_funding: 'balance' };
+			const at = Date.now() + 3_600_000;
+			trial.remindRecovery(at);
+			await vi.advanceTimersByTimeAsync(3_600_000);
+			expect(toast.items.some((x) => x.message.includes('Grove'))).toBe(false);
+			await vi.advanceTimersByTimeAsync(10_000);
+			const shown = toast.items.find((x) => x.message.includes('Grove'));
+			expect(shown?.action).toBeDefined();
+			shown!.action!.run();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(gateway.funding.at(-1)).toBe('plan');
+			expect(trial.funding).toBe('plan');
+		});
+
+		it('is not offered again after recovery when the user went back to the plan meanwhile', async () => {
+			const trial = await signedIn('plan');
+			const { toast } = await import('$lib/ui/toast.svelte');
+			await trial.setFunding('balance');
+			trial.remindRecovery(Date.now() + 60_000);
+			await trial.setFunding('plan');
+			await vi.advanceTimersByTimeAsync(120_000);
+			expect(toast.items.some((x) => x.message.includes('Grove'))).toBe(false);
+		});
 	});
 
 	describe('the funding choice under a slow gateway', () => {

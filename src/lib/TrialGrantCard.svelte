@@ -1,15 +1,39 @@
 <script lang="ts">
 	// The one-time card of a granted trial plan (trial.svelte.ts): what the
-	// gateway gave and until when. "知道了" dismisses it for good; until then it
-	// shows again at the next start.
+	// gateway gave and until when, and who pays this device's requests. A
+	// device on the balance is asked whether the trial should pay (the plan
+	// only by an explicit choice); "知道了" or an answer dismisses it for good,
+	// until then it shows again at the next start. In the same place, once:
+	// a plan in force that this device does not pay with (bought on the
+	// website, given by an admin), with the same question.
 	import GiftIcon from 'phosphor-svelte/lib/GiftIcon';
+	import CreditCardIcon from 'phosphor-svelte/lib/CreditCardIcon';
 	import Button from '$lib/ui/Button.svelte';
+	import { toast } from '$lib/ui/toast.svelte';
 	import { t } from '$lib/i18n';
-	import { grantText } from '$lib/trial';
+	import { grantText, planDate } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
 
-	const plan = $derived(trial.grant);
+	// Once the device's choice is known (or known to be unknown: an older
+	// gateway), so the card does not change its question as it shows.
+	const plan = $derived(trial.statusRead ? trial.grant : null);
 	const text = $derived(plan ? grantText(plan, trial.record?.at ?? Date.now()) : null);
+	const offer = $derived(plan ? null : trial.offer);
+	let busy = $state(false);
+
+	async function choose(usePlan: boolean, answer: () => void | Promise<string>) {
+		busy = true;
+		const error = (await answer()) || '';
+		busy = false;
+		if (error) toast.error(t('shell.trial.fundingFailed', { error }));
+		else if (usePlan) toast.success(t('shell.funding.toPlan'));
+	}
+	const useTrial = () =>
+		choose(true, async () => {
+			const error = await trial.setFunding('plan');
+			if (!error) trial.acknowledge();
+			return error;
+		});
 </script>
 
 {#if text}
@@ -18,8 +42,30 @@
 		<div class="txt">
 			<h2>{text.title}</h2>
 			<p>{#each text.parts as part, i (i)}{#if i}{' · '}{/if}<span class="part">{part}</span>{/each}</p>
+			{#if trial.funding === 'balance'}
+				<p class="ask">{t('shell.trial.grantAsk')}</p>
+				<div class="acts">
+					<Button size="sm" disabled={busy} onclick={() => trial.acknowledge()}>{t('shell.trial.grantKeep')}</Button>
+					<Button variant="primary" size="sm" disabled={busy} onclick={useTrial}>{t('shell.trial.grantUse')}</Button>
+				</div>
+			{:else}
+				{#if trial.funding === 'plan'}<p class="ask">{t('shell.trial.grantOnPlan')}</p>{/if}
+				<div class="acts">
+					<Button variant="primary" size="sm" onclick={() => trial.acknowledge()}>{t('shell.trial.ok')}</Button>
+				</div>
+			{/if}
+		</div>
+	</section>
+{:else if offer}
+	<section class="trial-grant" aria-label={t('shell.funding.label')}>
+		<span class="ico" aria-hidden="true"><CreditCardIcon size={18} /></span>
+		<div class="txt">
+			<h2>{t('shell.funding.offerTitle', { name: offer.name.trim() || t('shell.trial.label') })}</h2>
+			<p>{t('shell.trial.until', { date: planDate(offer.expires_at) })}</p>
+			<p class="ask">{t('shell.funding.offerBody')}</p>
 			<div class="acts">
-				<Button variant="primary" size="sm" onclick={() => trial.acknowledge()}>{t('shell.trial.ok')}</Button>
+				<Button size="sm" disabled={busy} onclick={() => choose(false, () => trial.answerOffer(false))}>{t('shell.funding.offerKeep')}</Button>
+				<Button variant="primary" size="sm" disabled={busy} onclick={() => choose(true, () => trial.answerOffer(true))}>{t('shell.funding.offerUse')}</Button>
 			</div>
 		</div>
 	</section>
@@ -72,9 +118,14 @@
 	.part {
 		white-space: nowrap;
 	}
+	.ask {
+		margin-top: 4px;
+		color: var(--text);
+	}
 	.acts {
 		display: flex;
 		justify-content: flex-end;
+		gap: 8px;
 		margin-top: 8px;
 	}
 </style>

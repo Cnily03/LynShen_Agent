@@ -336,7 +336,8 @@ pub fn monoize_trial_claim() -> Result<Value, String> {
 }
 
 /// The account's desktop plan in force (trial or paid; null without one) and
-/// this device key's funding choice (`GET /api/desktop/oauth/plan`). Errors
+/// who pays this device key's requests, the plan or the balance
+/// (`GET /api/desktop/oauth/plan`, `plan_funding` and `bucket`). Errors
 /// as [`gateway_key_call`]'s (a 404: a gateway without the endpoint).
 #[tauri::command(async)]
 pub fn monoize_desktop_plan() -> Result<Value, String> {
@@ -357,9 +358,12 @@ fn plan_funding_request(funding: &str) -> Option<Value> {
     matches!(funding, "plan" | "balance").then(|| json!({ "plan_funding": funding }))
 }
 
-/// Sets who pays this device key's requests in the plan's groups: `plan`
-/// (the default) or `balance` (`PUT /api/desktop/oauth/plan`). Answers the
-/// same body as [`monoize_desktop_plan`]; it applies from the next request.
+/// Sets who pays this device key's requests (notes/plan-balance-contract.md
+/// 2.2): `plan` (only the plan; the gateway refuses it with `409
+/// plan_inactive` without a plan in force) or `balance` (only the balance; a
+/// new device key starts on it) (`PUT /api/desktop/oauth/plan`). Answers the
+/// same body as [`monoize_desktop_plan`]; it applies from the next request
+/// of every session on this device. Sent only on the user's explicit choice.
 #[tauri::command(async)]
 pub fn monoize_set_plan_funding(funding: String) -> Result<Value, String> {
     let body = plan_funding_request(&funding).ok_or_else(|| {

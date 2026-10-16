@@ -1,9 +1,11 @@
 <script lang="ts">
-	// Who pays this device key's requests in the desktop plan's groups (gateway
-	// GET / PUT /api/desktop/oauth/plan): the plan first, or the balance. With
-	// the plan first, a used-up window fails requests (402) and never falls back
-	// to the balance, so a payer who wants to keep working picks 用余额. Shown
-	// with the plan in force, as a row of Settings → 账户.
+	// Who pays this device's requests (gateway GET / PUT
+	// /api/desktop/oauth/plan): the plan only, or the balance only
+	// (notes/plan-balance-separation.md 3.8). On the plan, a used-up window, an
+	// ended plan or a model outside the plan stops the request and the user
+	// decides; the balance is never used instead. Shown with a plan in force,
+	// or while the device still pays with a plan that ended, as a row of
+	// Settings → 账户 and 套餐与充值.
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import SettingsRow from '$lib/settings/SettingsRow.svelte';
@@ -11,12 +13,17 @@
 	import { trial } from '$lib/trial.svelte';
 	import type { PlanFunding } from '$lib/trial';
 
+	let { id = 'account-funding' }: { id?: string } = $props();
+
 	const plan = $derived(trial.plan);
 	// The latest pick shows at once; trial.svelte.ts sends it (one change at
 	// a time, the last pick wins) and falls back to the gateway's choice when
 	// a change fails.
 	const funding = $derived(trial.funding);
 	const error = $derived(trial.fundingError ? t('shell.trial.fundingFailed', { error: trial.fundingError }) : '');
+	const hint = $derived(
+		funding === 'balance' ? t('shell.trial.fundingBalanceHint') : plan ? t('shell.trial.fundingPlanHint') : t('shell.trial.fundingEndedHint')
+	);
 
 	function pick(value: string) {
 		if (value === funding) return;
@@ -24,16 +31,9 @@
 	}
 </script>
 
-{#if plan && funding}
-	<!-- A row of Settings → 账户's 套餐与余额 group. -->
+{#if trial.choiceShown && funding}
 	<div class="funding">
-		<SettingsRow
-			id="account-funding"
-			title={t('shell.trial.funding')}
-			description={funding === 'plan'
-				? t('shell.trial.fundingPlanHint', { group: plan.group.trim() || t('shell.trial.domestic') })
-				: t('shell.trial.fundingBalanceHint')}
-		>
+		<SettingsRow {id} title={t('shell.trial.funding')} description={hint}>
 			{#snippet detail()}
 				{#if error}<p class="err" role="alert">{error}</p>{/if}
 			{/snippet}
@@ -41,7 +41,8 @@
 			<Segmented
 				value={funding}
 				options={[
-					{ value: 'plan', label: t(plan.trial === false ? 'shell.trial.fundingPaid' : 'shell.trial.fundingTrial') },
+					// Without a plan in force the plan cannot be picked, only left.
+					{ value: 'plan', label: plan ? t('shell.trial.fundingPlan', { name: plan.name.trim() || t('shell.trial.label') }) : t('shell.trial.fundingPlanNone'), disabled: !plan && funding !== 'plan' },
 					{ value: 'balance', label: t('shell.trial.fundingBalance') }
 				]}
 				onChange={pick}

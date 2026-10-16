@@ -33,9 +33,14 @@ export interface TrialPlan {
 	trial?: boolean;
 }
 
-/** Who pays a request of this device key in the plan's groups: the plan
- *  ("plan", the default; an exhausted window fails with 402
- *  `plan_quota_exhausted`, no balance fallback) or the balance. */
+/** Who pays every request of this device (its device key), chosen by the
+ *  user (notes/plan-balance-separation.md 3.1): the plan only, or the
+ *  balance only. On the plan a used-up window (402 `plan_quota_exhausted`),
+ *  an ended plan (402 `plan_inactive`) or a model outside the plan (403
+ *  `model_not_in_plan`) stops the request; the balance is never used
+ *  instead. A device starts on the balance and moves to the plan only by an
+ *  explicit act (the trial card, the step after buying a plan, the prompt
+ *  for a plan bought elsewhere, Settings → 账户). */
 export type PlanFunding = 'plan' | 'balance';
 
 /** GET /api/desktop/oauth/plan: the account's desktop plan in force (trial
@@ -120,6 +125,10 @@ export function parseDesktopPlan(body: unknown): DesktopPlanStatus | null {
 	if (b.plan_funding !== 'plan' && b.plan_funding !== 'balance') return null;
 	return { plan: b.plan == null ? null : parsePlan(b.plan), funding: b.plan_funding };
 }
+
+/** Tells one plan (one purchase, one trial) from the next: the prompts that
+ *  ask once per plan remember this. */
+export const planKey = (plan: TrialPlan): string => `${plan.name.trim()}|${new Date(plan.expires_at).toISOString()}`;
 
 /** The outcome of a claim the gateway answered with HTTP 200. */
 export function outcomeOfReply(body: unknown): ClaimOutcome {

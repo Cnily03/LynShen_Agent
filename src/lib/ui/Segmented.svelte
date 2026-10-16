@@ -3,7 +3,7 @@
 		value = $bindable(),
 		options,
 		onChange
-	}: { value: string; options: { value: string; label?: string }[]; onChange?: (v: string) => void } = $props();
+	}: { value: string; options: { value: string; label?: string; disabled?: boolean }[]; onChange?: (v: string) => void } = $props();
 
 	function pick(v: string) {
 		value = v;
@@ -13,7 +13,7 @@
 
 <div class="seg">
 	{#each options as o (o.value)}
-		<button class="opt" class:on={o.value === value} onclick={() => pick(o.value)}>{o.label ?? o.value}</button>
+		<button class="opt" class:on={o.value === value} aria-pressed={o.value === value} disabled={o.disabled} onclick={() => pick(o.value)}>{o.label ?? o.value}</button>
 	{/each}
 </div>
 
@@ -46,6 +46,13 @@
 	}
 	.opt:hover {
 		color: var(--text);
+	}
+	.opt:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.opt:disabled:hover {
+		color: var(--dim);
 	}
 	.opt:active {
 		transform: scale(0.96);
