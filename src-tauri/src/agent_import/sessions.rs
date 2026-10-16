@@ -3,7 +3,7 @@
 //! Claude Code and Codex: listed from their session files and imported with
 //! native_import (a cleaned copy resumed on that engine).
 //!
-//! opencode, zcode and omp: converted into a LynShen session, the journal and
+//! opencode, zcode, omp and DSH: converted into a LynShen session, the journal and
 //! summary `lynshen` itself writes (LynShen-CLI agent-core session.rs):
 //! `~/.lynshen/sessions/<fnv1a64 of the folder>/<sid>.jsonl` and `<sid>.json`.
 //! What a model needs to continue comes along: the prompts, the assistant's
@@ -12,19 +12,22 @@
 //! reasoning only replays on the account that wrote it, and a compaction's
 //! summary stands for history the copy has in full.
 //!
-//! opencode and zcode are read in opencode.rs. omp (oh-my-pi) keeps a JSONL
-//! tree per conversation under `~/.omp/agent/sessions/<folder>/`; the active
-//! branch runs from the last entry back through `parentId`.
+//! opencode and zcode are read in opencode.rs, DSH (DeepSeek Harness) in
+//! dsh.rs. omp (oh-my-pi) keeps a JSONL tree per conversation under
+//! `~/.omp/agent/sessions/<folder>/`; the active branch runs from the last
+//! entry back through `parentId`.
 //!
 //! A conversation that is there but cannot be read (a file that is not JSON,
 //! a database that does not open) is not listed; the scan reports it
-//! (`Report`), so the page can say how many were left out and why.
+//! (`Report`), so the page can say how many were left out and why. A source
+//! that can tell which conversation it is (DSH) names each one too.
 
-use super::{opencode, Roots, SessionPick};
+use super::{dsh, opencode, Roots, SessionPick};
 use crate::claude_history::{is_session_id, is_synthetic, row_text, truncate_chars};
 use crate::native_import::{
     codex_first_prompt, codex_names, codex_threads, existing_copy, import_claude, import_codex, is_conversation,
-    load_registry, mtime_ms, now_ms, rollout_files, save_registry, ImportRecord, LYNSHEN_ORIGINATOR, MAX_TITLE_CHARS,
+    load_registry, mtime_ms, now_ms, rollout_files, same_dir, save_registry, ImportRecord, LYNSHEN_ORIGINATOR,
+    MAX_TITLE_CHARS,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -37,7 +40,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// A conversation offered for import.
 #[derive(Serialize, Debug, Clone)]
 pub struct Found {
-    /// "claude", "codex", "opencode", "zcode" or "omp".
+    /// "claude", "codex", "opencode", "zcode", "omp" or "dsh".
     pub source: String,
     pub id: String,
     pub title: String,
@@ -63,6 +66,25 @@ pub enum SkipKind {
     NoFolder,
     /// Compressed (.jsonl.zst).
     Compressed,
+    /// Saved by an older version of the tool, which updates it when the
+    /// conversation is opened there (DSH).
+    OldFormat,
+    /// Saved by a newer version of the tool than this one can read.
+    NewerFormat,
+}
+
+impl SkipKind {
+    /// The name the page knows it by (as serialized).
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            SkipKind::Unreadable => "unreadable",
+            SkipKind::Unrecognised => "unrecognised",
+            SkipKind::NoFolder => "no_folder",
+            SkipKind::Compressed => "compressed",
+            SkipKind::OldFormat => "old_format",
+            SkipKind::NewerFormat => "newer_format",
+        }
+    }
 }
 
 /// Conversations of one tool a scan found but could not read, for one reason.
@@ -75,12 +97,28 @@ pub struct Skipped {
     pub reason: String,
 }
 
+/// One conversation the scan found but cannot import, and why, for the
+/// page to show in its place (only DSH can name them so far).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Unreadable {
+    pub source: String,
+    pub id: String,
+    /// Its title there; empty when unknown.
+    pub title: String,
+    /// The folder it ran in; empty when none is recorded.
+    pub cwd: String,
+    pub updated_at_ms: u64,
+    pub kind: SkipKind,
+}
+
 /// What a scan saw besides the conversations it lists: what it could not
-/// read (shown on the page) and, per tool, where it looked (for the log;
-/// each line starts with `<source>: `).
+/// read (shown on the page; `unreadable` names the conversations where the
+/// source can) and, per tool, where it looked (for the log; each line starts
+/// with `<source>: `).
 #[derive(Default, Debug)]
 pub struct Report {
     pub skipped: Vec<Skipped>,
+    pub unreadable: Vec<Unreadable>,
     pub log: Vec<String>,
 }
 
@@ -117,6 +155,7 @@ pub fn scan(roots: &Roots, report: &mut Report) -> Vec<Found> {
     out.extend(opencode::scan(roots, opencode::Tool::Opencode, &registry, report));
     out.extend(opencode::scan(roots, opencode::Tool::Zcode, &registry, report));
     out.extend(scan_omp(roots, &registry, report));
+    out.extend(dsh::scan(roots, &registry, report));
     out.sort_by_key(|s| std::cmp::Reverse(s.updated_at_ms));
     out
 }
@@ -154,6 +193,14 @@ pub fn import(roots: &Roots, pick: &SessionPick) -> Result<Imported, String> {
         }
         "zcode" => import_converted(roots, "zcode", &pick.id, opencode::load(roots, opencode::Tool::Zcode, &pick.id)?),
         "omp" => import_converted(roots, "omp", &pick.id, load_omp(roots, &pick.id)?),
+        "dsh" => {
+            let mut conv = dsh::load(roots, &pick.id)?;
+            // Picked in a project's history: the project's own spelling of the folder.
+            if !pick.cwd.is_empty() && same_dir(&pick.cwd, &conv.cwd) {
+                conv.cwd = pick.cwd.clone();
+            }
+            import_converted(roots, dsh::SOURCE, &pick.id, conv)
+        }
         other => Err(format!("unknown source: {other}")),
     }
 }
@@ -200,7 +247,7 @@ pub(super) struct ClaudeFile {
     pub title: String,
 }
 
-fn first_line_of(text: &str) -> String {
+pub(super) fn first_line_of(text: &str) -> String {
     truncate_chars(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), MAX_TITLE_CHARS)
 }
 
@@ -694,9 +741,15 @@ fn import_converted(roots: &Roots, source: &str, id: &str, conv: Conversation) -
     Ok(Imported { id: sid, title, cwd, engine: "lynshen", reused: false })
 }
 
-pub(super) fn converted_imported(roots: &Roots, registry: &[ImportRecord], source: &str, id: &str, cwd: &str) -> bool {
+/// The LynShen copy an earlier import made of a converted conversation,
+/// while it is still there.
+pub(super) fn converted_copy(roots: &Roots, registry: &[ImportRecord], source: &str, id: &str, cwd: &str) -> Option<String> {
     let dir = lynshen_session_dir(&roots.lynshen, &folder_key(cwd));
-    existing_copy(registry, source, id, |to| dir.join(format!("{to}.json")).exists()).is_some()
+    existing_copy(registry, source, id, |to| dir.join(format!("{to}.json")).exists())
+}
+
+pub(super) fn converted_imported(roots: &Roots, registry: &[ImportRecord], source: &str, id: &str, cwd: &str) -> bool {
+    converted_copy(roots, registry, source, id, cwd).is_some()
 }
 
 // --- omp ---------------------------------------------------------------------

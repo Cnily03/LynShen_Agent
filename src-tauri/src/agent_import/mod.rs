@@ -1,11 +1,11 @@
 //! 一键导入: the conversations, skills and MCP servers of the other coding
-//! agents on this machine (Claude Code, Codex, opencode, zcode, omp), listed
-//! in one scan and imported in one go. Their own folders are only read.
+//! agents on this machine (Claude Code, Codex, opencode, zcode, omp, DSH),
+//! listed in one scan and imported in one go. Their own folders are only read.
 //!
 //! - Conversations: Claude Code and Codex ones become a cleaned copy in the
 //!   engine's own format (native_import) and continue on that engine.
-//!   opencode, zcode and omp have no engine here, so theirs are converted
-//!   into LynShen sessions (sessions.rs). Either way
+//!   opencode, zcode, omp and DSH (DeepSeek Harness, dsh.rs) have no engine
+//!   here, so theirs are converted into LynShen sessions (sessions.rs). Either way
 //!   `~/.lynshen/native-imports.json` records the import, and importing again
 //!   reuses the first copy.
 //! - Skills are copied into `~/.lynshen/skills` (skills.rs).
@@ -13,6 +13,7 @@
 //!   adds them through the daemon (`mcp_set`), as Settings → MCP does, so
 //!   open sessions pick them up.
 
+mod dsh;
 mod mcp;
 mod opencode;
 mod sessions;
@@ -48,6 +49,8 @@ pub struct Roots {
     pub omp_agent: PathBuf,
     /// Other folders omp may keep sessions in: profiles, `$PI_CODING_AGENT_SESSION_DIR`, the XDG data folder.
     pub omp_sessions: Vec<PathBuf>,
+    /// DeepSeek Harness's home folders (`$DSH_HOME`, `~/.dsh`), the one in use first.
+    pub dsh: Vec<PathBuf>,
 }
 
 /// `~/x` with the home folder (zcode and omp expand it in their settings).
@@ -61,7 +64,10 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
 
 impl Roots {
     fn real() -> Roots {
-        Roots::from_env(&process_env, cfg!(windows), crate::lynshen_dir())
+        let mut roots = Roots::from_env(&process_env, cfg!(windows), crate::lynshen_dir());
+        // Also where DSH's desktop edition saved a moved home for apps started later.
+        roots.dsh = dsh::homes(&process_env, cfg!(windows), &roots.home, &dsh::saved_homes());
+        roots
     }
 
     /// The folders the other tools use, found as they find them, from the
@@ -104,6 +110,7 @@ impl Roots {
         if !windows && data_home.join("omp").is_dir() {
             omp_sessions.push(data_home.join("omp").join("sessions"));
         }
+        let dsh = dsh::homes(env, windows, &home, &[]);
         Roots {
             lynshen,
             claude: config_dir.clone().unwrap_or_else(|| under(&[".claude"])),
@@ -115,6 +122,7 @@ impl Roots {
             zcode_db,
             omp_agent,
             omp_sessions,
+            dsh,
             home,
         }
     }
@@ -226,6 +234,8 @@ pub struct Scan {
     pub sessions: Vec<sessions::Found>,
     /// Conversations that were found but could not be read, and why.
     pub skipped: Vec<sessions::Skipped>,
+    /// The ones of them the source can name, each with why.
+    pub unreadable: Vec<sessions::Unreadable>,
     pub skills: Vec<skills::Found>,
     pub mcp: Vec<mcp::Found>,
 }
@@ -233,7 +243,13 @@ pub struct Scan {
 fn scan(roots: &Roots) -> (Scan, sessions::Report) {
     let mut report = sessions::Report::default();
     let sessions = sessions::scan(roots, &mut report);
-    let scan = Scan { sessions, skipped: report.skipped.clone(), skills: skills::scan(roots), mcp: mcp::scan(roots) };
+    let scan = Scan {
+        sessions,
+        skipped: report.skipped.clone(),
+        unreadable: report.unreadable.clone(),
+        skills: skills::scan(roots),
+        mcp: mcp::scan(roots),
+    };
     (scan, report)
 }
 
@@ -260,7 +276,7 @@ fn scan_log(roots: &Roots, scan: &Scan, report: &sessions::Report, took: std::ti
         scan.skills.len(),
         scan.mcp.len()
     )];
-    for source in ["claude", "codex", "opencode", "zcode", "omp"] {
+    for source in ["claude", "codex", "opencode", "zcode", "omp", "dsh"] {
         let listed = scan.sessions.iter().filter(|s| s.source == source).count();
         let skipped: Vec<String> = scan
             .skipped
@@ -413,9 +429,26 @@ fn opencode_sessions_in(roots: &Roots, cwd: &str) -> Vec<native_import::NativeSe
             title: s.title,
             mtime_ms: s.updated_at_ms,
             origin: "OpenCode".to_string(),
+            unreadable: None,
             id: s.id,
         })
         .collect()
+}
+
+/// DSH's conversations of `cwd`, newest first, for a history picker; the
+/// ones that cannot be imported are listed with why (`unreadable`).
+pub fn dsh_sessions(cwd: &str) -> Vec<native_import::NativeSession> {
+    let roots = Roots::real();
+    let registry = native_import::load_registry(&roots.registry());
+    dsh::picker(&roots, &registry, cwd)
+}
+
+/// Converts DSH conversation `id` into a LynShen session of the project
+/// `cwd` (an earlier copy is reused), for a history picker.
+pub fn import_dsh(cwd: &str, id: &str) -> Result<native_import::ImportedSession, String> {
+    let pick = SessionPick { source: dsh::SOURCE.to_string(), id: id.to_string(), cwd: cwd.to_string() };
+    let done = sessions::import(&Roots::real(), &pick)?;
+    Ok(native_import::ImportedSession { id: done.id, title: done.title })
 }
 
 // --- commands ----------------------------------------------------------------
@@ -504,6 +537,7 @@ mod tests {
         assert_eq!(roots.zcode_db, profile.join(".zcode").join("cli").join("db").join("db.sqlite"));
         assert_eq!(roots.omp_session_dirs(), vec![profile.join(".omp").join("agent").join("sessions")]);
         assert_eq!(roots.opencode_db, None);
+        assert_eq!(roots.dsh, vec![profile.join(".dsh")]);
     }
 
     #[test]
@@ -522,6 +556,7 @@ mod tests {
             ("OPENCODE_DB", PathBuf::from("work.db")),
             ("ZCODE_SESSION_DB", base.join("z.sqlite")),
             ("PI_CODING_AGENT_SESSION_DIR", base.join("omp-sessions")),
+            ("DSH_HOME", base.join("dsh-moved")),
         ]);
         let roots = Roots::from_env(&env, false, base.join(".lynshen"));
         assert_eq!(roots.claude, base.join("claude-alt"));
@@ -531,6 +566,7 @@ mod tests {
         assert_eq!(roots.config_home, home.join(".config"));
         assert_eq!(roots.opencode_db, Some(xdg.join("opencode").join("work.db")));
         assert_eq!(roots.zcode_db, base.join("z.sqlite"));
+        assert_eq!(roots.dsh, vec![base.join("dsh-moved"), home.join(".dsh")]);
         assert_eq!(
             roots.omp_session_dirs(),
             vec![
@@ -577,7 +613,7 @@ mod tests {
             std::fs::write(path, serde_json::to_string(&found).unwrap()).unwrap();
         }
         let count = |s: &str| found.sessions.iter().filter(|x| x.source == s).count();
-        for source in ["claude", "codex", "opencode", "zcode", "omp"] {
+        for source in ["claude", "codex", "opencode", "zcode", "omp", "dsh"] {
             println!("{source}: {} conversations", count(source));
         }
         for s in found.sessions.iter().take(3) {
@@ -594,7 +630,7 @@ mod tests {
         // Converted copies go to a temporary LynShen home, never ~/.lynshen.
         let tmp = testutil::roots("real");
         let into = Roots { lynshen: tmp.lynshen.clone(), ..Roots::real() };
-        for source in ["opencode", "zcode", "omp"] {
+        for source in ["opencode", "zcode", "omp", "dsh"] {
             for s in found.sessions.iter().filter(|x| x.source == source).take(3) {
                 let pick = SessionPick { source: s.source.clone(), id: s.id.clone(), cwd: s.cwd.clone() };
                 let done = sessions::import(&into, &pick).expect("converts");

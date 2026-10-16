@@ -50,6 +50,9 @@ pub struct NativeSession {
     pub origin: String,
     /// The LynShen copy when this conversation was imported before.
     pub imported: Option<String>,
+    /// Why it cannot be imported, when it cannot (the import page's reason,
+    /// such as "old_format"); only DSH lists such conversations.
+    pub unreadable: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -222,6 +225,7 @@ fn list_claude(h: &Homes, cwd: &str) -> Result<Vec<NativeSession>, String> {
             title: s.preview,
             mtime_ms: s.mtime_ms,
             origin: "Claude Code".to_string(),
+            unreadable: None,
             id: s.id,
         })
         .collect())
@@ -519,6 +523,7 @@ fn list_codex(h: &Homes, cwd: &str) -> Result<Vec<NativeSession>, String> {
             mtime_ms,
             origin: codex_origin(&segs[0].meta),
             imported: existing_copy(&registry, "codex", id, |to| threads.contains_key(to)),
+            unreadable: None,
         })
         .collect())
 }
@@ -656,14 +661,16 @@ pub(crate) fn import_codex(h: &Homes, cwd: &str, id: &str) -> Result<ImportedSes
 
 // --- commands ----------------------------------------------------------------
 
-/// Conversations Claude Code (`source` = "claude"), Codex ("codex") or
-/// OpenCode ("opencode") saved for `cwd`, newest first.
+/// Conversations Claude Code (`source` = "claude"), Codex ("codex"),
+/// OpenCode ("opencode") or DeepSeek Harness ("dsh") saved for `cwd`,
+/// newest first.
 #[tauri::command(async)]
 pub fn native_sessions(source: String, cwd: String) -> Result<Vec<NativeSession>, String> {
     match source.as_str() {
         "claude" => list_claude(&homes(), &cwd),
         "codex" => list_codex(&homes(), &cwd),
         "opencode" => Ok(crate::agent_import::opencode_sessions(&cwd)),
+        "dsh" => Ok(crate::agent_import::dsh_sessions(&cwd)),
         other => Err(format!("unknown source: {other}")),
     }
 }
@@ -698,7 +705,8 @@ pub fn record_opencode_copy(from: String, to: String) -> Result<(), String> {
 }
 
 /// Copies one of them for LynShen (see module docs); returns the copy's id,
-/// which the engine resumes. An earlier copy is reused.
+/// which the engine resumes. An earlier copy is reused. A DSH conversation
+/// becomes a LynShen session (agent_import).
 /// Imports run one at a time: each reads, extends and rewrites the registry.
 pub(crate) static IMPORTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -708,6 +716,7 @@ pub fn import_native_session(source: String, cwd: String, id: String) -> Result<
     match source.as_str() {
         "claude" => import_claude(&homes(), &cwd, &id),
         "codex" => import_codex(&homes(), &cwd, &id),
+        "dsh" => crate::agent_import::import_dsh(&cwd, &id),
         other => Err(format!("unknown source: {other}")),
     }
 }
