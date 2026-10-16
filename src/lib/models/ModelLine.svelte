@@ -12,7 +12,7 @@
 	import { comboLabel } from '$lib/shortcuts';
 	import { PIN_COMBO } from './keys';
 	import type { PickItem } from './catalog';
-	import { factsOf, shortFactsOf, tipOf, type FactsOptions } from './facts';
+	import { factsOf, outsidePlan, shortFactsOf, tipOf, type FactsOptions } from './facts';
 
 	let {
 		item,
@@ -65,6 +65,7 @@
 	class:sel={selected}
 	class:folded
 	class:down={item.health === 'down'}
+	class:outside={outsidePlan(item, facts)}
 	role="option"
 	tabindex="-1"
 	{id}
@@ -149,6 +150,11 @@
 	.name {
 		overflow-wrap: anywhere;
 		white-space: normal;
+	}
+	/* On the plan, a model the plan does not include: listed (not hidden),
+	   its name secondary; the facts say why. */
+	.mline.outside .name {
+		color: var(--dim);
 	}
 	.facts {
 		overflow: hidden;

@@ -30,6 +30,9 @@ const catalogModel = (id: string): CatalogModel | undefined => gatewayCatalogMod
 /** A model that draws images and cannot chat (gpt-image-2, grok-imagine-image…). */
 export const isImageModel = (name: string) => /image/i.test(name);
 
+/** The routing states of a model the picker lists. */
+const ROUTABLE = new Set(['ready', 'model_not_in_plan', 'plan_inactive']);
+
 /** The window older versions stored for any model the gateway had none for. */
 const OLD_GUESS = 128_000;
 
@@ -51,7 +54,10 @@ export function monoizeEntries(
 ): MonoizeModelEntry[] {
 	const stored = new Map(known.map((m) => [m.name, m]));
 	return list
-		.filter((m) => !m.routing_status || m.routing_status === 'ready')
+		// On the plan, a model outside it (or every model, the plan having
+		// ended) is still listed: the balance can run it, and the pickers mark
+		// it rather than hide it (gateway contract 4.2).
+		.filter((m) => !m.routing_status || ROUTABLE.has(m.routing_status))
 		.map((m) => {
 			const previous = stored.get(m.id) as Partial<MonoizeModelEntry> | undefined;
 			const catalog = catalogModel(m.id);

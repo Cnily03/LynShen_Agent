@@ -31,6 +31,16 @@ describe('monoizeEntries', () => {
 		expect(entries[0]).toMatchObject({ reasoning_efforts: ['low', 'high'], context_window: 400_000 });
 	});
 
+	it('keeps a model the plan does not include: the balance can run it, the pickers mark it', () => {
+		const entries = monoizeEntries([
+			{ id: 'deepseek-v4.1-flash', routing_status: 'ready' },
+			{ id: 'claude-opus-5-5', routing_status: 'model_not_in_plan' },
+			{ id: 'glm-5.3', routing_status: 'plan_inactive' },
+			{ id: 'offline', routing_status: 'no_channel' }
+		]);
+		expect(entries.map((e) => e.name)).toEqual(['deepseek-v4.1-flash', 'claude-opus-5-5', 'glm-5.3']);
+	});
+
 	it('takes the window the gateway registers, and never guesses one', () => {
 		const [registered, stored, catalogOnly, nothing, guessed] = monoizeEntries(
 			[

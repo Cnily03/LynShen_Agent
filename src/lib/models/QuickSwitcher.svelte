@@ -52,7 +52,7 @@
 	} = $props();
 
 	const uid = `qs-${Math.random().toString(36).slice(2, 8)}`;
-	const rows = $derived(quickList(items, { favorites: modelPicks.favorites, recent: modelPicks.recent, trial, limit }));
+	const rows = $derived(quickList(items, { favorites: modelPicks.favorites, recent: modelPicks.recent, trial, balance: facts.bucket === 'balance', limit }));
 	/** The keyboard's stops: the extras, the models, then 全部模型…. */
 	type Stop = { kind: 'extra'; extra: PickExtra } | { kind: 'model'; item: PickItem; section: QuickSection } | { kind: 'all' };
 	const stops = $derived<Stop[]>([
