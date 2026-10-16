@@ -2,17 +2,32 @@
 // errors through raw (`unexpected status 401 Unauthorized: invalid token,
 // url: …`); this names what went wrong, what to do, and which button does it.
 // Unknown errors return null and show as they came.
+import { planStopOf, type PlanStop } from './planStop';
 
-/** `purchase` / `topUp`: Settings → 套餐与充值; `useBalance`: this device
- *  key pays with the balance from its next request (DT-F3). */
-export type ErrorAction = 'restart' | 'login' | 'account' | 'compact' | 'model' | 'providers' | 'purchase' | 'topUp' | 'useBalance';
+/** `purchase` / `renew` / `topUp`: Settings → 套餐与充值; `useBalance`:
+ *  this device pays with the balance from its next request, and the stopped
+ *  turn goes on; `waitPlan`: the turn goes on once the plan's window
+ *  recovers (planStop.ts). */
+export type ErrorAction =
+	| 'restart'
+	| 'login'
+	| 'account'
+	| 'compact'
+	| 'model'
+	| 'providers'
+	| 'purchase'
+	| 'renew'
+	| 'topUp'
+	| 'useBalance'
+	| 'waitPlan';
 
 export interface ErrorInfo {
 	/** i18n key under `chat.err.<kind>` for the title and the hint. */
 	kind: string;
-	action?: ErrorAction;
-	/** A second way out, shown after the action. */
-	secondary?: ErrorAction;
+	/** The ways out, as buttons, in this order. */
+	actions?: ErrorAction[];
+	/** What the plan refused (a device that pays with its plan). */
+	plan?: PlanStop;
 	/** Named in the hint: the provider, the tool, the model. */
 	subject?: string;
 	/** The HTTP status and request id, when the raw text carries them. */
@@ -51,10 +66,9 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 	const low = text.toLowerCase();
 	const status = statusOf(text);
 	const requestId = requestIdOf(text);
-	const info = (kind: string, action?: ErrorAction, subject?: string, secondary?: ErrorAction): ErrorInfo => ({
+	const info = (kind: string, action?: ErrorAction | ErrorAction[], subject?: string): ErrorInfo => ({
 		kind,
-		...(action ? { action } : {}),
-		...(secondary ? { secondary } : {}),
+		...(action ? { actions: Array.isArray(action) ? action : [action] } : {}),
 		...(subject ? { subject } : {}),
 		...(status ? { status } : {}),
 		...(requestId ? { requestId } : {})
@@ -79,10 +93,20 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		if (/lynshen/i.test(text) || backend === 'lynshen') return info('lynshenAuth', 'restart');
 		return info('toolAuth', undefined, tool || undefined);
 	}
-	// A desktop plan's window is used up (the key pays with the plan, which
-	// never falls back to the balance): not a balance problem. A larger plan,
-	// or paying with the balance, gets the work going again.
-	if (/plan[_ ]quota[_ ]exhausted/i.test(text)) return info('planQuota', 'purchase', undefined, 'useBalance');
+	// The device pays with its plan, which never falls back to the balance:
+	// a used-up window, an ended plan or a model outside the plan stops the
+	// turn (not a balance problem), and the user picks the way on.
+	const stop = planStopOf(text);
+	if (stop) {
+		const actions: ErrorAction[] =
+			stop.code === 'plan_quota_exhausted'
+				? ['waitPlan', 'useBalance', 'purchase']
+				: stop.code === 'plan_inactive'
+					? [stop.reason === 'none' ? 'purchase' : 'renew', 'useBalance']
+					: ['model', 'useBalance'];
+		const kind = stop.code === 'plan_quota_exhausted' ? 'planQuota' : stop.code === 'plan_inactive' ? 'planInactive' : 'notInPlan';
+		return { ...info(kind, actions, stop.model), plan: stop };
+	}
 	// Through the LynShen gateway the balance is topped up in the app; a key
 	// of the user's own (DeepSeek, …) is topped up at its provider.
 	if (status === 402 || /insufficient[_ ](balance|quota|funds)|余额不足|quota exceeded|billing/i.test(text))
