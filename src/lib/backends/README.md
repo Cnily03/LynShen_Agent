@@ -8,7 +8,7 @@ Every session runs in the local `lynshen daemon` (LynShen-CLI
 | `lynshen` | the LynShen engine, in-process |
 | `claude` | `claude --print --input-format stream-json …` |
 | `codex`  | `codex app-server` |
-| `acp`    | a registered ACP agent (`lynshen acp`, `gemini --experimental-acp`, …), command line from the registry (`docs/acp.md`) |
+| `acp`    | a registered ACP agent (`opencode acp`, a Settings preset; `gemini --experimental-acp`, …), command line from the registry (`docs/acp.md`) |
 
 The daemon translates each engine into the lynshen event protocol and client
 ops into the engine's own frames, so the desktop talks one protocol to all of

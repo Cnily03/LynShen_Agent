@@ -80,7 +80,7 @@ export const ACP_CAPS: BackendCaps = {
 	contextUsage: false, // no usage/context telemetry in ACP v1
 	compact: false,
 	modelPicker: false, // session/set_model is optional; kept off until provable
-	resume: false, // session/load is optional (lynshen acp: loadSession false)
+	resume: false, // no listing to pick from; a tab reopens its own conversation (session/load or session/resume in the daemon)
 	subagents: false,
 	transcriptReplay: false,
 	slashCommands: false, // available_commands have no invocation RPC (prompt text only)

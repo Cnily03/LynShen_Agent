@@ -9,10 +9,13 @@
 //!
 //! The registry persists as `acp-agents.json` in the per-app config dir
 //! (same directory as the other desktop app-data files).
+//!
+//! Presets are agents Settings offers to add in one click (OpenCode: `opencode
+//! acp`); adding one writes an ordinary registry entry.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::backend;
@@ -180,6 +183,167 @@ pub fn acp_agent_remove(app: AppHandle, id: String) -> Result<Vec<AcpAgent>, Str
     Ok(agents)
 }
 
+/// An agent Settings can add in one click.
+struct Preset {
+    id: &'static str,
+    name: &'static str,
+    command: &'static str,
+    args: &'static [&'static str],
+    /// The npm package that installs `command` (see `npm_native_binary`).
+    npm_package: &'static str,
+}
+
+const PRESETS: &[Preset] = &[Preset {
+    id: "opencode",
+    name: "OpenCode",
+    command: "opencode",
+    args: &["acp"],
+    npm_package: "opencode-ai",
+}];
+
+/// A preset as Settings lists it.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct AcpPreset {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    /// Where its program was found (None: not installed, or not on PATH).
+    pub path: Option<String>,
+    /// A registered agent already runs it.
+    pub registered: bool,
+}
+
+/// A command's program name without its folder or Windows extension
+/// (`C:\x\opencode.exe` → `opencode`).
+fn program_stem(command: &str) -> &str {
+    let file = command.rsplit(['/', '\\']).next().unwrap_or(command);
+    match file.rsplit_once('.') {
+        Some((stem, ext))
+            if ["exe", "cmd", "bat", "ps1"]
+                .iter()
+                .any(|e| ext.eq_ignore_ascii_case(e)) =>
+        {
+            stem
+        }
+        _ => file,
+    }
+}
+
+/// Whether `agent` runs `preset`: the same program (by name or path) with the
+/// same arguments.
+fn runs_preset(agent: &AcpAgent, preset: &Preset) -> bool {
+    program_stem(&agent.command).eq_ignore_ascii_case(preset.command)
+        && agent
+            .args
+            .iter()
+            .map(String::as_str)
+            .eq(preset.args.iter().copied())
+}
+
+/// npm on Windows puts only shims on PATH (`opencode.cmd`, `.ps1`, and an
+/// extensionless shell script); the program behind them is
+/// `node_modules/<package>/bin/<command>.exe` next to them. A session that
+/// runs the binary itself stops the agent when it stops, where through the
+/// `.cmd` shim it would stop only the `cmd.exe` that started it.
+fn npm_native_binary(found: &Path, package: &str, command: &str) -> Option<PathBuf> {
+    let shim = match found.extension().and_then(|e| e.to_str()) {
+        None => true,
+        Some(ext) => ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("ps1"),
+    };
+    if !shim {
+        return None;
+    }
+    let exe = found
+        .parent()?
+        .join("node_modules")
+        .join(package)
+        .join("bin")
+        .join(format!("{command}.exe"));
+    exe.is_file().then_some(exe)
+}
+
+/// The command a preset's registry entry runs: on Windows the binary behind
+/// an npm shim (an absolute path), else the program name, which the daemon
+/// finds on its PATH as the app does.
+fn preset_command(preset: &Preset, found: Option<&Path>, windows: bool) -> String {
+    let native = found
+        .filter(|_| windows)
+        .and_then(|found| npm_native_binary(found, preset.npm_package, preset.command));
+    match native {
+        Some(exe) => exe.display().to_string(),
+        None => preset.command.to_string(),
+    }
+}
+
+/// `base`, or `base-2`, `base-3` … when an agent already has that id.
+fn free_id(agents: &[AcpAgent], base: &str) -> String {
+    let taken = |id: &str| agents.iter().any(|a| a.id == id);
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|id| !taken(id))
+        .unwrap_or_default()
+}
+
+/// The registry entry that adds `preset` to `agents`.
+fn preset_agent(
+    preset: &Preset,
+    agents: &[AcpAgent],
+    found: Option<&Path>,
+    windows: bool,
+) -> AcpAgent {
+    AcpAgent {
+        id: free_id(agents, preset.id),
+        name: preset.name.to_string(),
+        command: preset_command(preset, found, windows),
+        args: preset.args.iter().map(|a| a.to_string()).collect(),
+        env: BTreeMap::new(),
+    }
+}
+
+/// The presets, with whether each is installed and already registered.
+#[tauri::command(async)]
+pub fn acp_presets(app: AppHandle) -> Result<Vec<AcpPreset>, String> {
+    let agents = load(&app)?;
+    Ok(PRESETS
+        .iter()
+        .map(|preset| AcpPreset {
+            id: preset.id.to_string(),
+            name: preset.name.to_string(),
+            command: preset.command.to_string(),
+            args: preset.args.iter().map(|a| a.to_string()).collect(),
+            path: crate::which(preset.command).map(|p| p.display().to_string()),
+            registered: agents.iter().any(|a| runs_preset(a, preset)),
+        })
+        .collect())
+}
+
+/// Registers preset `id` (nothing changes when an agent already runs it).
+/// Returns the updated list.
+#[tauri::command(async)]
+pub fn acp_preset_add(app: AppHandle, id: String) -> Result<Vec<AcpAgent>, String> {
+    let preset = PRESETS
+        .iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| format!("unknown preset: {id}"))?;
+    let mut agents = load(&app)?;
+    if agents.iter().any(|a| runs_preset(a, preset)) {
+        return Ok(agents);
+    }
+    if agents.len() >= MAX_AGENTS {
+        return Err(format!("at most {MAX_AGENTS} acp agents can be registered"));
+    }
+    let found = crate::which(preset.command);
+    let agent = preset_agent(preset, &agents, found.as_deref(), cfg!(windows));
+    validate_agent(&agent)?;
+    agents.push(agent);
+    save(&app, &agents)?;
+    Ok(agents)
+}
+
 /// Availability probe for one registered agent: resolves its command and runs
 /// `<command> --version` best-effort (mirrors `check_backend`).
 #[tauri::command(async)]
@@ -286,6 +450,68 @@ mod tests {
             .env
             .insert("GEMINI_API_KEY".to_string(), "k".to_string());
         validate_agent(&ok_env).unwrap();
+    }
+
+    #[test]
+    fn a_preset_entry_runs_its_program_and_takes_a_free_id() {
+        let opencode = &PRESETS[0];
+        let agents = vec![agent("opencode")];
+        let added = preset_agent(opencode, &agents, None, false);
+        assert_eq!(added.id, "opencode-2");
+        assert_eq!(added.name, "OpenCode");
+        assert_eq!(added.command, "opencode");
+        assert_eq!(added.args, vec!["acp"]);
+        validate_agent(&added).unwrap();
+        assert!(runs_preset(&added, opencode));
+        // Registered by hand, by path or with a Windows extension, it counts.
+        for command in [
+            "/opt/homebrew/bin/opencode",
+            "C:\\npm\\opencode.CMD",
+            "opencode.exe",
+        ] {
+            let by_hand = AcpAgent {
+                command: command.to_string(),
+                ..added.clone()
+            };
+            assert!(runs_preset(&by_hand, opencode), "{command}");
+        }
+        let other_args = AcpAgent {
+            args: vec!["serve".to_string()],
+            ..added.clone()
+        };
+        assert!(!runs_preset(&other_args, opencode));
+        let other_program = AcpAgent {
+            command: "opencode-helper".to_string(),
+            ..added
+        };
+        assert!(!runs_preset(&other_program, opencode));
+    }
+
+    #[test]
+    fn on_windows_a_preset_runs_the_binary_behind_an_npm_shim() {
+        let root = std::env::temp_dir().join(format!("lynshen-acp-preset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let npm = root.join("npm");
+        let bin = npm.join("node_modules").join("opencode-ai").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(npm.join("opencode.cmd"), "@echo off").unwrap();
+        std::fs::write(bin.join("opencode.exe"), "").unwrap();
+        let opencode = &PRESETS[0];
+        let shim = npm.join("opencode.cmd");
+        assert_eq!(
+            preset_command(opencode, Some(&shim), true),
+            bin.join("opencode.exe").display().to_string()
+        );
+        // The extensionless shell shim too; not elsewhere, or off Windows.
+        assert_eq!(
+            preset_command(opencode, Some(&npm.join("opencode")), true),
+            bin.join("opencode.exe").display().to_string()
+        );
+        assert_eq!(preset_command(opencode, Some(&shim), false), "opencode");
+        let scoop = root.join("scoop").join("opencode.exe");
+        assert_eq!(preset_command(opencode, Some(&scoop), true), "opencode");
+        assert_eq!(preset_command(opencode, None, true), "opencode");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

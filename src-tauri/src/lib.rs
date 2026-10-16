@@ -3841,6 +3841,8 @@ pub fn run() {
             acp_registry::acp_agent_upsert,
             acp_registry::acp_agent_remove,
             acp_registry::acp_agent_check,
+            acp_registry::acp_presets,
+            acp_registry::acp_preset_add,
             shell_env::shell_env_status,
             shell_env::refresh_shell_env,
             read_config,
