@@ -368,6 +368,93 @@ pub fn monoize_set_plan_funding(funding: String) -> Result<Value, String> {
     gateway_key_call("PUT", "/api/desktop/oauth/plan", Some(body))
 }
 
+/// An order id the app puts in a path: letters, digits and `-` only, so it
+/// cannot change the path it is put in.
+fn store_order_id(id: &str) -> Result<&str, String> {
+    if !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        Ok(id)
+    } else {
+        Err(json!({ "status": null, "code": "invalid_request", "message": "invalid order id" }).to_string())
+    }
+}
+
+/// The body of `POST /api/desktop/oauth/store/orders` (gateway DP-O1).
+fn store_order_request(product_id: &str, channel_id: &str, custom_minor: Option<&str>, request_id: &str) -> Value {
+    let mut body = json!({
+        "product_id": product_id,
+        "payment_channel_id": channel_id,
+        "request_id": request_id,
+    });
+    if let Some(minor) = custom_minor {
+        body["custom_recharge_minor"] = json!(minor);
+    }
+    body
+}
+
+/// The body of `POST /api/desktop/oauth/store/orders/{id}/attempts` (DP-A1).
+fn store_attempt_request(method: Option<&str>, request_id: &str) -> Value {
+    let mut body = json!({ "request_id": request_id });
+    if let Some(method) = method {
+        body["payment_method"] = json!(method);
+    }
+    body
+}
+
+/// What this device key can buy: plans and balance packs with prices in CNY
+/// fen, the ways to pay, and the custom top-up range
+/// (`GET /api/desktop/oauth/store/catalog`). Errors as [`gateway_key_call`]'s
+/// (a 404: a gateway that does not sell to the app yet).
+#[tauri::command(async)]
+pub fn monoize_store_catalog() -> Result<Value, String> {
+    gateway_key_call("GET", "/api/desktop/oauth/store/catalog", None)
+}
+
+/// The account's recent orders, newest first (`GET /api/desktop/oauth/store/orders`).
+#[tauri::command(async)]
+pub fn monoize_store_orders(limit: u32) -> Result<Value, String> {
+    gateway_key_call(
+        "GET",
+        &format!("/api/desktop/oauth/store/orders?limit={}", limit.clamp(1, 50)),
+        None,
+    )
+}
+
+/// Creates an order for a product (`POST /api/desktop/oauth/store/orders`);
+/// the same `request_id` returns the same order, so a retry cannot buy twice.
+#[tauri::command(async)]
+pub fn monoize_store_order(
+    product_id: String,
+    channel_id: String,
+    custom_minor: Option<String>,
+    request_id: String,
+) -> Result<Value, String> {
+    gateway_key_call(
+        "POST",
+        "/api/desktop/oauth/store/orders",
+        Some(store_order_request(&product_id, &channel_id, custom_minor.as_deref(), &request_id)),
+    )
+}
+
+/// Starts paying an order: the answer holds a QR code to show or a payment
+/// page to open (`POST /api/desktop/oauth/store/orders/{id}/attempts`).
+#[tauri::command(async)]
+pub fn monoize_store_pay(order_id: String, method: Option<String>, request_id: String) -> Result<Value, String> {
+    let id = store_order_id(&order_id)?;
+    gateway_key_call(
+        "POST",
+        &format!("/api/desktop/oauth/store/orders/{id}/attempts"),
+        Some(store_attempt_request(method.as_deref(), &request_id)),
+    )
+}
+
+/// The order as it stands; the gateway asks the payment provider while it is
+/// unpaid (`POST /api/desktop/oauth/store/orders/{id}/query`).
+#[tauri::command(async)]
+pub fn monoize_store_query(order_id: String) -> Result<Value, String> {
+    let id = store_order_id(&order_id)?;
+    gateway_key_call("POST", &format!("/api/desktop/oauth/store/orders/{id}/query"), None)
+}
+
 fn clear_session() {
     let _ = std::fs::remove_file(session_path());
 }
@@ -606,6 +693,32 @@ mod tests {
         let body = token_request("dc-1", Some("inst-1".into()), None);
         assert!(body.get("device_hash").is_none());
         assert_eq!(body["installation_id"], "inst-1");
+    }
+
+    #[test]
+    fn store_requests_carry_only_what_was_chosen() {
+        assert_eq!(
+            store_order_request("p1", "store-channel-epay", None, "req-1"),
+            json!({ "product_id": "p1", "payment_channel_id": "store-channel-epay", "request_id": "req-1" })
+        );
+        assert_eq!(
+            store_order_request("p1", "c1", Some("2345"), "req-2")["custom_recharge_minor"],
+            "2345"
+        );
+        assert_eq!(
+            store_attempt_request(Some("wxpay"), "req-3"),
+            json!({ "request_id": "req-3", "payment_method": "wxpay" })
+        );
+        assert!(store_attempt_request(None, "req-4").get("payment_method").is_none());
+    }
+
+    #[test]
+    fn an_order_id_cannot_change_the_path() {
+        assert_eq!(store_order_id("6f1d2c3e-aaaa-4bbb-8ccc-0123456789ab"), Ok("6f1d2c3e-aaaa-4bbb-8ccc-0123456789ab"));
+        let long = "x".repeat(129);
+        for bad in ["", "../plan", "a/b", "a?b=1", "a b", long.as_str()] {
+            assert!(store_order_id(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

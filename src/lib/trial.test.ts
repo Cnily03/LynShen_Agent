@@ -362,6 +362,8 @@ describe('display helpers', () => {
 		expect(windowLabel('month')).toBe('每月');
 		expect(windowLabel('day')).toBe('每天');
 		expect(windowLabel('12h')).toBe('12 小时');
+		expect(windowLabel('336h')).toBe('14 天');
+		expect(windowLabel('36h')).toBe('36 小时');
 		expect(windowLabel('odd')).toBe('odd');
 		expect(sortedWindows(PLAN).map((w) => w.kind)).toEqual(['5h', '7d']);
 		expect(usedShare({ kind: '5h', quota_cny: '4.00', used_cny: '1.00', resets_at: null })).toBe(0.25);

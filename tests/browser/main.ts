@@ -25,8 +25,37 @@ const accountLatency = Number(params0.get('accountLatency') || 0);
 // ?models[=old]: a gateway account with the sample models (catalogSample.ts):
 // the model catalog, or (=old) a gateway without it (404, the plain list only).
 const modelsMode = params0.get('models');
-let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null;
+// ?purchase[=404|reject|offline]: the gateway's store for the app
+// (desktop-purchase.spec.md): the owner's plans and packs, and one EPay
+// Channel with both wallets (WeChat answers a QR code, Alipay a payment page).
+// `window.__storePaid = true` makes the next status check see the payment.
+// =404: a gateway without the store; =reject: the first payment attempt is
+// refused (payment_provider_rejected); =offline: the first order fails on the
+// network.
+const purchaseMode = params0.get('purchase');
+let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
 let planFunding = 'plan';
+const STORE_CATALOG = {
+  currency: 'CNY',
+  products: [
+    {id: 'b10', kind: 'balance', name: '10', description: '', price_minor: '1000', duration_seconds: null, groups: [], windows: [], balance: {recharge_minor: '1000', bonus_minor: '0', actual_received_minor: '1000'}},
+    {id: 'b50', kind: 'balance', name: '50', description: '', price_minor: '5000', duration_seconds: null, groups: [], windows: [], balance: {recharge_minor: '5000', bonus_minor: '500', actual_received_minor: '5500'}},
+    ...[['sprout', 'Sprout', '4900', '800', '2300'], ['branch', 'Branch', '9900', '1600', '4600']].map(([id, name, price, h5, d7]) => ({
+      id, kind: 'plan', name, description: '可用模型：Claude、GPT、Gemini、国产模型。积分：1 积分 = ¥1 按量消费', price_minor: price, duration_seconds: 2_592_000, groups: ['套餐专用'], balance: null,
+      windows: [{window_kind: '5h', window_seconds: 18000, quota_fen_cny: h5}, {window_kind: 'custom', window_seconds: 604800, quota_fen_cny: d7}]
+    }))
+  ],
+  payment_options: ['alipay', 'wxpay'].map((method) => ({id: `store-channel-epay:${method}`, channel_id: 'store-channel-epay', method, label: method === 'alipay' ? 'Alipay' : 'WeChat Pay', actions: ['qr', 'redirect'], min_minor: '1', max_minor: '100000000'})),
+  custom_recharge: {product_id: 'b10', min_minor: '100', max_minor: '100000000'}
+};
+const store = {
+  orders: [] as any[],
+  attempts: new Map<string, any>(),
+  payFailures: purchaseMode === 'reject' ? 1 : 0,
+  orderFailures: purchaseMode === 'offline' ? 1 : 0,
+  plan: null as any
+};
+const storeRefusal = (status: number | null, code: string | null, message: string) => JSON.stringify({status, code, message});
 const trialPlan = (used: boolean) => ({
   name: '7 天体验套餐',
   group: '国内模型分组',
@@ -61,6 +90,50 @@ Object.assign(window, {
         if (command === 'read_config') return {provider: 'monoize', model: 'deepseek-v4.1-flash', models: SAMPLE_PLAIN_IDS.map((name) => ({name})), compact_model: 'glm-5.3-flash', image_model: 'gpt-image-2'};
         if (command === 'read_auth_providers') return ['monoize'];
       }
+      if (command.startsWith('monoize_store_')) {
+        if (purchaseMode === '404') throw storeRefusal(404, null, 'Not Found');
+        const view = (o: any) => {
+          if ((window as any).__storePaid && o.state === 'awaiting_payment') {
+            o.state = 'completed';
+            if (o.kind === 'plan') store.plan = {name: o.name, group: '套餐专用', windows: [{kind: '5h', quota_cny: '8.00', used_cny: '0.00', resets_at: null}, {kind: '7d', quota_cny: '23.00', used_cny: '0.00', resets_at: null}], expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(), trial: false, active: true};
+          }
+          return {...o};
+        };
+        switch (command) {
+          case 'monoize_store_catalog': return STORE_CATALOG;
+          case 'monoize_store_orders': return {orders: store.orders.slice().reverse().slice(0, args.limit).map(view)};
+          case 'monoize_store_order': {
+            if (store.orderFailures > 0) { store.orderFailures--; throw storeRefusal(null, null, 'all gateways unreachable'); }
+            const kept = store.orders.find((o) => o.request_id === args.requestId);
+            if (kept) return view(kept);
+            const product = STORE_CATALOG.products.find((p) => p.id === args.productId)!;
+            const amount = args.customMinor ?? product.price_minor;
+            const order = {
+              id: `order-${store.orders.length + 1}`, order_number: `LS-${store.orders.length + 1}`, request_id: args.requestId, product_id: product.id,
+              kind: product.kind, name: product.name, amount_minor: amount, currency: 'CNY', payment_state: 'unpaid', fulfillment_state: 'pending', state: 'awaiting_payment',
+              balance: product.kind === 'balance' ? (args.customMinor ? {recharge_minor: amount, bonus_minor: '0', actual_received_minor: amount} : product.balance) : null,
+              expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), created_at: new Date().toISOString()
+            };
+            store.orders.push(order);
+            return view(order);
+          }
+          case 'monoize_store_pay': {
+            if (store.payFailures > 0) { store.payFailures--; throw storeRefusal(422, 'payment_provider_rejected', 'payment provider rejected checkout'); }
+            const kept = store.attempts.get(args.requestId);
+            if (kept) return kept;
+            const expires_at = new Date(Date.now() + 30 * 60_000).toISOString();
+            const answer = {
+              attempt: {id: `attempt-${store.attempts.size + 1}`, state: 'presented', method: args.method, expires_at},
+              action: args.method === 'alipay' ? {kind: 'redirect', url: `https://pay.example.com/pay/${args.orderId}`, expires_at} : {kind: 'qr', payload: `weixin://wxpay/bizpayurl?pr=${args.orderId}`, expires_at}
+            };
+            store.attempts.set(args.requestId, answer);
+            return answer;
+          }
+          case 'monoize_store_query': return view(store.orders.find((o) => o.id === args.orderId));
+        }
+      }
+      // The plan bought in the store (?purchase without ?trial).
+      if (command === 'monoize_desktop_plan' && purchaseMode != null && trialReply == null) return {plan: store.plan, plan_funding: planFunding};
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
         // not written its own list yet.

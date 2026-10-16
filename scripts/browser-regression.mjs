@@ -1358,6 +1358,9 @@ try {
   await expect(planLine).toContainText('5 小时额度剩 4.00 积分');
   await expect(acctCard).toContainText('余额');
   await expect(acctCard.getByRole('button',{name:/设置/})).toBeVisible();
+  await acctCard.getByRole('button',{name:'购买套餐或充值'}).click();
+  assert.equal(await trialPage.evaluate(() => window.__purchaseOpened), 1, 'the account card did not open 套餐与充值');
+  await trialPage.getByRole('button',{name:'账号'}).click();
   await expect(acctCard.getByRole('button',{name:'退出登录'})).toBeVisible();
   for (const gone of ['最近 60 秒', '计费方式', '显示货币', '主题']) await expect(acctCard).not.toContainText(gone);
   assert.ok(await acctCard.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && el.getBoundingClientRect().top >= 0), 'the account card does not fit');
@@ -1420,6 +1423,128 @@ try {
   await expect(choice.locator('.opt.on')).toHaveText('用余额');
   await fundPage.close();
 
+  // Settings → 套餐与充值 against a stubbed store (gateway desktop-purchase.spec.md):
+  // the plans with price, length and windows in words, the packs and a custom
+  // amount; a plan by a WeChat QR code (checked until paid, then the plan and
+  // the orders read again), what a plan bought under another one replaces, a
+  // pack by the Alipay page in the browser, closing and continuing the same
+  // payment, a refused payment retried with a new attempt on the same order,
+  // a network failure retried with the same ids, and a gateway without the store.
+  {
+    const sp = await browser.newPage({viewport:{width:1280,height:900}});
+    sp.on('pageerror', e => errors.push(e.message));
+    const storeCalls = (cmd) => sp.evaluate((c) => window.__calls.filter((x) => x.command === c).map((x) => x.args), cmd);
+    await sp.goto(base + '?purchase&balance&section=purchase');
+    await expect(sp.getByRole('heading',{name:'套餐与充值',level:1})).toBeVisible({timeout:30000});
+    await expect(sp.locator('.sec h3')).toHaveText(['当前', '套餐', '充值余额']);
+    await expect(sp.locator('#set-purchase-plan')).toContainText('没有套餐');
+    const plansSec = sp.locator('#set-purchase-plans');
+    await expect(plansSec).toContainText('¥49 / 30 天 · 每 5 小时 8 积分 · 每 7 天 23 积分');
+    await expect(plansSec).toContainText('¥99 / 30 天 · 每 5 小时 16 积分 · 每 7 天 46 积分');
+    const topUp = sp.locator('#set-purchase-topup');
+    await expect(topUp.locator('.row', {hasText:'¥50'})).toContainText('到账 ¥55，含赠送 ¥5');
+    // The newest dialog: the one closed last may still be fading out.
+    const dialog = sp.getByRole('dialog').last();
+    const sproutRow = plansSec.locator('.row', {hasText:'Sprout'});
+    await sproutRow.getByRole('button',{name:'购买'}).click();
+    await expect(dialog).toContainText('购买 Sprout');
+    await expect(dialog).toContainText('付款后立即生效，30 天内有效。');
+    await dialog.getByRole('button',{name:'微信',exact:true}).click();
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog.locator('.qr svg')).toBeVisible();
+    await expect(dialog).toContainText('用微信扫码支付 ¥49');
+    await expect(dialog).toContainText(/已等待 \d+ 秒 · (29|30):\d\d 后失效/);
+    assert.deepEqual((await storeCalls('monoize_store_order')).map((a) => [a.productId, a.channelId, a.customMinor]), [['sprout', 'store-channel-epay', null]]);
+    assert.deepEqual((await storeCalls('monoize_store_pay')).map((a) => a.method), ['wxpay']);
+    await sp.evaluate(() => { window.__storePaid = true; });
+    await expect(dialog).toContainText('支付成功，Sprout 已生效', {timeout:10000});
+    assert.ok((await storeCalls('monoize_store_query')).length >= 1, 'the payment was not checked');
+    await dialog.getByRole('button',{name:'完成'}).click();
+    await expect(sp.getByRole('dialog')).toHaveCount(0);
+    await expect(sp.locator('#set-purchase-plan')).toContainText('Sprout');
+    await expect(sproutRow).toContainText('使用中');
+    const orders = sp.locator('#set-purchase-orders');
+    await expect(orders.locator('.row', {hasText:'Sprout · ¥49'})).toContainText('已完成');
+    // Under a plan in force the dialog says what the new one replaces.
+    await sp.evaluate(() => { window.__storePaid = false; });
+    await plansSec.locator('.row', {hasText:'Branch'}).getByRole('button',{name:'购买'}).click();
+    await expect(dialog).toContainText('付款后新套餐立即生效，替换当前的「Sprout」');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    await sproutRow.getByRole('button',{name:'购买'}).click();
+    await expect(dialog).toContainText('付款后立即重新开始一个 30 天的「Sprout」');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    // ¥50 by the Alipay page in the browser; closing only stops waiting.
+    await topUp.locator('.row', {hasText:'¥50'}).getByRole('button',{name:'充值'}).click();
+    await expect(dialog).toContainText('充值 ¥50');
+    await dialog.getByRole('button',{name:'支付宝',exact:true}).click();
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog).toContainText('已在浏览器中打开支付页');
+    assert.ok((await storeCalls('plugin:opener|open_url')).some((a) => JSON.stringify(a).includes('pay.example.com/pay/order-2')), 'the payment page was not opened');
+    await dialog.getByRole('button',{name:'关闭',exact:true}).last().click();
+    await expect(sp.getByRole('dialog')).toHaveCount(0);
+    const fifty = orders.locator('.row', {hasText:'充值 ¥50'});
+    await expect(fifty).toContainText('待支付');
+    await expect(fifty).toContainText('到账 ¥55');
+    await fifty.getByRole('button',{name:'继续支付'}).click();
+    await expect(dialog).toContainText('已在浏览器中打开支付页');
+    assert.equal((await storeCalls('monoize_store_order')).length, 2, 'continuing ordered again');
+    const pays = await storeCalls('monoize_store_pay');
+    assert.equal(pays.at(-1).requestId, pays.at(-2).requestId, 'continuing did not reuse the payment attempt');
+    await sp.evaluate(() => { window.__storePaid = true; });
+    await expect(dialog).toContainText('支付成功，已到账 ¥55', {timeout:10000});
+    await dialog.getByRole('button',{name:'完成'}).click();
+    // A custom amount, checked against the gateway's range.
+    const custom = sp.locator('#set-purchase-custom');
+    const amountBox = custom.getByRole('textbox',{name:'充值金额（元）'});
+    await amountBox.fill('0.5');
+    await expect(custom).toContainText('请输入 ¥1 到 ¥1,000,000 之间的金额');
+    await expect(custom.getByRole('button',{name:'充值'})).toBeDisabled();
+    await amountBox.fill('23.5');
+    await custom.getByRole('button',{name:'充值'}).click();
+    await expect(dialog).toContainText('充值 ¥23.50');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    await sp.close();
+  }
+  {
+    // Refused for certain: a new attempt on the same order.
+    const rp = await browser.newPage();
+    rp.on('pageerror', e => errors.push(e.message));
+    const calls = (cmd) => rp.evaluate((c) => window.__calls.filter((x) => x.command === c).map((x) => x.args), cmd);
+    await rp.goto(base + '?purchase=reject&section=purchase');
+    const dialog = rp.getByRole('dialog');
+    await rp.locator('#set-purchase-plans .row', {hasText:'Sprout'}).getByRole('button',{name:'购买'}).click({timeout:30000});
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog.getByRole('alert')).toContainText('支付渠道拒绝了这笔订单');
+    await dialog.getByRole('button',{name:'重试'}).click();
+    await expect(dialog.locator('.qr svg').or(dialog.getByText('已在浏览器中打开支付页'))).toBeVisible();
+    assert.equal((await calls('monoize_store_order')).length, 1, 'a refused payment ordered again');
+    const pays = await calls('monoize_store_pay');
+    assert.equal(pays.length, 2);
+    assert.notEqual(pays[0].requestId, pays[1].requestId, 'a refused attempt was retried with its own id');
+    await rp.close();
+    // Not reached: the same ids again, so the retry cannot order twice.
+    const np = await browser.newPage();
+    np.on('pageerror', e => errors.push(e.message));
+    await np.goto(base + '?purchase=offline&section=purchase');
+    const nd = np.getByRole('dialog');
+    await np.locator('#set-purchase-topup .row', {hasText:'¥10'}).getByRole('button',{name:'充值'}).click({timeout:30000});
+    await nd.getByRole('button',{name:'去支付'}).click();
+    await expect(nd.getByRole('alert')).toContainText('连不上 LynShen 服务');
+    await nd.getByRole('button',{name:'重试'}).click();
+    await expect(nd.locator('.qr svg').or(nd.getByText('已在浏览器中打开支付页'))).toBeVisible();
+    const tries = await np.evaluate(() => window.__calls.filter((x) => x.command === 'monoize_store_order').map((x) => x.args.requestId));
+    assert.equal(tries.length, 2);
+    assert.equal(tries[0], tries[1], 'a retry after a network failure used a new order id');
+    await np.close();
+    // A gateway without the store: the website instead.
+    const op = await browser.newPage();
+    op.on('pageerror', e => errors.push(e.message));
+    await op.goto(base + '?purchase=404&section=purchase');
+    await expect(op.getByText('当前的 LynShen 服务还不支持在应用里购买，请到网站购买。')).toBeVisible({timeout:30000});
+    await expect(op.getByRole('button',{name:'去网站购买'})).toBeVisible();
+    await op.close();
+  }
+
   // Settings → 账户 while the account is read (查看账户 from a 余额不足 error
   // opens it): loading, never 未登录 or the sign-in. The next start shows the
   // account kept from the last read at once.
@@ -1435,6 +1560,11 @@ try {
   await expect(acctPage.locator('.sec h3')).toHaveText(['套餐与余额', '用量', '更多', '登录']);
   await expect(acctPage.locator('#set-account-noplan')).toContainText('没有套餐');
   await expect(acctPage.locator('#set-account-currency')).toContainText('显示货币');
+  // 购买套餐 and 充值 open Settings → 套餐与充值 in the app, not the website.
+  await acctPage.locator('#set-account-balance').getByRole('button',{name:'充值'}).click();
+  await expect(acctPage.getByRole('heading',{name:'套餐与充值',level:1})).toBeVisible();
+  await acctPage.getByRole('button',{name:'账户',exact:true}).click();
+  await expect(acctPage.locator('#set-account-noplan').getByRole('button',{name:'购买套餐'})).toBeVisible();
   await expect(acctPage.locator('.acct-profile').getByRole('button',{name:'退出登录'})).toHaveCount(0);
   await expect(acctPage.getByRole('button',{name:'退出登录',exact:true})).toBeVisible();
   const widths = await acctPage.locator('.sec .body').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
@@ -1804,5 +1934,5 @@ try {
     await cp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

@@ -350,7 +350,7 @@
 				onSessionMenu={() => {}}
 				onProjectMenu={() => {}}
 				onHistory={() => {}}
-				footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
+				footer={{ loggedIn: true, onManageAccount: () => {}, onPurchase: () => ((window as unknown as { __purchaseOpened?: number }).__purchaseOpened = ((window as unknown as { __purchaseOpened?: number }).__purchaseOpened ?? 0) + 1), onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
 			/>
 			<div class="canvas" data-testid="canvas">
 				{#if home}

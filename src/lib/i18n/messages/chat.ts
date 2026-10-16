@@ -329,7 +329,7 @@ const chat = {
 			hideRaw: '收起',
 			requestId: '请求 ID',
 			thisTool: '该工具',
-			action: { restart: '重启会话', login: '去登录', account: '查看账户', compact: '压缩对话', model: '换个模型', providers: '检查密钥' },
+			action: { restart: '重启会话', login: '去登录', account: '查看账户', compact: '压缩对话', model: '换个模型', providers: '检查密钥', purchase: '购买套餐', topUp: '充值', useBalance: '改用余额' },
 			providerKey: { title: '{subject} 的 API Key 无效', hint: '服务商拒绝了这个密钥。在设置 → 提供商里更新 {subject} 的密钥后再试。' },
 			lynshenAuth: {
 				title: 'LynShen 登录凭据已过期',
@@ -341,7 +341,7 @@ const chat = {
 				hint: '这个会话使用 {subject} 自己的账号。在终端重新登录后再试：Codex 运行 codex login，Claude Code 运行 claude 并按提示登录。'
 			},
 			balance: { title: '账户余额不足', hint: '充值或换用有额度的套餐后再试。' },
-			planQuota: { title: '套餐额度用完了', hint: '套餐当前时段的额度已用完，恢复后再试；也可以在账户里把计费方式改为「用余额」。' },
+			planQuota: { title: '套餐额度用完了', hint: '套餐当前时段的额度已用完，恢复后再试。也可以购买更大的套餐，或把这台电脑的计费方式改为用余额。' },
 			context: { title: '对话超出模型的上下文上限', hint: '压缩对话腾出空间，或新开一个会话继续。' },
 			rateLimit: { title: '请求太频繁，暂时被限流', hint: '稍等一会儿再发送。一直出现的话，换一个模型或分组。' },
 			model: { title: '模型不可用', hint: '当前账号或分组下没有这个模型，换一个模型再试。' },
@@ -814,7 +814,7 @@ const chat = {
 			hideRaw: 'Hide',
 			requestId: 'Request ID',
 			thisTool: 'the tool',
-			action: { restart: 'Restart session', login: 'Sign in', account: 'View account', compact: 'Compact', model: 'Change model', providers: 'Check key' },
+			action: { restart: 'Restart session', login: 'Sign in', account: 'View account', compact: 'Compact', model: 'Change model', providers: 'Check key', purchase: 'Buy a plan', topUp: 'Top up', useBalance: 'Use balance' },
 			providerKey: { title: '{subject} API key rejected', hint: 'The provider refused this key. Update the {subject} key in Settings → Providers, then retry.' },
 			lynshenAuth: {
 				title: 'LynShen credential expired',
@@ -826,7 +826,7 @@ const chat = {
 				hint: 'This session uses {subject}’s own account. Sign in again in a terminal (Codex: codex login; Claude Code: run claude and log in), then retry.'
 			},
 			balance: { title: 'Insufficient balance', hint: 'Top up or switch to a plan with quota, then retry.' },
-			planQuota: { title: 'Plan quota used up', hint: 'This window of your plan is used up. Retry when it recovers, or set Pay with to Balance in your account.' },
+			planQuota: { title: 'Plan quota used up', hint: 'This window of your plan is used up. Retry when it recovers, buy a larger plan, or have this computer pay with the balance.' },
 			context: { title: 'Conversation exceeds the context window', hint: 'Compact the conversation to free space, or continue in a new session.' },
 			rateLimit: { title: 'Rate limited', hint: 'Wait a moment before sending. If it keeps happening, switch model or group.' },
 			model: { title: 'Model unavailable', hint: 'This model is not available to your account or group. Pick another one.' },

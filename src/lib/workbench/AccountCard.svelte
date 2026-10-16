@@ -8,6 +8,7 @@
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
 	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
 	import UserIcon from 'phosphor-svelte/lib/UserIcon';
+	import WalletIcon from 'phosphor-svelte/lib/WalletIcon';
 	import Button from '$lib/ui/Button.svelte';
 	import { accountAvatar } from '$lib/accountAvatar.svelte';
 	import { account } from '$lib/accountSession.svelte';
@@ -20,8 +21,8 @@
 
 	// The account card, a short menu as in Claude, Codex or Linear: who is
 	// signed in, one line for the plan (its tightest window and its end) and
-	// one for the balance, both opening Settings → 账户, then settings and
-	// logging out. The rest (the plan's windows, who pays, the last minute's
+	// one for the balance, both opening Settings → 账户, then buying a plan or
+	// balance (Settings → 套餐与充值), settings and logging out. The rest (the plan's windows, who pays, the last minute's
 	// usage, the currency) lives in Settings → 账户, the theme in Settings →
 	// 外观. Fixed to the window (the sidebar would clip it); the footer owns
 	// opening and closing.
@@ -37,6 +38,7 @@
 		side,
 		onSignIn,
 		onAccount,
+		onPurchase,
 		onSettings,
 		onUpdate,
 		onLoggedOut
@@ -59,6 +61,8 @@
 		onSignIn: () => void;
 		/** Settings → Account: the plan and balance lines. */
 		onAccount?: () => void;
+		/** Settings → 套餐与充值. */
+		onPurchase?: () => void;
 		onSettings: () => void;
 		onUpdate: () => void;
 		onLoggedOut: () => void;
@@ -169,6 +173,12 @@
 	{/if}
 
 	<div class="sec rows">
+		{#if loggedIn && onPurchase}
+			<button class="pop-row" onclick={onPurchase}>
+				<span class="pop-ico"><WalletIcon size={18} /></span>
+				<span class="pop-label grow">{t('shell.account.purchase')}</span>
+			</button>
+		{/if}
 		<button class="pop-row" onclick={onSettings}>
 			<span class="pop-ico"><GearIcon size={18} /></span>
 			<span class="pop-label grow">{t('shell.settings')}</span>

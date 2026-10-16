@@ -3,7 +3,8 @@
 	// of macOS System Settings: who it is (the avatar changes on a click, and
 	// the website shows it too), then full-width groups of rows:
 	//   套餐与余额  the plan (state, end, its windows), who pays, the balance
-	//              with 充值, the currency;
+	//              with 充值, the currency; 购买套餐 and 充值 open Settings →
+	//              套餐与充值 (PurchaseSection), where both are bought in the app;
 	//   用量       用量明细, with the last minute's usage as its second line;
 	//   more       模型广场, API 密钥, 邀请好友, 授权设备, the console;
 	//   sign-in    重新登录 and 退出登录, quiet, at the bottom.
@@ -49,7 +50,8 @@
 		onApiKey,
 		onUsage,
 		onInvite,
-		onDevices
+		onDevices,
+		onPurchase
 	}: {
 		user: MonoizeUser;
 		/** The first `balance_infos` entry of /user/balance; null while loading. */
@@ -64,6 +66,8 @@
 		onInvite: () => void;
 		/** Settings → 授权设备. */
 		onDevices: () => void;
+		/** Settings → 套餐与充值. */
+		onPurchase: () => void;
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
@@ -163,9 +167,7 @@
 	{:else}
 		<SettingsRow id="account-noplan" title={t('shell.account.plan')} description={billingPlan || t('settings.accountPage.noPlan')}>
 			{#if !billingPlan}
-				<Button size="sm" variant="ghost" onclick={() => openExternal(`${web}/dashboard/store?tab=plan&surface=desktop`)}>
-					{t('settings.accountPage.viewPlans')} <ArrowSquareOutIcon size={13} />
-				</Button>
+				<Button size="sm" variant="ghost" onclick={onPurchase}>{t('settings.accountPage.buyPlan')}</Button>
 			{/if}
 		</SettingsRow>
 	{/if}
@@ -177,7 +179,7 @@
 			: undefined}
 	>
 		<span class="amount">{balanceText}</span>
-		<Button size="sm" onclick={() => openExternal(`${web}/dashboard/wallet`)}>{t('settings.accountPage.topUp')} <ArrowSquareOutIcon size={13} /></Button>
+		<Button size="sm" onclick={onPurchase}>{t('settings.accountPage.topUp')}</Button>
 	</SettingsRow>
 	<SettingsRow id="account-currency" title={t('settings.accountPage.currency')} description={t('settings.accountPage.currencySub')}>
 		<Segmented

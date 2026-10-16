@@ -305,14 +305,18 @@ export function credits(v: string, exact = false): string {
 }
 
 /** A window's name: "5 小时", "7 天", "每天" / "每周" / "每月" (a paid
- *  plan's calendar windows); another kind as sent. */
+ *  plan's calendar windows); another kind as sent. A rolling window of whole
+ *  days reads in days ("336h", as the gateway names a 14-day rule, is
+ *  "14 天"): the exact length, in the largest whole unit. */
 export function windowLabel(kind: string): string {
 	const calendar = { day: 'shell.trial.day', week: 'shell.trial.week', month: 'shell.trial.month' } as const;
 	const named = calendar[kind.trim().toLowerCase() as keyof typeof calendar];
 	if (named) return t(named);
 	const m = /^(\d+)\s*([hd])$/i.exec(kind.trim());
 	if (!m) return kind;
-	return t(m[2].toLowerCase() === 'h' ? 'chat.quota.hours' : 'chat.quota.days', { n: Number(m[1]) });
+	const n = Number(m[1]);
+	if (m[2].toLowerCase() === 'h' && n >= 24 && n % 24 === 0) return t('chat.quota.days', { n: n / 24 });
+	return t(m[2].toLowerCase() === 'h' ? 'chat.quota.hours' : 'chat.quota.days', { n });
 }
 
 /** Length of a window in hours, to order them (unknown kinds last). */

@@ -10,6 +10,7 @@
 	import { prefs } from '$lib/prefs.svelte';
 	import { avatarInitial } from '$lib/account';
 	import { accountAvatar } from '$lib/accountAvatar.svelte';
+	import { purchases } from '$lib/purchase.svelte';
 	import AccountCard from './AccountCard.svelte';
 
 	// The bottom of the sidebar, as in the LynShen Console: the account row
@@ -21,6 +22,7 @@
 		collapsed = false,
 		updateAvailable = false,
 		onManageAccount,
+		onPurchase,
 		onSettings,
 		onUpdate,
 		onLoggedOut,
@@ -33,6 +35,8 @@
 		updateAvailable?: boolean;
 		/** Settings → Account: the card's sign-in button. */
 		onManageAccount: () => void;
+		/** Settings → 套餐与充值: the card's 购买套餐或充值. */
+		onPurchase?: () => void;
 		onSettings: () => void;
 		/** Open settings at the update section. */
 		onUpdate: () => void;
@@ -78,6 +82,10 @@
 				if (g === generation) failed = true;
 			});
 	}
+	// An order paid in the app moved the balance.
+	$effect(() => {
+		if (purchases.completed > 0) untrack(() => loggedIn && load());
+	});
 	$effect(() => {
 		if (loggedIn) {
 			untrack(() => void accountAvatar.restore());
@@ -184,6 +192,12 @@
 			closeCard();
 			onManageAccount();
 		}}
+		onPurchase={onPurchase
+			? () => {
+					closeCard();
+					onPurchase();
+				}
+			: undefined}
 		onSettings={() => {
 			closeCard();
 			onSettings();
