@@ -49,7 +49,7 @@ Object.assign(window, {
     convertFileSrc: (path: string) => (path.endsWith('.png') ? imageSrc() : `asset://localhost/${encodeURIComponent(path)}`),
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
-      // ?anthropic[=keyed]: a built-in provider and its key (providerFixtures.ts).
+      // Provider fixtures (providerFixtures.ts): ?anthropic[=keyed], model lists.
       const builtinAnswer = builtinProviders?.(command, args);
       if (builtinAnswer !== undefined) return builtinAnswer;
       // `window.__avatarUrl`: the avatar /api/desktop/oauth/me names (?avatar);

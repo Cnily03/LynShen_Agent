@@ -253,6 +253,52 @@ try {
   assert.ok(await page.evaluate(() => window.__calls.some((c) => c.command === 'set_auth_key' && c.args.provider === 'anthropic' && c.args.key === 'sk-ant-test')));
   assert.deepEqual(await storedOverrides(), {anthropic: {base_url: 'https://www.lynshen.org/v1', models: {'claude-haiku-4-5': {input_modalities: ['text']}}}});
   await expect(anthropicCard.getByText('已自定义')).toBeVisible();
+  // Ticket #24 P3: 获取可用模型 lists the endpoint's models (read by the
+  // app with the typed key); the ones a model catalog knows come with their
+  // window, output cap, tiers and input kinds (here the gateway's catalog,
+  // signed in). 自动配置 puts the catalog values over listed models.
+  await page.goto(base + '?models');
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  await field('Provider ID').fill('relay');
+  await field('Base URL').fill('https://denied.example.com/v1');
+  await field('API key').fill('sk-relay');
+  await providerForm.getByRole('button',{name:'获取可用模型',exact:true}).click();
+  await expect(providerForm.getByText('获取失败：HTTP 401: invalid api key')).toBeVisible();
+  await field('Base URL').fill('https://relay.example.com/v1');
+  await providerForm.getByRole('button',{name:'获取可用模型',exact:true}).click();
+  const foundList = providerForm.getByRole('region',{name:'可用模型'});
+  await expect(foundList.getByText('找到 4 个模型，其中 2 个在模型目录里有参数。')).toBeVisible();
+  assert.deepEqual(await page.evaluate(() => window.__calls.filter((c) => c.command === 'provider_models').at(-1).args), {provider: 'relay', baseUrl: 'https://relay.example.com/v1', format: 'responses', key: 'sk-relay'});
+  await expect(foundList.getByText('模型目录里没有它，按默认值添加')).toHaveCount(1);
+  await foundList.getByRole('checkbox',{name:'relay-mystery',exact:true}).uncheck({force:true});
+  await foundList.getByRole('button',{name:'添加所选（3）',exact:true}).click();
+  await expect(foundList).toHaveCount(0);
+  await expect(providerForm.getByText('已添加 3 个模型。')).toBeVisible();
+  await providerForm.getByRole('button',{name:'编辑 claude-opus-5-5'}).click();
+  await field('上下文窗口').fill('200k');
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'自动配置',exact:true}).click();
+  await expect(providerForm.getByText('已按模型目录更新 1 个模型。')).toBeVisible();
+  await providerForm.getByRole('button',{name:'自动配置',exact:true}).click();
+  await expect(providerForm.getByText('列表中的模型已和模型目录一致。')).toBeVisible();
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('lynshen-custom-providers')).find((p) => p.id === 'relay').models
+    .map((m) => [m.name, m.display_name ?? null, m.context_window, m.max_output_tokens, m.reasoning, m.reasoning_efforts.join(' '), m.input_modalities.join(' ')])), [
+    ['claude-opus-5-5', 'Claude Opus 5.5', 1000000, 64000, true, 'low medium high', 'text image'],
+    ['glm-5.3-flash', 'GLM-5.3 Flash', 128000, 64000, false, 'none', 'text'],
+    ['vendor/long-ctx', 'Long Context', 2000000, 100000, true, 'none low medium high xhigh', 'text']
+  ]);
+  // Its 编辑 lists the endpoint again with the saved key (read by the app).
+  await page.locator('#pcard-relay .pcard-main').click();
+  await page.locator('#pcard-relay').getByRole('button',{name:'编辑',exact:true}).click();
+  await providerForm.getByRole('button',{name:'获取可用模型',exact:true}).click();
+  await expect(foundList.getByText('已在列表中')).toHaveCount(3);
+  await expect(foundList.getByRole('button',{name:'添加所选（1）',exact:true})).toBeVisible();
+  assert.deepEqual(await page.evaluate(() => window.__calls.filter((c) => c.command === 'provider_models').at(-1).args), {provider: 'relay', baseUrl: 'https://relay.example.com/v1', format: 'responses', key: null});
+  await page.keyboard.press('Escape');
   // A model that takes no images and does not think: the composer refuses
   // an image and shows no effort; one that takes images attaches it.
   await page.goto(base + '?shell&textOnly');
