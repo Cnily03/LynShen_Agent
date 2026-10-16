@@ -74,6 +74,11 @@
 		onCompleted: (order: StoreOrder) => void;
 	} = $props();
 
+	// The plan in force as the dialog opened: what is bought is told against
+	// it (a renewal, an upgrade, a replacement), also once it is paid and the
+	// new plan is read.
+	const before = untrack(() => currentPlan);
+
 	const METHOD_KEY = 'lynshen-store-method';
 	const storage = typeof localStorage === 'undefined' ? null : localStorage;
 	const newId = () => crypto.randomUUID();
@@ -89,7 +94,7 @@
 			? t('settings.purchase.topUpTitle', { amount: yuan(amount) })
 			: product.upgrade
 				? t('settings.purchase.upgradeTitle', { name: product.name })
-				: currentPlan?.name.trim() === product.name.trim()
+				: before?.name.trim() === product.name.trim()
 					? t('settings.purchase.renewTitle', { name: product.name })
 					: t('settings.purchase.buyTitle', { name: product.name })
 	);
@@ -168,8 +173,8 @@
 	});
 	const endsAround = $derived(product.duration_seconds ? new Date(Date.now() + product.duration_seconds * 1000).toISOString() : null);
 
-	const replacing = $derived(product.kind === 'plan' && currentPlan != null);
-	const sameProduct = $derived(replacing && currentPlan?.name.trim() === product.name.trim());
+	const replacing = $derived(product.kind === 'plan' && before != null);
+	const sameProduct = $derived(replacing && before?.name.trim() === product.name.trim());
 	const qr = $derived(checkout?.action.kind === 'qr' ? renderSVG(checkout.action.payload, { border: 4 }) : '');
 	// The code and the order run out together (30 minutes); the earlier wins.
 	const left = $derived.by(() => {
@@ -346,7 +351,12 @@
 			</div>
 			<div><dt>{t('settings.purchase.amount')}</dt><dd class="num">{yuan(amount)}</dd></div>
 			{#if product.kind === 'plan'}
-				<div><dt>{t('settings.purchase.validity')}</dt><dd>{durationText(product.duration_seconds)}</dd></div>
+				{#if upgrading && product.upgrade?.expires_at}
+					<!-- An upgrade keeps the end the gateway quotes. -->
+					<div><dt>{t('settings.purchase.ends')}</dt><dd>{planDate(product.upgrade.expires_at, true)}</dd></div>
+				{:else}
+					<div><dt>{t('settings.purchase.validity')}</dt><dd>{durationText(product.duration_seconds)}</dd></div>
+				{/if}
 			{:else if balance}
 				<div>
 					<dt>{t('settings.purchase.receives')}</dt>
@@ -372,19 +382,19 @@
 			{#if upgrading && product.upgrade}
 				<p class="note">
 					{product.upgrade.expires_at
-						? t('settings.purchase.upgradeNoticeAt', { current: currentPlan?.name.trim() || t('shell.trial.label'), name: product.name, date: planDate(product.upgrade.expires_at) })
-						: t('settings.purchase.upgradeNotice', { current: currentPlan?.name.trim() || t('shell.trial.label'), name: product.name })}
+						? t('settings.purchase.upgradeNoticeAt', { current: before?.name.trim() || t('shell.trial.label'), name: product.name, date: planDate(product.upgrade.expires_at) })
+						: t('settings.purchase.upgradeNotice', { current: before?.name.trim() || t('shell.trial.label'), name: product.name })}
 				</p>
-			{:else if sameProduct && currentPlan}
+			{:else if sameProduct && before}
 				<!-- The same plan again: renewed from its current end, usage kept (contract v1.2). -->
 				<p class="note">
 					{t('settings.purchase.renewNotice', {
 						duration: durationText(product.duration_seconds),
-						date: planDate(new Date(Date.parse(currentPlan.expires_at) + (product.duration_seconds ?? 0) * 1000).toISOString())
+						date: planDate(new Date(Date.parse(before.expires_at) + (product.duration_seconds ?? 0) * 1000).toISOString())
 					})}
 				</p>
-			{:else if replacing && currentPlan}
-				<Notice tone="warn">{t('settings.purchase.replaceNotice', { current: currentPlan.name.trim() || t('shell.trial.label') })}</Notice>
+			{:else if replacing && before}
+				<Notice tone="warn">{t('settings.purchase.replaceNotice', { current: before.name.trim() || t('shell.trial.label') })}</Notice>
 			{:else}
 				<p class="note">
 					{endsAround

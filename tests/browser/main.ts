@@ -17,8 +17,9 @@ const frostAtStart = (() => {
 // paid plan (Grove) bought on the website, which this device does not pay
 // with yet (the claim says not_eligible).
 // ?funding=plan: the device pays with the plan (default: the balance, as a
-// new device key starts; notes/plan-balance-contract.md F5). PUT plan
-// without a plan in force answers 409 plan_inactive (contract 2.2).
+// new device key starts; notes/plan-balance-contract.md F5). A granted claim
+// moves it to the plan (v1.2; &noclaimswitch: it does not). PUT plan without
+// a plan in force answers 409 plan_inactive (contract 2.2).
 const trialReply = new URL(location.href).searchParams.get('trial');
 // ?latency[=random|<ms>]: the plan's GET / PUT answer that much later
 // (random: 300–1500 ms), as a slow gateway would.
@@ -200,7 +201,9 @@ Object.assign(window, {
         case 'monoize_trial_claim':
           if (trialReply === '404') throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
           if (trialReply === 'not_eligible' || trialReply === 'ended' || trialReply === 'web') return {status: 'not_eligible'};
-          // The claim does not switch the device (contract 2.3).
+          // A grant puts the account's devices on the trial (contract v1.2
+          // 2.3); &noclaimswitch: a gateway that leaves them on the balance.
+          if (!params0.has('noclaimswitch')) planFunding = 'plan';
           return {status: 'granted', plan: trialPlan(trialReply === 'used'), plan_funding: planFunding};
         // GET / PUT /api/desktop/oauth/plan (an older gateway with ?trial=404).
         case 'monoize_desktop_plan':

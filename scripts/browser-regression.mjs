@@ -1345,10 +1345,12 @@ try {
   await trialPage.evaluate(() => window.__trial.signedIn());
   assert.equal(await claimCount(), 1, 'the trial was claimed twice');
   const fundingPuts = () => trialPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding));
-  await expect(grantCard).toContainText('本设备使用体验套餐支付？');
-  await grantCard.getByRole('button',{name:'暂不，用余额'}).click();
+  // The grant put this device on the trial (contract v1.2): said, with 改用余额.
+  await expect(grantCard).toContainText('本设备的请求由体验套餐支付');
+  await expect(grantCard.getByRole('button',{name:'改用余额'})).toBeVisible();
+  await grantCard.getByRole('button',{name:'知道了'}).click();
   await expect(grantCard).toHaveCount(0);
-  assert.deepEqual(await fundingPuts(), [], 'keeping the balance changed the funding');
+  assert.deepEqual(await fundingPuts(), [], '知道了 changed the funding');
   // The trial's plan was put to the user: no second offer for it.
   await expect(trialPage.getByRole('region',{name:'套餐'})).toHaveCount(0);
   await openTrial('?shell&trial');
@@ -1389,17 +1391,24 @@ try {
   assert.equal(await claimCount(), 1);
   await openTrial('?shell&trial=not_eligible');
   assert.equal(await claimCount(), 1, 'not_eligible was not asked again at the next start');
-  // 用体验套餐 on the card: this device pays with the trial from now on.
+  // 改用余额 on the card: this device pays with the balance from now on.
   await openTrial('?shell&trial', {fresh: true});
+  await grantCard.getByRole('button',{name:'改用余额'}).click();
+  await expect(grantCard).toHaveCount(0);
+  await expect.poll(fundingPuts).toEqual(['balance']);
+  await expect(trialPage.getByText('本设备已改为余额计费')).toBeVisible();
+  // A gateway that leaves the device on the balance: the card asks, and
+  // 用体验套餐 moves it to the trial.
+  await openTrial('?shell&trial&noclaimswitch', {fresh: true});
+  await expect(grantCard).toContainText('本设备使用体验套餐支付？');
   await grantCard.getByRole('button',{name:'用体验套餐'}).click();
   await expect(grantCard).toHaveCount(0);
   await expect.poll(fundingPuts).toEqual(['plan']);
   await expect(trialPage.getByText('本设备已改为套餐计费')).toBeVisible();
-  // A device already on the plan is told so; 知道了 is all there is.
-  await openTrial('?shell&trial&funding=plan', {fresh: true});
-  await expect(grantCard).toContainText('本设备的请求由体验套餐支付');
-  await grantCard.getByRole('button',{name:'知道了'}).click();
+  await openTrial('?shell&trial&noclaimswitch', {fresh: true});
+  await grantCard.getByRole('button',{name:'暂不，用余额'}).click();
   await expect(grantCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], 'keeping the balance changed the funding');
   // A plan bought on the website, which this device does not pay with: offered
   // once; 继续用余额 sends nothing, and it is not offered again.
   const offerCard = trialPage.getByRole('region',{name:'套餐'});
@@ -1549,7 +1558,7 @@ try {
     await pp.evaluate(() => { for (let i = 0; i < 3; i++) window.__shellChat.handle({type: 'usage', input_tokens: 1200, output_tokens: 80}); });
     await expect.poll(reads, {timeout:6000}).toBe(before + 1);
     // On the balance the plan is not mentioned.
-    await pp.goto(base + '?shell&empty&models&trial');
+    await pp.goto(base + '?shell&empty&models&trial&noclaimswitch');
     await answerTrialCard();
     await pp.locator('.fbtn.model').click();
     await expect(quick.locator('.mline').first()).toBeVisible();
