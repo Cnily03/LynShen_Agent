@@ -30,13 +30,15 @@ export type SectionKey =
 	| 'acp'
 	| 'import'
 	| 'daemon'
+	/** 聊天连接: chat bots in the daemon (Telegram, …). */
+	| 'chat'
 	| 'updates';
 
 export const GROUPS: { key: string; sections: SectionKey[] }[] = [
 	{ key: 'app', sections: ['general', 'shortcuts', 'account', 'invite', 'devices', 'usage', 'voice'] },
 	{ key: 'models', sections: ['providers', 'models', 'styles', 'network'] },
 	{ key: 'agents', sections: ['agents', 'sandbox', 'team', 'acp', 'skills', 'plugins', 'mcp', 'import'] },
-	{ key: 'system', sections: ['daemon', 'updates'] }
+	{ key: 'system', sections: ['daemon', 'chat', 'updates'] }
 ];
 
 const KEYS = new Set<string>(GROUPS.flatMap((g) => g.sections));
@@ -142,6 +144,8 @@ export const ROWS: SearchRow[] = [
 	{ section: 'import', id: 'import-scan', titleKey: 'settings.import.title', descKey: 'settings.import.intro' },
 	{ section: 'daemon', id: 'relay', titleKey: 'settings.backend.relayToggle', descKey: 'settings.backend.relayHint' },
 	{ section: 'daemon', id: 'devices', titleKey: 'settings.backend.devices' },
+	{ section: 'chat', id: 'chat-connectors', titleKey: 'settings.section.chat', descKey: 'settings.chat.intro' },
+	{ section: 'chat', id: 'chat-add', titleKey: 'settings.chat.addBot', descKey: 'settings.chat.addBotHint' },
 	{ section: 'updates', id: 'app-version', titleKey: 'settings.update.currentVersion' },
 	{ section: 'updates', id: 'licenses', titleKey: 'settings.licenses.title' }
 ];

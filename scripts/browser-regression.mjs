@@ -1723,6 +1723,86 @@ try {
     await expect(mp.locator('.pop.mp')).toHaveCount(0);
     await mp.close();
   }
+  // Settings → 聊天连接: a Telegram bot's state, binding with a code (link
+  // and QR code, closed by the new binding), the chat's limits, adding a bot
+  // (token and proxy checked first), unbinding; 远程访问 lists phones only;
+  // an older daemon says so.
+  {
+    const cp = await browser.newPage({viewport:{width:1040,height:680}});
+    cp.on('pageerror', e => errors.push(e.message));
+    const ops = (name) => cp.evaluate((n) => window.__ops.filter((o) => o.op === n), name);
+    await cp.goto(base + '?shell&settings=chat');
+    await expect(cp.getByRole('heading', {name:'聊天连接', level:1})).toBeVisible({timeout:30000});
+    const bot = cp.locator('#set-chat-tg-3f9a1c2b');
+    await expect(bot.getByRole('heading', {name:'Telegram · @aogiri_home_bot'})).toBeVisible();
+    await expect(bot.getByText('已连接', {exact:true})).toBeVisible();
+    await expect(bot.getByText('Chad Li (@chadli)')).toBeVisible();
+    await bot.getByRole('button', {name:'绑定账号', exact:true}).click();
+    await expect(bot.getByText('绑定码 K7QXA2B9')).toBeVisible();
+    await expect(bot.locator('.qr svg')).toHaveCount(1);
+    await bot.getByRole('button', {name:'打开链接', exact:true}).click();
+    await expect.poll(() => cp.evaluate(() => window.__calls.filter((c) => c.command === 'plugin:opener|open_url').map((c) => c.args.url))).toContain('https://t.me/aogiri_home_bot?start=K7QXA2B9');
+    await cp.evaluate(() => window.__daemon.connectors[0].bindings.push({device:'dev-tg-2', name:'Second (@second)', paired_at:Date.now(), last_seen:Date.now()}));
+    await expect(bot.getByText('绑定码 K7QXA2B9')).toHaveCount(0, {timeout:8000});
+    await expect(bot.getByText('Second (@second)')).toBeVisible();
+    // What a chat may do: full auto is not offered.
+    await bot.getByRole('switch', {name:'允许在聊天中审批'}).click();
+    await bot.getByRole('button', {name:'谨慎', exact:true}).click();
+    await expect.poll(async () => (await ops('connector_set')).map((o) => o.approvals ?? o.max_mode)).toEqual([false, 'manual']);
+    await expect(bot.getByRole('button', {name:/全自动|完全访问/})).toHaveCount(0);
+    await bot.getByRole('button', {name:'解除绑定', exact:true}).first().click();
+    await cp.getByRole('button', {name:'解除绑定', exact:true}).last().click();
+    await expect.poll(async () => (await ops('device_revoke')).map((o) => o.device)).toEqual(['dev-tg-1']);
+    await expect(bot.getByText('Chad Li (@chadli)')).toHaveCount(0);
+    // Adding a bot: the token and the proxy are checked before anything is sent.
+    await cp.getByRole('button', {name:'添加', exact:true}).click();
+    const form = cp.locator('form.form');
+    await form.locator('input[type=password]').fill('123:short');
+    await form.locator('input').nth(1).fill('socks5://127.0.0.1:7891');
+    await expect(form.getByText(/这不像 Telegram 的 bot token/)).toBeVisible();
+    await expect(form.getByText(/不支持 SOCKS，请用/)).toBeVisible();
+    await expect(form.getByRole('button', {name:'连接', exact:true})).toBeDisabled();
+    await form.locator('input[type=password]').fill('123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw1');
+    await form.locator('input').nth(1).fill('http://127.0.0.1:7890');
+    await form.getByRole('button', {name:'连接', exact:true}).click();
+    await expect(cp.getByRole('heading', {name:'Telegram · @aogiri_work_bot'})).toBeVisible();
+    assert.deepEqual((await ops('connector_add')).map((o) => [o.platform, o.proxy]), [['telegram', 'http://127.0.0.1:7890']]);
+    // 远程访问 lists the phones; the chat accounts live on 聊天连接.
+    await cp.getByRole('button', {name:'远程访问', exact:true}).click();
+    await expect(cp.getByText('iPhone', {exact:true})).toBeVisible();
+    await expect(cp.getByText('Second (@second)')).toHaveCount(0);
+    await cp.goto(base + '?shell&settings=chat&chats=old');
+    await expect(cp.getByText('当前的后台服务不支持聊天连接，更新后可用。')).toBeVisible({timeout:30000});
+    await expect(cp.getByRole('button', {name:'添加', exact:true})).toBeDisabled();
+    // Discord and QQ: a server invite, QQ's note, no proxy and no QR code
+    // for QQ, and its own fields when adding one.
+    await cp.goto(base + '?shell&settings=chat&chats=all');
+    await expect(cp.getByRole('heading', {name:'QQ · @梧桐助手'})).toBeVisible({timeout:30000});
+    const qqBot = cp.locator('#set-chat-qq-102030405');
+    await expect(qqBot.getByText(/QQ 不能编辑消息/)).toBeVisible();
+    await expect(qqBot.getByText('代理', {exact:true})).toHaveCount(0);
+    await qqBot.getByRole('button', {name:'绑定账号', exact:true}).click();
+    await expect(qqBot.getByText('给机器人发私信：/bind K7QXA2B9')).toBeVisible();
+    await expect(qqBot.locator('.qr svg')).toHaveCount(0);
+    await cp.locator('#set-chat-dc-7a1b').getByRole('button', {name:'加入服务器', exact:true}).click();
+    await expect.poll(() => cp.evaluate(() => window.__calls.filter((c) => c.command === 'plugin:opener|open_url').map((c) => c.args.url))).toContain('https://discord.com/oauth2/authorize?client_id=777&scope=bot&permissions=0');
+    await cp.getByRole('button', {name:'添加', exact:true}).click();
+    const addForm = cp.locator('form.form');
+    await addForm.getByRole('button', {name:'Discord', exact:true}).click();
+    await addForm.locator('input[type=password]').fill('not-a-token');
+    await expect(addForm.getByText(/这不像 Discord 的 bot token/)).toBeVisible();
+    await addForm.getByRole('button', {name:'QQ', exact:true}).click();
+    await expect(addForm.getByText('代理', {exact:true})).toHaveCount(0);
+    await addForm.locator('input').first().fill('102030405');
+    await expect(addForm.getByRole('button', {name:'连接', exact:true})).toBeDisabled();
+    await addForm.locator('input[type=password]').fill('qqSecretABCDEF');
+    await addForm.getByRole('button', {name:'连接', exact:true}).click();
+    await expect.poll(async () => (await ops('connector_add')).map((o) => [o.platform, o.app_id, o.secret, o.token ?? null, o.proxy ?? null])).toEqual([['qq', '102030405', 'qqSecretABCDEF', null, null]]);
+    await cp.goto(base + '?shell&settings=chat&lang=en&theme=light');
+    await expect(cp.getByRole('heading', {name:'Chat connectors', level:1})).toBeVisible({timeout:30000});
+    await expect(cp.getByText('Connected', {exact:true})).toBeVisible();
+    await cp.close();
+  }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

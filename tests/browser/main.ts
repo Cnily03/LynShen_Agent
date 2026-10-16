@@ -159,6 +159,9 @@ if (panels || shell) {
   daemonState.old = params.has('oldEngine');
   daemonState.stall = params.has('stall');
   daemonState.shellsPlatform = params.get('agents') === 'windows' ? 'windows' : 'macos';
+  // ?chats[=empty|error|old|all]: Settings → 聊天连接's sample (fakeDaemon.ts).
+  daemonState.chats = params.get('chats') ?? '';
+  daemonState.connectors = (await import('./fakeDaemon')).chatSample(daemonState.chats);
 }
 // ?remote: the phone remote page's conversation (Remote.svelte), in a
 // browser, not the app.

@@ -35,6 +35,7 @@
 	import TrayArrowDownIcon from 'phosphor-svelte/lib/TrayArrowDownIcon';
 	import InfoIcon from 'phosphor-svelte/lib/InfoIcon';
 	import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobileIcon';
+	import ChatsCircleIcon from 'phosphor-svelte/lib/ChatsCircleIcon';
 	import SignInIcon from 'phosphor-svelte/lib/SignInIcon';
 	import SignOutIcon from 'phosphor-svelte/lib/SignOutIcon';
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
@@ -108,6 +109,7 @@
 	import StylesSection from './StylesSection.svelte';
 	import AcpSection from './AcpSection.svelte';
 	import DaemonSection from './DaemonSection.svelte';
+	import ChatConnectorsSection from './ChatConnectorsSection.svelte';
 	import McpSection from './McpSection.svelte';
 	import ImportSection from './ImportSection.svelte';
 	import SkillsSection from './SkillsSection.svelte';
@@ -181,6 +183,7 @@
 		acp: PlugsConnectedIcon,
 		import: TrayArrowDownIcon,
 		daemon: DeviceMobileIcon,
+		chat: ChatsCircleIcon,
 		updates: InfoIcon
 	};
 	const current = $derived(resolveSection(section));
@@ -1362,6 +1365,8 @@
 					<ImportSection {onAddFolders} />
 				{:else if current === 'daemon'}
 					<DaemonSection />
+				{:else if current === 'chat'}
+					<ChatConnectorsSection />
 				{:else if current === 'updates'}
 					<UpdateCard />
 					<ThirdPartyNotices />
