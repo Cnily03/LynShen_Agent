@@ -8,7 +8,7 @@ const buttons = (html: string) =>
 	[...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((m) => text(m[1]).trim()).filter(Boolean);
 
 describe('the error notice', () => {
-	it('offers waiting, the balance and a plan side by side when the plan is used up', async () => {
+	it('offers waiting, the balance until it recovers and a plan side by side when the plan is used up', async () => {
 		setLocale('zh');
 		const { default: ErrorNotice } = await import('./ErrorNotice.svelte');
 		const resets = new Date(Date.now() + 2 * 3_600_000);
@@ -23,7 +23,7 @@ describe('the error notice', () => {
 		expect(text(body)).toContain('套餐 5 小时额度用完了');
 		expect(text(body)).toContain(`${time} 恢复`);
 		expect(text(body)).toContain('不会自动改扣余额');
-		expect(buttons(body)).toEqual([`等待恢复 · ${time}`, '改用余额继续', '购买套餐', '原始信息']);
+		expect(buttons(body)).toEqual([`等待恢复 · ${time}`, '额度恢复前先用余额', '购买套餐', '原始信息']);
 		// No primary among them: the user decides.
 		expect(body).not.toMatch(/class="b primary/);
 	});
@@ -41,7 +41,7 @@ describe('the error notice', () => {
 			}
 		}).body;
 		expect(text(body)).toContain('恢复后自动继续');
-		expect(buttons(body)).toEqual(['取消等待', '改用余额继续', '购买套餐', '原始信息']);
+		expect(buttons(body)).toEqual(['取消等待', '额度恢复前先用余额', '购买套餐', '原始信息']);
 	});
 
 	it('offers renewing or the balance for an ended plan, another model or the balance outside the plan', async () => {

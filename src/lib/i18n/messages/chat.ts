@@ -331,6 +331,8 @@ const chat = {
 			planTitle: '本设备由 {name} 支付：只用套餐额度，用完会暂停并提示，不会自动扣余额。在 设置 → 账户 里改。',
 			balance: '余额支付',
 			balanceTitle: '本设备由余额支付，不用套餐。在 设置 → 账户 里改。',
+			balanceUntil: '余额支付至 {time}',
+			balanceUntilTitle: '余额支付至 {time}，之后恢复套餐。',
 			ended: '套餐已结束'
 		},
 		// A request the plan refused (planStop.ts): the card's words.
@@ -357,6 +359,7 @@ const chat = {
 			waiting: '{time} 恢复后自动继续',
 			cancelWait: '取消等待',
 			balanceNote: '已改用余额，继续执行',
+			balanceUntilNote: '额度恢复前先用余额，继续执行',
 			resumeNote: '套餐额度已恢复，继续执行'
 		},
 		err: {
@@ -377,6 +380,7 @@ const chat = {
 				useBalance: '改用余额继续',
 				waitPlan: '等待恢复',
 				waitPlanAt: '等待恢复 · {time}',
+				balanceUntilReset: '额度恢复前先用余额',
 				devices: '查看设备'
 			},
 			providerKey: { title: '{subject} 的 API Key 无效', hint: '服务商拒绝了这个密钥。在设置 → 提供商里更新 {subject} 的密钥后再试。' },
@@ -867,6 +871,8 @@ const chat = {
 			planTitle: 'This device pays with {name}: only the plan pays; when it runs out, requests pause and the balance is not used. Change it in Settings → Account.',
 			balance: 'Balance pays',
 			balanceTitle: 'This device pays with the balance; the plan is not used. Change it in Settings → Account.',
+			balanceUntil: 'Balance until {time}',
+			balanceUntilTitle: 'The balance pays until {time}, then the plan again.',
 			ended: 'Plan ended'
 		},
 		planStop: {
@@ -892,6 +898,7 @@ const chat = {
 			waiting: 'Continues when it recovers at {time}',
 			cancelWait: 'Stop waiting',
 			balanceNote: 'Now paying with the balance; continuing',
+			balanceUntilNote: 'Paying with the balance until the quota recovers; continuing',
 			resumeNote: 'The plan quota recovered; continuing'
 		},
 		err: {
@@ -912,6 +919,7 @@ const chat = {
 				useBalance: 'Continue with balance',
 				waitPlan: 'Wait for it',
 				waitPlanAt: 'Wait · {time}',
+				balanceUntilReset: 'Use balance until it recovers',
 				devices: 'View devices'
 			},
 			providerKey: { title: '{subject} API key rejected', hint: 'The provider refused this key. Update the {subject} key in Settings → Providers, then retry.' },

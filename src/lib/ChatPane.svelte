@@ -106,6 +106,7 @@
 	import type { SectionKey } from '$lib/settings/nav';
 	import type { ErrorAction, ErrorInfo } from '$lib/errorInfo';
 	import { planWaits } from '$lib/planStop.svelte';
+	import { resetText } from '$lib/planStop';
 	import { isGateway } from '$lib/models/catalog';
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
@@ -337,18 +338,25 @@
 	// A turn the plan stopped (planStop.ts), the way on the user picked.
 	// "改用余额继续": this device pays with the balance from its next request
 	// (every conversation on it, as Settings → 账户 sets it), and this turn
-	// goes on. After a used-up window the app offers the plan again once the
-	// window recovers. Nothing switches unless the user asks.
-	async function payWithBalance(info: ErrorInfo) {
+	// goes on. "额度恢复前先用余额" (a used-up window): the same until the
+	// window recovers; the gateway then returns the device to the plan.
+	// Nothing switches unless the user asks.
+	async function payWithBalance(info: ErrorInfo, untilReset = false) {
 		planWaits.cancel(session.id);
-		const error = await trial.setFunding('balance');
+		const error = await trial.setFunding('balance', untilReset ? 'until_reset' : 'permanent');
 		if (error) {
 			toast.error(t('shell.trial.fundingFailed', { error }));
 			return;
 		}
-		toast.success(t('shell.trial.fundingToBalance'));
-		if (info.plan?.code === 'plan_quota_exhausted' && info.plan.resetsAt) trial.remindRecovery(info.plan.resetsAt);
-		if (info.plan) void store.retryTurn(session.id, t('chat.planStop.balanceNote'), true);
+		const until = trial.balanceUntil ?? (untilReset ? info.plan?.resetsAt : undefined);
+		toast.success(
+			!untilReset
+				? t('shell.trial.fundingToBalance')
+				: until
+					? t('shell.funding.untilReset', { time: resetText(until) })
+					: t('shell.funding.untilResetBare')
+		);
+		if (info.plan) void store.retryTurn(session.id, t(untilReset ? 'chat.planStop.balanceUntilNote' : 'chat.planStop.balanceNote'), true);
 	}
 	// "等待恢复": the turn goes on by itself once the window recovers, unless
 	// the conversation moved on meanwhile.
@@ -384,6 +392,7 @@
 		else if (action === 'login' || action === 'account') onOpenSettings?.('account');
 		else if (action === 'purchase' || action === 'renew' || action === 'topUp') onOpenSettings?.('purchase');
 		else if (action === 'useBalance') void payWithBalance(info);
+		else if (action === 'balanceUntilReset') void payWithBalance(info, true);
 		else if (action === 'waitPlan') waitForPlan(info);
 		else if (action === 'providers') onOpenSettings?.('providers');
 		else if (action === 'devices') onOpenSettings?.('devices');

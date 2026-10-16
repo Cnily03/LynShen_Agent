@@ -51,6 +51,10 @@ export type PlanFunding = 'plan' | 'balance';
 export interface DesktopPlanStatus {
 	plan: TrialPlan | null;
 	funding: PlanFunding;
+	/** On the balance until then (RFC 3339) because the plan's window was used
+	 *  up; the gateway returns the device to the plan after it. Null: the
+	 *  choice stands until the user changes it. */
+	balanceUntil?: string | null;
 }
 
 /** What one claim attempt came to. */
@@ -137,7 +141,12 @@ export function parseDesktopPlan(body: unknown): DesktopPlanStatus | null {
 	if (!body || typeof body !== 'object') return null;
 	const b = body as Record<string, unknown>;
 	if (b.plan_funding !== 'plan' && b.plan_funding !== 'balance') return null;
-	return { plan: b.plan == null ? null : parsePlan(b.plan), funding: b.plan_funding };
+	const until = typeof b.balance_until === 'string' && !Number.isNaN(Date.parse(b.balance_until)) ? b.balance_until : null;
+	return {
+		plan: b.plan == null ? null : parsePlan(b.plan),
+		funding: b.plan_funding,
+		...(until && b.plan_funding === 'balance' ? { balanceUntil: until } : {})
+	};
 }
 
 /** Tells one plan (one purchase, one trial) from the next: the prompts that

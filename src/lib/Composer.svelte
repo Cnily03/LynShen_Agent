@@ -65,6 +65,7 @@
 	import { isGateway } from '$lib/models/catalog';
 	import { trial } from '$lib/trial.svelte';
 	import { credits, tightestWindow, windowLabel } from '$lib/trial';
+	import { resetText } from '$lib/planStop';
 
 	let {
 		chat,
@@ -770,6 +771,8 @@
 	const payer = $derived.by(() => {
 		if (!viaGateway || !trial.choiceShown) return null;
 		const plan = trial.plan;
+		const until = trial.balanceUntil;
+		if (until) return { label: t('chat.payer.balanceUntil', { time: resetText(until) }), title: t('chat.payer.balanceUntilTitle', { time: resetText(until) }), warn: false };
 		if (trial.funding === 'balance') return { label: t('chat.payer.balance'), title: t('chat.payer.balanceTitle'), warn: false };
 		if (!plan) return { label: t('chat.payer.ended'), title: t('shell.trial.fundingEndedHint'), warn: true };
 		const tight = tightestWindow(plan);

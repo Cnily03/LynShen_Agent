@@ -46,6 +46,16 @@ const modelsMode = params0.get('models');
 const purchaseMode = params0.get('purchase');
 let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
 let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
+// A move to the balance until the used-up window recovers (PUT mode
+// until_reset): its end; `window.__windowRecovered()` is the gateway putting
+// the device back on the plan when it comes.
+let balanceUntil: string | null = null;
+let windowRecovered = false;
+const fundingBody = () => ({plan_funding: planFunding, bucket: planFunding, ...(planFunding === 'balance' && balanceUntil ? {balance_until: balanceUntil} : {})});
+const setFunding = (args: any) => {
+  planFunding = args.funding;
+  balanceUntil = args.funding === 'balance' && args.mode === 'until_reset' ? new Date(planStartedAt + 2 * 3_600_000).toISOString() : null;
+};
 // ?devices=<n>: the devices using the plan now (of 3 at most; default 1).
 const planDevices = () => ({in_use: Number(params0.get('devices') ?? 1), limit: 3, this_device: true});
 const planRefused = () => JSON.stringify({status: 409, code: 'plan_inactive', message: '现在没有生效的套餐'});
@@ -95,7 +105,7 @@ const planStartedAt = Date.now();
 // Plans end at a fixed time (the same plan on the next load), 6.5 to 7.5 days
 // after the start for the trial (a 7-day trial when its card counts days).
 const planEndsFrom = Math.floor(planStartedAt / 86_400_000) * 86_400_000 + 12 * 3_600_000;
-const trialPlan = (used: boolean, full = trialReply === 'full') => ({
+const trialPlan = (used: boolean, full = trialReply === 'full' && !windowRecovered) => ({
   name: '7 天体验套餐',
   group: '国内模型分组',
   windows: [
@@ -105,6 +115,7 @@ const trialPlan = (used: boolean, full = trialReply === 'full') => ({
   expires_at: new Date(planEndsFrom + 7 * 86_400_000).toISOString()
 });
 Object.assign(window, {
+  __windowRecovered: () => { windowRecovered = true; if (balanceUntil) { planFunding = 'plan'; balanceUntil = null; } },
   __calls: calls,
   __keptAvatar: KEPT_AVATAR,
   __TAURI_INTERNALS__: {
@@ -184,9 +195,9 @@ Object.assign(window, {
       if ((command === 'monoize_desktop_plan' || command === 'monoize_set_plan_funding') && purchaseMode != null && trialReply == null) {
         if (command === 'monoize_set_plan_funding') {
           if (args.funding === 'plan' && !store.plan) throw planRefused();
-          planFunding = args.funding;
+          setFunding(args);
         }
-        return {plan: store.plan, plan_funding: planFunding, bucket: planFunding};
+        return {plan: store.plan, ...fundingBody()};
       }
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
@@ -211,14 +222,14 @@ Object.assign(window, {
           if (trialReply === '404' || trialReply === 'not_eligible' || trialReply == null) throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
           if (command === 'monoize_set_plan_funding') {
             if (args.funding === 'plan' && trialReply === 'ended') throw planRefused();
-            planFunding = args.funding;
+            setFunding(args);
           }
           {
             // The gateway stores a change as it arrives and answers later.
             const plan = trialReply === 'ended' ? null
               : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true, devices: planDevices()}
               : {...trialPlan(trialReply === 'used'), trial: true, active: true, devices: planDevices()};
-            const answer = {plan, plan_funding: planFunding, bucket: planFunding};
+            const answer = {plan, ...fundingBody()};
             if (latency != null) await slow();
             return answer;
           }

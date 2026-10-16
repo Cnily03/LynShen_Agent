@@ -353,9 +353,19 @@ pub fn monoize_model_catalog() -> Result<Value, String> {
     gateway_key_call("GET", "/api/desktop/models/catalog", None)
 }
 
-/// The body of `PUT /api/desktop/oauth/plan`: `plan` or `balance` only.
-fn plan_funding_request(funding: &str) -> Option<Value> {
-    matches!(funding, "plan" | "balance").then(|| json!({ "plan_funding": funding }))
+/// The body of `PUT /api/desktop/oauth/plan`: `plan` or `balance` only;
+/// `mode` only `until_reset` (the balance until the plan's used-up window
+/// recovers, then the gateway returns the device to the plan). Without a
+/// mode the choice is permanent.
+fn plan_funding_request(funding: &str, mode: Option<&str>) -> Option<Value> {
+    if !matches!(funding, "plan" | "balance") {
+        return None;
+    }
+    match mode {
+        None => Some(json!({ "plan_funding": funding })),
+        Some("until_reset") if funding == "balance" => Some(json!({ "plan_funding": funding, "mode": "until_reset" })),
+        Some(_) => None,
+    }
 }
 
 /// Sets who pays this device key's requests (notes/plan-balance-contract.md
@@ -364,10 +374,11 @@ fn plan_funding_request(funding: &str) -> Option<Value> {
 /// new device key starts on it) (`PUT /api/desktop/oauth/plan`). Answers the
 /// same body as [`monoize_desktop_plan`]; it applies from the next request
 /// of every session on this device. Sent only on the user's explicit choice.
+/// `mode`: `until_reset` for the balance until the window recovers.
 #[tauri::command(async)]
-pub fn monoize_set_plan_funding(funding: String) -> Result<Value, String> {
-    let body = plan_funding_request(&funding).ok_or_else(|| {
-        json!({ "status": null, "code": "invalid_request", "message": "plan_funding must be plan or balance" }).to_string()
+pub fn monoize_set_plan_funding(funding: String, mode: Option<String>) -> Result<Value, String> {
+    let body = plan_funding_request(&funding, mode.as_deref()).ok_or_else(|| {
+        json!({ "status": null, "code": "invalid_request", "message": "plan_funding must be plan or balance (mode: until_reset with balance)" }).to_string()
     })?;
     gateway_key_call("PUT", "/api/desktop/oauth/plan", Some(body))
 }
@@ -752,15 +763,21 @@ mod tests {
     #[test]
     fn the_funding_choice_is_plan_or_balance() {
         assert_eq!(
-            plan_funding_request("balance"),
+            plan_funding_request("balance", None),
             Some(json!({ "plan_funding": "balance" }))
         );
         assert_eq!(
-            plan_funding_request("plan"),
+            plan_funding_request("plan", None),
             Some(json!({ "plan_funding": "plan" }))
         );
-        assert_eq!(plan_funding_request("both"), None);
-        assert_eq!(plan_funding_request(""), None);
+        assert_eq!(
+            plan_funding_request("balance", Some("until_reset")),
+            Some(json!({ "plan_funding": "balance", "mode": "until_reset" }))
+        );
+        assert_eq!(plan_funding_request("plan", Some("until_reset")), None);
+        assert_eq!(plan_funding_request("balance", Some("forever")), None);
+        assert_eq!(plan_funding_request("both", None), None);
+        assert_eq!(plan_funding_request("", None), None);
     }
 
     #[test]

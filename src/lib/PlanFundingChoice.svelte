@@ -12,6 +12,7 @@
 	import { t } from '$lib/i18n';
 	import { trial } from '$lib/trial.svelte';
 	import type { PlanFunding } from '$lib/trial';
+	import { resetText } from '$lib/planStop';
 
 	let { id = 'account-funding' }: { id?: string } = $props();
 
@@ -21,12 +22,22 @@
 	// a change fails.
 	const funding = $derived(trial.funding);
 	const error = $derived(trial.fundingError ? t('shell.trial.fundingFailed', { error: trial.fundingError }) : '');
+	// On the balance until a used-up window recovers: when the plan pays again.
+	const until = $derived(trial.balanceUntil);
 	const hint = $derived(
-		funding === 'balance' ? t('shell.trial.fundingBalanceHint') : plan ? t('shell.trial.fundingPlanHint') : t('shell.trial.fundingEndedHint')
+		until
+			? t('shell.trial.fundingBalanceUntil', { time: resetText(until) })
+			: funding === 'balance'
+				? t('shell.trial.fundingBalanceHint')
+				: plan
+					? t('shell.trial.fundingPlanHint')
+					: t('shell.trial.fundingEndedHint')
 	);
 
+	// A choice here is for good: 余额 while on the balance until the window
+	// recovers keeps the balance after it too.
 	function pick(value: string) {
-		if (value === funding) return;
+		if (value === funding && !(value === 'balance' && until)) return;
 		void trial.setFunding(value as PlanFunding);
 	}
 </script>

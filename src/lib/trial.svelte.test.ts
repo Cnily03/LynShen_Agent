@@ -12,7 +12,11 @@ const gateway = vi.hoisted(() => ({
 	hold: false,
 	held: [] as { kind: 'put' | 'get'; release: () => void }[],
 	/** The choice the gateway has stored (PUTs change it, GETs read it). */
-	stored: 'plan' as string
+	stored: 'plan' as string,
+	/** The PUTs' modes; the end of a move until the window recovers (a GET
+	 *  answers it while the stored choice is the balance). */
+	modes: [] as (string | null)[],
+	until: null as string | null
 }));
 const wait = (kind: 'put' | 'get') =>
 	gateway.hold ? new Promise<void>((release) => gateway.held.push({ kind, release })) : Promise.resolve();
@@ -35,14 +39,15 @@ vi.mock('$lib/protocol', () => ({
 		const body = answer(gateway.plan) as { plan: unknown; plan_funding: string };
 		const stored = gateway.hold ? gateway.stored : body.plan_funding;
 		await wait('get');
-		return { ...body, plan_funding: stored };
+		return { ...body, plan_funding: stored, ...(stored === 'balance' && gateway.until ? { balance_until: gateway.until } : {}) };
 	}),
-	setPlanFunding: vi.fn(async (funding: string) => {
+	setPlanFunding: vi.fn(async (funding: string, mode: string | null = null) => {
 		gateway.funding.push(funding);
+		gateway.modes.push(mode);
 		gateway.stored = funding;
 		const body = answer(gateway.plan) as { plan: unknown };
 		await wait('put');
-		return { ...body, plan_funding: funding };
+		return { ...body, plan_funding: funding, ...(funding === 'balance' && mode === 'until_reset' && gateway.until ? { balance_until: gateway.until } : {}) };
 	})
 }));
 
@@ -75,6 +80,8 @@ beforeEach(() => {
 	gateway.hold = false;
 	gateway.held = [];
 	gateway.stored = 'plan';
+	gateway.modes = [];
+	gateway.until = null;
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -233,33 +240,71 @@ describe('the trial runner', () => {
 			expect(trial.offer).toBeNull();
 		});
 
-		it('is offered again once a used-up window recovers, after a move to the balance', async () => {
-			const trial = await signedIn('plan');
+	});
+
+	describe('the balance until a used-up window recovers', () => {
+		const paid = { ...PLAN, name: 'Grove', group: '套餐专用', active: true, trial: false };
+		const resets = () => new Date(Date.now() + 3_600_000).toISOString();
+		/** 已恢复使用套餐, in whichever language the test runs. */
+		const BACK = /已恢复使用套餐|Back on the plan/;
+		async function onPlan() {
+			const { trial } = await fresh();
+			gateway.plan = { plan: paid, plan_funding: 'plan' };
+			gateway.replies = [{ status: 'not_eligible' }];
+			await trial.signedIn();
+			await vi.advanceTimersByTimeAsync(0);
 			// The toasts of this copy of the modules (fresh() reloads them).
 			const { toast } = await import('$lib/ui/toast.svelte');
-			expect(await trial.setFunding('balance')).toBe('');
-			gateway.plan = { plan: paid, plan_funding: 'balance' };
-			const at = Date.now() + 3_600_000;
-			trial.remindRecovery(at);
-			await vi.advanceTimersByTimeAsync(3_600_000);
-			expect(toast.items.some((x) => x.message.includes('Grove'))).toBe(false);
-			await vi.advanceTimersByTimeAsync(10_000);
-			const shown = toast.items.find((x) => x.message.includes('Grove'));
-			expect(shown?.action).toBeDefined();
-			shown!.action!.run();
-			await vi.advanceTimersByTimeAsync(0);
-			expect(gateway.funding.at(-1)).toBe('plan');
+			return { trial, toast };
+		}
+
+		it('is sent as until_reset, shows until when, and says so once the gateway is back on the plan', async () => {
+			const { trial, toast } = await onPlan();
+			const until = resets();
+			gateway.until = until;
+			expect(await trial.setFunding('balance', 'until_reset')).toBe('');
+			expect(gateway.modes).toEqual(['until_reset']);
+			expect(trial.funding).toBe('balance');
+			expect(trial.balanceUntil).toBe(Date.parse(until));
+			// The window recovers; the gateway returns the device to the plan.
+			gateway.plan = { plan: paid, plan_funding: 'plan' };
+			gateway.until = null;
+			await vi.advanceTimersByTimeAsync(3_600_000 + 6_000);
 			expect(trial.funding).toBe('plan');
+			expect(trial.balanceUntil).toBeNull();
+			expect(toast.items.some((x) => BACK.test(x.message))).toBe(true);
 		});
 
-		it('is not offered again after recovery when the user went back to the plan meanwhile', async () => {
-			const trial = await signedIn('plan');
-			const { toast } = await import('$lib/ui/toast.svelte');
-			await trial.setFunding('balance');
-			trial.remindRecovery(Date.now() + 60_000);
+		it('is said after a restart too, and not when the user chose the plan or the balance themselves', async () => {
+			let { trial, toast } = await onPlan();
+			gateway.until = resets();
+			await trial.setFunding('balance', 'until_reset');
+			// The app restarts after the window recovered.
+			gateway.plan = { plan: paid, plan_funding: 'plan' };
+			gateway.until = null;
+			({ trial, toast } = await onPlan());
+			expect(toast.items.some((x) => BACK.test(x.message))).toBe(true);
+			// The user goes back to the plan by hand: nothing to say.
+			({ trial, toast } = await onPlan());
+			gateway.until = resets();
+			await trial.setFunding('balance', 'until_reset');
+			expect(await trial.setFunding('plan')).toBe('');
+			expect(toast.items.some((x) => BACK.test(x.message))).toBe(false);
+		});
+
+		it('becomes for good when the user picks the balance in Settings meanwhile', async () => {
+			const { trial } = await onPlan();
+			gateway.until = resets();
+			await trial.setFunding('balance', 'until_reset');
+			gateway.until = null;
+			expect(await trial.setFunding('balance')).toBe('');
+			expect(gateway.modes).toEqual(['until_reset', null]);
+			expect(trial.balanceUntil).toBeNull();
+			// A gateway without the mode answers for good: sent once, not again.
+			gateway.modes = [];
 			await trial.setFunding('plan');
-			await vi.advanceTimersByTimeAsync(120_000);
-			expect(toast.items.some((x) => x.message.includes('Grove'))).toBe(false);
+			expect(await trial.setFunding('balance', 'until_reset')).toBe('');
+			expect(gateway.modes).toEqual([null, 'until_reset']);
 		});
 	});
 

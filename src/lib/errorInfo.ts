@@ -6,8 +6,9 @@ import { planStopOf, type PlanStop } from './planStop';
 
 /** `purchase` / `renew` / `topUp`: Settings → 套餐与充值; `useBalance`:
  *  this device pays with the balance from its next request, and the stopped
- *  turn goes on; `waitPlan`: the turn goes on once the plan's window
- *  recovers (planStop.ts). */
+ *  turn goes on; `balanceUntilReset`: the same until the plan's used-up
+ *  window recovers (then the plan again); `waitPlan`: the turn goes on once
+ *  the window recovers (planStop.ts). */
 export type ErrorAction =
 	| 'restart'
 	| 'login'
@@ -20,6 +21,7 @@ export type ErrorAction =
 	| 'topUp'
 	| 'useBalance'
 	| 'waitPlan'
+	| 'balanceUntilReset'
 	| 'devices';
 
 export interface ErrorInfo {
@@ -101,7 +103,8 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 	const stop = planStopOf(text);
 	if (stop) {
 		const ACTIONS: Record<typeof stop.code, ErrorAction[]> = {
-			plan_quota_exhausted: ['waitPlan', 'useBalance', 'purchase'],
+			// The balance only until the window recovers (owner, 2026-10-17).
+			plan_quota_exhausted: ['waitPlan', 'balanceUntilReset', 'purchase'],
 			plan_inactive: [stop.reason === 'none' ? 'purchase' : 'renew', 'useBalance'],
 			model_not_in_plan: ['model', 'useBalance'],
 			plan_device_limit: ['useBalance', 'devices']

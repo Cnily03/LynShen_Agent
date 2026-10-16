@@ -788,9 +788,12 @@ export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan
  *  coverage (GET /api/desktop/models/catalog; src/lib/models/gatewayCatalog.ts
  *  reads it). 404: an older gateway, which has only the plain model list. */
 export const fetchModelCatalog = () => gatewayCall<unknown>('monoize_model_catalog');
-/** Sets who pays this key's requests in the plan's groups (PUT
- *  /api/desktop/oauth/plan); answers the same body. */
-export const setPlanFunding = (funding: 'plan' | 'balance') => gatewayCall<unknown>('monoize_set_plan_funding', { funding });
+/** Sets who pays this device's requests (PUT /api/desktop/oauth/plan);
+ *  answers the same body. `until_reset`: the balance until the plan's
+ *  used-up window recovers, then the plan again (the gateway switches back);
+ *  without it the choice stays until the user changes it. */
+export const setPlanFunding = (funding: 'plan' | 'balance', mode: 'until_reset' | null = null) =>
+	gatewayCall<unknown>('monoize_set_plan_funding', { funding, mode });
 
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with

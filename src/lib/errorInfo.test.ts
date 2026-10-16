@@ -60,7 +60,7 @@ describe('describeError', () => {
 			'unexpected status 402 Payment Required: {"error":{"code":"plan_quota_exhausted","message":"plan quota exhausted","details":{"window":"5h","resets_at":"2026-10-17T13:20:00Z"}}}';
 		expect(describeError(quota, 'codex')).toMatchObject({
 			kind: 'planQuota',
-			actions: ['waitPlan', 'useBalance', 'purchase'],
+			actions: ['waitPlan', 'balanceUntilReset', 'purchase'],
 			status: 402,
 			plan: { code: 'plan_quota_exhausted', window: '5h', resetsAt: Date.parse('2026-10-17T13:20:00Z') }
 		});
