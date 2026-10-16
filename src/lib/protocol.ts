@@ -163,6 +163,24 @@ export function acpAgentRemove(id: string): Promise<AcpAgent[]> {
 export function acpAgentCheck(id: string): Promise<BackendStatus> {
 	return invoke('acp_agent_check', { id });
 }
+/** An agent Settings can add in one click (`acp_registry.rs` presets). */
+export interface AcpPreset {
+	id: string;
+	name: string;
+	command: string;
+	args: string[];
+	/** Where its program was found; null when it is not installed. */
+	path: string | null;
+	/** A registered agent already runs it. */
+	registered: boolean;
+}
+export function acpPresets(): Promise<AcpPreset[]> {
+	return invoke('acp_presets');
+}
+/** Registers a preset (a no-op when an agent already runs it); the updated list. */
+export function acpPresetAdd(id: string): Promise<AcpAgent[]> {
+	return invoke('acp_preset_add', { id });
+}
 
 /** Login-shell environment snapshot state (see src-tauri/src/shell_env.rs). */
 export interface ShellEnvStatus {

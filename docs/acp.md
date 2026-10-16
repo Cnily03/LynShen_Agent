@@ -3,8 +3,9 @@
 The desktop can drive any agent CLI that speaks the
 [Agent Client Protocol](https://agentclientprotocol.com) (JSON-RPC 2.0 over
 stdio, protocol v1) as a fourth engine backend, next to the native `lynshen`,
-`codex` and `claude` adapters. `lynshen acp` works out of the box; other agents
-(e.g. `gemini --experimental-acp`) can be registered in Settings.
+`codex` and `claude` adapters. OpenCode (`opencode acp`) is a preset: Settings
+offers it in one click. Other agents (e.g. `gemini --experimental-acp`) can be
+registered by hand.
 
 ## Where the pieces live
 
@@ -13,7 +14,9 @@ stdio, protocol v1) as a fourth engine backend, next to the native `lynshen`,
 | Agent registry (Rust-owned, validated) | `src-tauri/src/acp_registry.rs` → `~app-config/acp-agents.json` |
 | Process and JSON-RPC ↔ AgentEvents | the daemon, LynShen-CLI `crates/daemon/src/engines/acp.rs` |
 | Session start (registry entry → daemon `engine: "acp"`) | `src/lib/session.svelte.ts` (`#spawn`) |
-| Settings UI (add / edit / remove agents) | `src/lib/settings/AcpSection.svelte` |
+| Settings UI (presets, add / edit / remove agents) | `src/lib/settings/AcpSection.svelte` |
+| Presets (OpenCode) | `acp_registry.rs` (`PRESETS`, `acp_presets`, `acp_preset_add`) |
+| Session environment (OpenCode's server password) | `src/lib/backends/acp-agents.ts` (`agentEnv`) |
 | New-session picker rows | `src/lib/Composer.svelte` (below the native engines) |
 
 ## Launch model: the registry names the command
@@ -65,9 +68,13 @@ current one settles (same UX as claude's stdin queue).
   the next turn instead.
 - **Hunk-subset approvals** — permission responses are whole-call option
   picks; there is no per-hunk protocol.
-- **Resume / transcript replay** — `session/load` is optional (lynshen acp
-  does not advertise it), so ACP conversations are not persisted as
-  restorable tabs (`startup.session_id` stays empty on purpose).
+- **Resume picker** — the `/resume` picker and history list stay off: the
+  daemon cannot list an agent's conversations. A tab still reopens its own
+  conversation: the daemon (LynShen CLI after 0.6.3) keeps the agent's
+  session id and asks for it with `session/load` (the replay becomes the
+  transcript) or `session/resume`. An agent that offers neither starts a new
+  conversation in the reopened tab, with a notice. Older daemons always start
+  a new one.
 - **Model picker** — `session/set_model` is optional; off until provable.
 - **MCP live management** — `session/new` accepts an MCP server list, but
   there is no runtime add/remove/reconnect RPC; the desktop passes none and
@@ -80,6 +87,23 @@ current one settles (same UX as claude's stdin queue).
   `fs/read_text_file`, `fs/write_text_file` and `terminal/*` requests are
   declined with a JSON-RPC error so the agent falls back to its own tools
   instead of hanging.
+
+## OpenCode
+
+The preset registers `opencode acp` (OpenCode 1.19: `loadSession`, model and
+mode config options, `usage_update`). Adding it on Windows stores the
+`opencode.exe` behind an npm shim (`node_modules/opencode-ai/bin/`), so
+stopping a session stops OpenCode and not only the `cmd.exe` that ran the
+shim. `opencode acp` also serves its HTTP API on 127.0.0.1 (port 4096 when
+free) without a password unless `OPENCODE_SERVER_PASSWORD` is set: each
+session gets a random one (`agentEnv`) unless the entry sets its own.
+
+OpenCode asks for permission only for `external_directory`, `doom_loop` and
+`.env` reads by default; every other tool runs without asking. Its sessions
+are its own (`~/.local/share/opencode/opencode.db`), so they also show in
+OpenCode's TUI. Design notes and the next steps (approval modes, models on the
+LynShen gateway, importing OpenCode sessions to continue on OpenCode):
+`opencode-backend-design.md` in the owner's notes.
 
 ## Adding an agent
 

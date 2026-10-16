@@ -661,7 +661,10 @@ const settings = {
 			env: '环境变量',
 			envPlaceholder: 'KEY=VALUE，每行一条（仅对该智能体生效）',
 			envInvalid: '以下行无效：{lines}',
-			needNameCommand: '名称和命令不能为空'
+			needNameCommand: '名称和命令不能为空',
+			presetAdd: '添加',
+			presetHint: '一键添加，之后可在新会话的智能体列表里选择',
+			presetInstall: '尚未安装。安装命令：{install}'
 		},
 		help: {
 			feedback: '反馈问题',
@@ -1577,7 +1580,10 @@ const settings = {
 			env: 'Environment variables',
 			envPlaceholder: 'KEY=VALUE, one per line (applied to this agent only)',
 			envInvalid: 'Invalid lines: {lines}',
-			needNameCommand: 'Name and command are required'
+			needNameCommand: 'Name and command are required',
+			presetAdd: 'Add',
+			presetHint: 'Add it in one click, then pick it in the agent list of a new session',
+			presetInstall: 'Not installed. Install it with: {install}'
 		},
 		help: {
 			feedback: 'Send feedback',

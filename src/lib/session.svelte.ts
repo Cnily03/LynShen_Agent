@@ -7,6 +7,7 @@ import { normalizeBackendId, type BackendId } from './backends';
 import { createLynShenAdapter } from './backends/lynshen';
 import { clearDraft, dispatch, dropHeldOps, holdOps, ioFor, markDraft, peekHeldOps, registerAdapter, startDraft, unregisterAdapter } from './backends/router';
 import { buildBackendOpts, defaultBackendFor } from './backends/settings';
+import { agentEnv } from './backends/acp-agents';
 import { toEngineMode } from './approval';
 import { getLocale, t } from '$lib/i18n';
 import { prefs } from './prefs.svelte';
@@ -296,7 +297,7 @@ export class SessionStore {
 								return {
 									engine: 'acp',
 									// The agent's own environment wins over the backend's.
-									options: { command: entry.command, args: entry.args, env: { ...(base?.env ?? {}), ...entry.env } }
+									options: { command: entry.command, args: entry.args, env: agentEnv(entry, base?.env) }
 								};
 							})
 						: Promise.resolve(undefined);
