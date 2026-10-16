@@ -131,6 +131,12 @@ describe('validateProvider', () => {
 		expect(validateProvider(form, { taken: [], keyRequired: true }).key).toBe('keyRequired');
 		expect(validateProvider({ ...form, models: [] }, { taken: [], keyRequired: false }).models).toBe('modelRequired');
 	});
+	it('a built-in provider may keep its base URL and has its id and models', () => {
+		const builtin = { taken: ['anthropic'], keyRequired: false, builtin: true };
+		expect(validateProvider({ id: 'anthropic', base_url: '', key: '', models: [] }, builtin)).toEqual({});
+		expect(validateProvider({ id: 'anthropic', base_url: 'www.lynshen.org', key: '', models: [] }, builtin).base_url).toBe('url');
+		expect(validateProvider({ id: 'anthropic', base_url: '', key: '', models: [] }, { ...builtin, keyRequired: true }).key).toBe('keyRequired');
+	});
 });
 
 describe('engine-facing reads', () => {

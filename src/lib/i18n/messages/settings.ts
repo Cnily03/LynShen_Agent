@@ -445,6 +445,7 @@ const settings = {
 			default: '默认',
 			custom: '自定义',
 			byok: 'BYOK',
+			customized: '已自定义',
 			authorizing: '授权中…',
 			loggedIn: '已登录',
 			keyed: '已配密钥',
@@ -656,6 +657,15 @@ const settings = {
 			},
 			create: '创建',
 			add: '添加 Provider'
+		},
+		builtin: {
+			expander: '自定义设置（Base URL、模型参数）',
+			defaultUrl: '默认地址',
+			changed: '已修改',
+			added: '自己添加',
+			resetModel: '恢复 {model} 的默认值',
+			reset: '恢复默认',
+			tokensHint: '单位 token，可写 k 或 M，例如 200k、1M。留空时使用内置的值。'
 		},
 		catalog: {
 			title: '选择 Provider',
@@ -1528,6 +1538,7 @@ const settings = {
 			default: 'Default',
 			custom: 'Custom',
 			byok: 'BYOK',
+			customized: 'Customized',
 			authorizing: 'Authorizing…',
 			loggedIn: 'Logged in',
 			keyed: 'Key set',
@@ -1739,6 +1750,15 @@ const settings = {
 			},
 			create: 'Create',
 			add: 'Add provider'
+		},
+		builtin: {
+			expander: 'Custom settings (base URL, model parameters)',
+			defaultUrl: 'Default address',
+			changed: 'changed',
+			added: 'added by you',
+			resetModel: 'Restore the defaults of {model}',
+			reset: 'Restore defaults',
+			tokensHint: 'In tokens; k and M work, e.g. 200k, 1M. Empty: the built-in value.'
 		},
 		catalog: {
 			title: 'Choose a provider',
