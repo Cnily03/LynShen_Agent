@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Settings → 套餐与充值 (gateway desktop-purchase.spec.md): the plan in
-	// force and the balance, the plans on sale, the balance packs and a
+	// force, who pays this device's requests, and the balance, the plans on sale, the balance packs and a
 	// custom amount, then the recent orders. Buying opens CheckoutDialog;
 	// a completed order reads the plan and the balance again here, in the
 	// sidebar (purchase.svelte.ts) and in Settings → 账户.
@@ -35,6 +35,7 @@
 	import SettingsRow from './SettingsRow.svelte';
 	import GatewayNotice from './GatewayNotice.svelte';
 	import CheckoutDialog from './CheckoutDialog.svelte';
+	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 
 	let { onSignIn }: { onSignIn: () => void } = $props();
 
@@ -162,6 +163,7 @@
 			tag={plan ? t('settings.purchase.inUse') : undefined}
 			description={plan ? t('settings.purchase.planUntil', { date: planDate(plan.expires_at, true) }) : undefined}
 		/>
+		<PlanFundingChoice id="purchase-funding" />
 		<SettingsRow id="purchase-balance" title={t('settings.purchase.balance')}>
 			<span class="amount">{balanceText}</span>
 		</SettingsRow>
