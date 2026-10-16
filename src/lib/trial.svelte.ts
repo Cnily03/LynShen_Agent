@@ -94,6 +94,8 @@ class Trial {
 	/** How the latest pick is to be sent, and which pick it is (a pick that
 	 *  differs only in its mode is still a new pick). */
 	#mode: FundingMode = 'permanent';
+	/** With `until_reset`: when the window recovers (the 402's `retry_at`). */
+	#until: string | null = null;
 	#pick = 0;
 	#statusGeneration = 0;
 	#sending: Promise<string> | null = null;
@@ -221,10 +223,11 @@ class Trial {
 	 *  time: a pick made meanwhile is sent when the gateway answers, if it
 	 *  still differs, so the last pick wins and none is dropped. A failure
 	 *  shows the gateway's last known choice again. */
-	setFunding(funding: PlanFunding, mode: FundingMode = 'permanent'): Promise<string> {
+	setFunding(funding: PlanFunding, mode: FundingMode = 'permanent', until: number | null = null): Promise<string> {
 		this.fundingError = '';
 		this.desired = funding;
 		this.#mode = funding === 'balance' ? mode : 'permanent';
+		this.#until = this.#mode === 'until_reset' && until ? new Date(until).toISOString() : null;
 		this.#pick++;
 		// The user chose: the plan in force needs no offer any more.
 		this.markOffered();
@@ -253,9 +256,18 @@ class Trial {
 				sent = this.#pick;
 				let reply: DesktopPlanStatus | null;
 				try {
-					reply = parseDesktopPlan(await setPlanFunding(want, mode === 'until_reset' ? mode : null));
+					reply = parseDesktopPlan(await setPlanFunding(want, mode === 'until_reset' ? mode : null, this.#until));
 				} catch (error) {
 					if (account !== this.#account) return '';
+					// A gateway before contract v1.2 refuses the mode: the
+					// balance for good instead (the caller says which it got).
+					const refused = (error as { status?: unknown; code?: unknown } | null) ?? {};
+					if (mode === 'until_reset' && refused.status === 400 && this.#pick === sent) {
+						this.#mode = 'permanent';
+						this.#until = null;
+						this.#pick++;
+						continue;
+					}
 					this.desired = null;
 					this.fundingError = error instanceof Error ? error.message : String(error);
 					return this.fundingError;

@@ -16,7 +16,10 @@ const gateway = vi.hoisted(() => ({
 	/** The PUTs' modes; the end of a move until the window recovers (a GET
 	 *  answers it while the stored choice is the balance). */
 	modes: [] as (string | null)[],
-	until: null as string | null
+	untils: [] as (string | null)[],
+	until: null as string | null,
+	/** A gateway before contract v1.2: a PUT with a mode is refused (400). */
+	noMode: false
 }));
 const wait = (kind: 'put' | 'get') =>
 	gateway.hold ? new Promise<void>((release) => gateway.held.push({ kind, release })) : Promise.resolve();
@@ -39,15 +42,21 @@ vi.mock('$lib/protocol', () => ({
 		const body = answer(gateway.plan) as { plan: unknown; plan_funding: string };
 		const stored = gateway.hold ? gateway.stored : body.plan_funding;
 		await wait('get');
-		return { ...body, plan_funding: stored, ...(stored === 'balance' && gateway.until ? { balance_until: gateway.until } : {}) };
+		// A move to the balance until the window recovers (contract v1.2 2.1):
+		// the stored choice stays the plan, the next request's bucket is the balance.
+		return gateway.until ? { ...body, plan_funding: 'plan', bucket: 'balance', balance_until: gateway.until } : { ...body, plan_funding: stored };
 	}),
-	setPlanFunding: vi.fn(async (funding: string, mode: string | null = null) => {
+	setPlanFunding: vi.fn(async (funding: string, mode: string | null = null, until: string | null = null) => {
 		gateway.funding.push(funding);
 		gateway.modes.push(mode);
-		gateway.stored = funding;
+		gateway.untils.push(until);
+		if (mode && gateway.noMode) throw Object.assign(new Error('unknown field mode'), { status: 400, code: 'invalid_request' });
+		const temporary = funding === 'balance' && mode === 'until_reset' && gateway.until;
+		gateway.stored = temporary ? 'plan' : funding;
+		if (!temporary) gateway.until = null;
 		const body = answer(gateway.plan) as { plan: unknown };
 		await wait('put');
-		return { ...body, plan_funding: funding, ...(funding === 'balance' && mode === 'until_reset' && gateway.until ? { balance_until: gateway.until } : {}) };
+		return temporary ? { ...body, plan_funding: 'plan', bucket: 'balance', balance_until: gateway.until } : { ...body, plan_funding: funding };
 	})
 }));
 
@@ -81,7 +90,9 @@ beforeEach(() => {
 	gateway.held = [];
 	gateway.stored = 'plan';
 	gateway.modes = [];
+	gateway.untils = [];
 	gateway.until = null;
+	gateway.noMode = false;
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -262,8 +273,10 @@ describe('the trial runner', () => {
 			const { trial, toast } = await onPlan();
 			const until = resets();
 			gateway.until = until;
-			expect(await trial.setFunding('balance', 'until_reset')).toBe('');
+			expect(await trial.setFunding('balance', 'until_reset', Date.parse(until))).toBe('');
 			expect(gateway.modes).toEqual(['until_reset']);
+			// The 402's retry_at goes along (contract v1.2 2.2).
+			expect(gateway.untils).toEqual([new Date(Date.parse(until)).toISOString()]);
 			expect(trial.funding).toBe('balance');
 			expect(trial.balanceUntil).toBe(Date.parse(until));
 			// The window recovers; the gateway returns the device to the plan.
@@ -296,15 +309,25 @@ describe('the trial runner', () => {
 			const { trial } = await onPlan();
 			gateway.until = resets();
 			await trial.setFunding('balance', 'until_reset');
-			gateway.until = null;
+			expect(trial.balanceUntil).not.toBeNull();
 			expect(await trial.setFunding('balance')).toBe('');
 			expect(gateway.modes).toEqual(['until_reset', null]);
 			expect(trial.balanceUntil).toBeNull();
+			expect(trial.funding).toBe('balance');
 			// A gateway without the mode answers for good: sent once, not again.
 			gateway.modes = [];
 			await trial.setFunding('plan');
 			expect(await trial.setFunding('balance', 'until_reset')).toBe('');
 			expect(gateway.modes).toEqual([null, 'until_reset']);
+		});
+
+		it('falls back to the balance for good where the gateway refuses the mode', async () => {
+			const { trial } = await onPlan();
+			gateway.noMode = true;
+			expect(await trial.setFunding('balance', 'until_reset', Date.now() + 3_600_000)).toBe('');
+			expect(gateway.modes).toEqual(['until_reset', null]);
+			expect(trial.funding).toBe('balance');
+			expect(trial.balanceUntil).toBeNull();
 		});
 	});
 

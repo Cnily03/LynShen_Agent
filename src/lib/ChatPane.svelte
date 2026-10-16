@@ -343,19 +343,15 @@
 	// Nothing switches unless the user asks.
 	async function payWithBalance(info: ErrorInfo, untilReset = false) {
 		planWaits.cancel(session.id);
-		const error = await trial.setFunding('balance', untilReset ? 'until_reset' : 'permanent');
+		const error = await trial.setFunding('balance', untilReset ? 'until_reset' : 'permanent', untilReset ? (info.plan?.resetsAt ?? null) : null);
 		if (error) {
 			toast.error(t('shell.trial.fundingFailed', { error }));
 			return;
 		}
-		const until = trial.balanceUntil ?? (untilReset ? info.plan?.resetsAt : undefined);
-		toast.success(
-			!untilReset
-				? t('shell.trial.fundingToBalance')
-				: until
-					? t('shell.funding.untilReset', { time: resetText(until) })
-					: t('shell.funding.untilResetBare')
-		);
+		// What the gateway made of it: until when (contract v1.2), or for good
+		// (a gateway without the mode).
+		const until = untilReset ? trial.balanceUntil : null;
+		toast.success(until ? t('shell.funding.untilReset', { time: resetText(until) }) : t('shell.trial.fundingToBalance'));
 		if (info.plan) void store.retryTurn(session.id, t(untilReset ? 'chat.planStop.balanceUntilNote' : 'chat.planStop.balanceNote'), true);
 	}
 	// "等待恢复": the turn goes on by itself once the window recovers, unless

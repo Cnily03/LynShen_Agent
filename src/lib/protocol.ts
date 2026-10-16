@@ -790,10 +790,11 @@ export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan
 export const fetchModelCatalog = () => gatewayCall<unknown>('monoize_model_catalog');
 /** Sets who pays this device's requests (PUT /api/desktop/oauth/plan);
  *  answers the same body. `until_reset`: the balance until the plan's
- *  used-up window recovers, then the plan again (the gateway switches back);
- *  without it the choice stays until the user changes it. */
-export const setPlanFunding = (funding: 'plan' | 'balance', mode: 'until_reset' | null = null) =>
-	gatewayCall<unknown>('monoize_set_plan_funding', { funding, mode });
+ *  used-up window recovers (`until`: the 402's `retry_at`, RFC 3339), then
+ *  the plan again (the gateway switches back); without it the choice stays
+ *  until the user changes it (contract v1.2 2.2). */
+export const setPlanFunding = (funding: 'plan' | 'balance', mode: 'until_reset' | null = null, until: string | null = null) =>
+	gatewayCall<unknown>('monoize_set_plan_funding', { funding, mode, until: mode ? until : null });
 
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with

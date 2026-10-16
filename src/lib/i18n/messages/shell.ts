@@ -937,7 +937,6 @@ const shell = {
 			nowBody: '只用套餐额度，用完会暂停并提示，不会自动扣余额。可以随时改用余额。',
 			toBalance: '改用余额',
 			untilReset: '余额支付至 {time}，之后恢复套餐',
-			untilResetBare: '额度恢复前本设备先用余额，之后恢复套餐',
 			backOnPlan: '已恢复使用套餐',
 			toPlan: '本设备已改为套餐计费'
 		},
@@ -1972,7 +1971,6 @@ const shell = {
 			nowBody: 'Only the plan pays; when it runs out, requests pause and the balance is not used. You can switch to the balance at any time.',
 			toBalance: 'Use balance',
 			untilReset: 'The balance pays until {time}, then the plan again',
-			untilResetBare: 'The balance pays until the quota recovers, then the plan again',
 			backOnPlan: 'Back on the plan',
 			toPlan: 'This device now pays with the plan'
 		},

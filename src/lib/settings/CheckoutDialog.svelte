@@ -94,7 +94,7 @@
 			? t('settings.purchase.topUpTitle', { amount: yuan(amount) })
 			: product.upgrade
 				? t('settings.purchase.upgradeTitle', { name: product.name })
-				: before?.name.trim() === product.name.trim()
+				: product.renewal
 					? t('settings.purchase.renewTitle', { name: product.name })
 					: t('settings.purchase.buyTitle', { name: product.name })
 	);
@@ -114,6 +114,9 @@
 	type Step = 'confirm' | 'working' | 'pay' | 'paid' | 'done' | 'slow' | 'expired' | 'closed' | 'error';
 	let step = $state<Step>('confirm');
 	let order = $state<StoreOrder | null>(null);
+	// What is paid: the order's own amount once there is one (the server
+	// prices an upgrade again when it is ordered).
+	const charged = $derived(order?.amount_minor ?? amount);
 	let checkout = $state<Checkout | null>(null);
 	let failure = $state('');
 	let pending: PendingCheckout | null = null;
@@ -174,7 +177,9 @@
 	const endsAround = $derived(product.duration_seconds ? new Date(Date.now() + product.duration_seconds * 1000).toISOString() : null);
 
 	const replacing = $derived(product.kind === 'plan' && before != null);
-	const sameProduct = $derived(replacing && before?.name.trim() === product.name.trim());
+	const sameProduct = $derived(replacing && (product.renewal === true || before?.name.trim() === product.name.trim()));
+	// (`renewal`: the gateway renews it from its end; without it, an older
+	// gateway, the same plan starts over and replaces the one in force.)
 	const qr = $derived(checkout?.action.kind === 'qr' ? renderSVG(checkout.action.payload, { border: 4 }) : '');
 	// The code and the order run out together (30 minutes); the earlier wins.
 	const left = $derived.by(() => {
@@ -220,7 +225,7 @@
 				if (current && current.state !== 'awaiting_payment') return follow(current);
 			}
 			if (!current) {
-				const from = upgrading ? (product.upgrade?.from ?? currentProductId ?? null) : null;
+				const from = upgrading ? (currentProductId ?? null) : null;
 				current = parseOrder(await createStoreOrder(product.id, option.channel_id, customMinor, pending.orderRequestId, from));
 				if (!current) throw new Error(t('settings.purchase.errors.unknown'));
 				pending = { ...pending, orderId: current.id };
@@ -351,9 +356,9 @@
 			</div>
 			<div><dt>{t('settings.purchase.amount')}</dt><dd class="num">{yuan(amount)}</dd></div>
 			{#if product.kind === 'plan'}
-				{#if upgrading && product.upgrade?.expires_at}
-					<!-- An upgrade keeps the end the gateway quotes. -->
-					<div><dt>{t('settings.purchase.ends')}</dt><dd>{planDate(product.upgrade.expires_at, true)}</dd></div>
+				{#if upgrading && before}
+					<!-- An upgrade keeps the plan's end (contract v1.2 5a). -->
+					<div><dt>{t('settings.purchase.ends')}</dt><dd>{planDate(before.expires_at, true)}</dd></div>
 				{:else}
 					<div><dt>{t('settings.purchase.validity')}</dt><dd>{durationText(product.duration_seconds)}</dd></div>
 				{/if}
@@ -381,10 +386,13 @@
 		{#if product.kind === 'plan'}
 			{#if upgrading && product.upgrade}
 				<p class="note">
-					{product.upgrade.expires_at
-						? t('settings.purchase.upgradeNoticeAt', { current: before?.name.trim() || t('shell.trial.label'), name: product.name, date: planDate(product.upgrade.expires_at) })
-						: t('settings.purchase.upgradeNotice', { current: before?.name.trim() || t('shell.trial.label'), name: product.name })}
+					{before
+						? t('settings.purchase.upgradeNoticeAt', { current: before.name.trim() || t('shell.trial.label'), name: product.name, date: planDate(before.expires_at) })
+						: t('settings.purchase.upgradeNotice', { name: product.name })}
 				</p>
+			{:else if sameProduct && before && !product.renewal}
+				<!-- An older gateway: the same plan again starts over and replaces it. -->
+				<Notice tone="warn">{t('settings.purchase.sameNotice', { current: before.name.trim(), duration: durationText(product.duration_seconds) })}</Notice>
 			{:else if sameProduct && before}
 				<!-- The same plan again: renewed from its current end, usage kept (contract v1.2). -->
 				<p class="note">
@@ -410,11 +418,11 @@
 	{:else if step === 'pay' && checkout?.action.kind === 'qr'}
 		<div class="pay">
 			<!-- SVG drawn here from the payment provider's code; no markup comes from outside. -->
-			<div class="qr" role="img" aria-label={t('settings.purchase.scanGeneric', { amount: yuan(amount) })}>{@html qr}</div>
+			<div class="qr" role="img" aria-label={t('settings.purchase.scanGeneric', { amount: yuan(charged) })}>{@html qr}</div>
 			<p class="lead">
 				{checkout.method
-					? t('settings.purchase.scanWith', { method: methodName(checkout.method, option?.label ?? ''), amount: yuan(amount) })
-					: t('settings.purchase.scanGeneric', { amount: yuan(amount) })}
+					? t('settings.purchase.scanWith', { method: methodName(checkout.method, option?.label ?? ''), amount: yuan(charged) })
+					: t('settings.purchase.scanGeneric', { amount: yuan(charged) })}
 			</p>
 			<p class="small num">
 				{t('settings.purchase.waited', { s: waited })}{#if left != null}{' · '}{t('settings.purchase.expiresIn', { time: clock(left) })}{/if}

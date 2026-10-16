@@ -50,11 +50,23 @@ let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
 // until_reset): its end; `window.__windowRecovered()` is the gateway putting
 // the device back on the plan when it comes.
 let balanceUntil: string | null = null;
+// &oldgw: a gateway before contract v1.2 (no bucket, balance_until, devices,
+// upgrade quotes or renewal; a PUT with a mode is refused).
+const oldGateway = params0.has('oldgw');
 let windowRecovered = false;
-const fundingBody = () => ({plan_funding: planFunding, bucket: planFunding, ...(planFunding === 'balance' && balanceUntil ? {balance_until: balanceUntil} : {})});
+// During it the stored choice stays the plan and the bucket is the balance
+// (contract v1.2 2.1).
+const fundingBody = () => (oldGateway ? {plan_funding: planFunding} : {plan_funding: planFunding, bucket: balanceUntil ? 'balance' : planFunding, balance_until: balanceUntil});
 const setFunding = (args: any) => {
+  // A gateway before contract v1.2 knows no mode.
+  if (oldGateway && args.mode) throw JSON.stringify({status: 400, code: 'invalid_request', message: 'unknown field `mode`'});
+  if (args.funding === 'balance' && args.mode === 'until_reset') {
+    planFunding = 'plan';
+    balanceUntil = args.until ?? new Date(planStartedAt + 2 * 3_600_000).toISOString();
+    return;
+  }
   planFunding = args.funding;
-  balanceUntil = args.funding === 'balance' && args.mode === 'until_reset' ? new Date(planStartedAt + 2 * 3_600_000).toISOString() : null;
+  balanceUntil = null;
 };
 // ?devices=<n>: the devices using the plan now (of 3 at most; default 1).
 const planDevices = () => ({in_use: Number(params0.get('devices') ?? 1), limit: 3, this_device: true});
@@ -84,7 +96,7 @@ const storeRefusal = (status: number | null, code: string | null, message: strin
 const storePlan = (id: string, endsAt: number) => {
   const product = STORE_CATALOG.products.find((p) => p.id === id)!;
   const kinds = product.windows.map((w: any) => [w.window_seconds === 18000 ? '5h' : '7d', (Number(w.quota_fen_cny) / 100).toFixed(2)]);
-  return {id, name: product.name, group: '套餐专用', windows: kinds.map(([kind, quota]) => ({kind, quota_cny: quota, used_cny: '0.00', resets_at: null})), expires_at: new Date(endsAt).toISOString(), trial: false, active: true, devices: planDevices()};
+  return {id, name: product.name, group: '套餐专用', windows: kinds.map(([kind, quota]) => ({kind, quota_cny: quota, used_cny: '0.00', resets_at: null})), expires_at: new Date(endsAt).toISOString(), trial: false, active: true, ...(oldGateway ? {} : {devices: planDevices()})};
 };
 if (params0.get('current')) { store.plan = storePlan(params0.get('current')!, Date.now() + 12 * 86_400_000); planFunding = 'plan'; }
 // The catalog as the gateway sends it to an account with a paid plan: a
@@ -92,11 +104,13 @@ if (params0.get('current')) { store.plan = storePlan(params0.get('current')!, Da
 // difference; the formula is the gateway's), a lower one is not offered.
 function storeCatalog() {
   const current = store.plan ? STORE_CATALOG.products.find((p) => p.id === store.plan.id) : null;
-  if (!current) return STORE_CATALOG;
+  if (!current || oldGateway) return STORE_CATALOG;
   return {...STORE_CATALOG, products: STORE_CATALOG.products.map((p) => {
-    if (p.kind !== 'plan' || p.id === current.id) return p;
+    if (p.kind !== 'plan') return p;
+    if (p.id === current.id) return {...p, renewal: true};
+    // contract v1.2 5a: the price in fen, and when the quote runs out.
     if (Number(p.price_minor) > Number(current.price_minor))
-      return {...p, upgrade: {price_minor: String(Number(p.price_minor) - Number(current.price_minor)), expires_at: store.plan.expires_at, from: current.id}};
+      return {...p, upgrade: {price_minor: String(Number(p.price_minor) - Number(current.price_minor)), expires_at: new Date(Date.now() + 30 * 60_000).toISOString()}};
     return {...p, downgrade: true};
   })};
 }
@@ -115,7 +129,7 @@ const trialPlan = (used: boolean, full = trialReply === 'full' && !windowRecover
   expires_at: new Date(planEndsFrom + 7 * 86_400_000).toISOString()
 });
 Object.assign(window, {
-  __windowRecovered: () => { windowRecovered = true; if (balanceUntil) { planFunding = 'plan'; balanceUntil = null; } },
+  __windowRecovered: () => { windowRecovered = true; balanceUntil = null; },
   __calls: calls,
   __keptAvatar: KEPT_AVATAR,
   __TAURI_INTERNALS__: {
@@ -152,6 +166,7 @@ Object.assign(window, {
             // otherwise 30 days from now (contract v1.2 section 5).
             if (o.kind === 'plan') {
               const renewed = store.plan?.id === o.product_id ? Date.parse(store.plan.expires_at) + 30 * 86_400_000 : null;
+              // An upgrade keeps the end (contract v1.2 5a).
               const upgraded = o.upgrade_from && store.plan ? Date.parse(store.plan.expires_at) : null;
               store.plan = storePlan(o.product_id, renewed ?? upgraded ?? Date.now() + 30 * 86_400_000);
             }
@@ -228,7 +243,7 @@ Object.assign(window, {
             // The gateway stores a change as it arrives and answers later.
             const plan = trialReply === 'ended' ? null
               : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true, devices: planDevices()}
-              : {...trialPlan(trialReply === 'used'), trial: true, active: true, devices: planDevices()};
+              : {...trialPlan(trialReply === 'used'), trial: true, active: true, ...(oldGateway ? {} : {devices: planDevices()})};
             const answer = {plan, ...fundingBody()};
             if (latency != null) await slow();
             return answer;

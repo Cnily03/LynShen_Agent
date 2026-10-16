@@ -118,6 +118,14 @@ describe('reading the gateway answer', () => {
 			thisDevice: true
 		});
 		expect(parseDesktopPlan({ plan: { ...PLAN, devices: { in_use: 'two', limit: 3 } }, plan_funding: 'plan' })?.plan?.devices).toBeUndefined();
+		// A move to the balance until the window recovers: the stored choice
+		// stays the plan, the bucket is the balance (contract v1.2 2.1).
+		expect(parseDesktopPlan({ plan: null, plan_funding: 'plan', bucket: 'balance', balance_until: '2026-10-17T13:20:00Z' })).toEqual({
+			plan: null,
+			funding: 'balance',
+			balanceUntil: '2026-10-17T13:20:00Z'
+		});
+		expect(parseDesktopPlan({ plan: null, plan_funding: 'plan', bucket: 'plan', balance_until: null })).toEqual({ plan: null, funding: 'plan' });
 		expect(parseDesktopPlan({ plan: null })).toBeNull();
 		expect(parseDesktopPlan({ plan: null, plan_funding: 'both' })).toBeNull();
 		expect(parseDesktopPlan(null)).toBeNull();

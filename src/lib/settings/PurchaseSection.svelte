@@ -148,7 +148,8 @@
 			...(o.balance && o.balance.actual_received_minor !== o.amount_minor ? [t('settings.purchase.receive', { amount: yuan(o.balance.actual_received_minor) })] : []),
 			when(o.created_at)
 		].join(' · ');
-	const isCurrent = (p: StoreProduct) => plan != null && plan.trial !== true && plan.name.trim() === p.name.trim();
+	// The plan in force: the gateway marks it (`renewal`), else by its name.
+	const isCurrent = (p: StoreProduct) => p.renewal === true || (plan != null && plan.trial !== true && plan.name.trim() === p.name.trim());
 </script>
 
 {#if loading && !catalog}
@@ -209,8 +210,9 @@
 					<!-- No downgrade: a lower plan is listed, not offered. -->
 					<span class="quote">{t('settings.purchase.lower')}</span>
 				{:else}
+					<!-- 续费 where the gateway renews the plan in force (v1.2); an older one replaces it. -->
 					<Button size="sm" onclick={() => buy(p)} disabled={optionsOf(p.price_minor).length === 0}>
-						{t(isCurrent(p) ? 'settings.purchase.renew' : 'settings.purchase.buy')}
+						{t(p.renewal ? 'settings.purchase.renew' : 'settings.purchase.buy')}
 					</Button>
 				{/if}
 			</SettingsRow>

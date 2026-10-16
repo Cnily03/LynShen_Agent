@@ -113,13 +113,15 @@ describe('the catalog and orders', () => {
 		const catalog = parseCatalog({
 			...CATALOG,
 			products: [
-				{ ...sprout, id: 'branch', name: 'Branch', price_minor: '9900', upgrade: { price_minor: '5000', expires_at: '2026-11-16T00:00:00Z', from: 'sprout' } },
+				{ ...sprout, id: 'branch', name: 'Branch', price_minor: '9900', upgrade: { price_minor: '5000', expires_at: '2026-10-17T13:20:00Z' } },
 				{ ...sprout, id: 'seed', name: 'Seed', price_minor: '1900', downgrade: true },
-				{ ...sprout, id: 'odd', upgrade: { price_minor: '0' } }
+				{ ...sprout, id: 'odd', upgrade: { price_minor: '0' } },
+				{ ...sprout, id: 'sprout', renewal: true }
 			]
 		})!;
-		const [branch, seed, odd] = catalog.products;
-		expect(branch.upgrade).toEqual({ price_minor: '5000', expires_at: '2026-11-16T00:00:00Z', from: 'sprout' });
+		const [branch, seed, odd, same] = catalog.products;
+		expect(branch.upgrade).toEqual({ price_minor: '5000', expires_at: '2026-10-17T13:20:00Z' });
+		expect(same.renewal).toBe(true);
 		expect(priceNow(branch)).toBe('5000');
 		expect(seed.downgrade).toBe(true);
 		expect(priceNow(seed)).toBe('1900');

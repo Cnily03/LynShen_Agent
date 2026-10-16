@@ -31,12 +31,15 @@ export interface StoreProduct {
 	groups: string[];
 	windows: QuotaWindow[];
 	balance: StoreBalance | null;
-	/** A higher plan than the one in force: what the gateway quotes to move
-	 *  up to it now (the price, and the end the plan will have), and the plan
-	 *  it replaces. Absent: an ordinary purchase. */
-	upgrade?: { price_minor: string; expires_at: string | null; from: string | null };
+	/** A higher plan than the one in force (contract v1.2 5a): the price the
+	 *  gateway quotes to move up to it now (fen), and until when the quote
+	 *  holds (the server prices the order again anyway). The plan's end stays.
+	 *  Absent: an ordinary purchase (also from an older gateway). */
+	upgrade?: { price_minor: string; expires_at: string | null };
 	/** A lower plan than the one in force: not offered (no downgrade). */
 	downgrade?: boolean;
+	/** The plan in force: buying it again renews it from its end. */
+	renewal?: boolean;
 }
 
 export type ActionKind = 'qr' | 'redirect';
@@ -133,17 +136,18 @@ function parseProduct(v: unknown): StoreProduct | null {
 		windows: Array.isArray(p.windows) ? p.windows.flatMap((w) => parseWindow(w) ?? []) : [],
 		balance: kind === 'balance' ? balance : null,
 		...(kind === 'plan' && upgradeOf(p.upgrade) ? { upgrade: upgradeOf(p.upgrade)! } : {}),
-		...(kind === 'plan' && p.downgrade === true ? { downgrade: true } : {})
+		...(kind === 'plan' && p.downgrade === true ? { downgrade: true } : {}),
+		...(kind === 'plan' && p.renewal === true ? { renewal: true } : {})
 	};
 }
 
-/** The gateway's upgrade quote: `{price_minor, expires_at, from}`. */
+/** The gateway's upgrade quote: `{price_minor, expires_at}` (the quote's own expiry). */
 function upgradeOf(v: unknown): StoreProduct['upgrade'] | null {
 	const u = obj(v);
 	const price = minor(u?.price_minor);
 	if (!u || !price || price === '0') return null;
 	const ends = str(u.expires_at);
-	return { price_minor: price, expires_at: ends && !Number.isNaN(Date.parse(ends)) ? ends : null, from: str(u.from) ?? null };
+	return { price_minor: price, expires_at: ends && !Number.isNaN(Date.parse(ends)) ? ends : null };
 }
 
 /** What a product costs now: the upgrade quote when there is one. */
@@ -510,7 +514,8 @@ export function failureText(code: string | null, status: number | null, message:
 		'invalid_amount',
 		'order_poll_rate_limited',
 		'order_not_payable',
-		'active_payment_attempt'
+		'active_payment_attempt',
+		'plan_downgrade_not_allowed'
 	];
 	if (code && known.includes(code)) return t(`settings.purchase.errors.${code}`);
 	if (code === 'store_retention_paused' || code === 'store_primary_unavailable' || code === 'store_write_rejected' || code === 'exchange_rate_unavailable')
