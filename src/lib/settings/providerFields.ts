@@ -19,10 +19,12 @@ export interface ProviderModel {
 	input_modalities?: string[];
 }
 
-/** Effort tiers the form offers, lowest first. "none" lets the composer turn
- *  thinking off; "ultra" is GPT's name for the top tier (the engine sends
- *  the model's highest other tier). */
-export const EFFORT_TIERS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+/** Effort tiers the form offers, lowest first, as the engine ranks them
+ *  (agent-core `EFFORT_ORDER`). "none" lets the composer turn thinking off;
+ *  "minimal" is the lowest tier that still thinks (GPT-5's Responses value);
+ *  "ultra" is GPT's name for the top tier (the engine sends the model's
+ *  highest other tier). */
+export const EFFORT_TIERS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 export const MODALITIES = ['text', 'image'] as const;
 /** What a model without a stated list gets: the engine's default tiers. */
 export const DEFAULT_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'];

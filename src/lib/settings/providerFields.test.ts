@@ -83,7 +83,7 @@ describe('model drafts', () => {
 			context_window: 1_000_000,
 			max_output_tokens: 64_000,
 			reasoning: true,
-			reasoning_efforts: ['low', 'ultra', 'minimal'],
+			reasoning_efforts: ['minimal', 'low', 'ultra'],
 			input_modalities: ['text', 'image']
 		});
 		const off = modelFromDraft({ ...draft, reasoning: false, modalities: ['text'], display_name: '' }, previous);
@@ -96,7 +96,8 @@ describe('model drafts', () => {
 	});
 
 	it('orders known tiers and keeps unknown ones', () => {
-		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'low', 'max', 'ultra', 'minimal']);
+		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'minimal', 'low', 'max', 'ultra']);
+		expect(orderTiers(['turbo', 'high', 'none'])).toEqual(['none', 'high', 'turbo']);
 	});
 
 	it('validates names, token counts, tiers and modalities', () => {

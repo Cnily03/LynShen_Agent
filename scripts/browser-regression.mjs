@@ -130,6 +130,28 @@ try {
   await providerForm.getByRole('button',{name:'保存',exact:true}).click();
   await expect(providerForm).toHaveCount(0);
   assert.deepEqual((await storedModels())[0], ['my-model', 1000000, 32000, true, 'low medium high xhigh ultra', 'text image']);
+  // Ticket #24: under the Base URL, the address requests go to, as the
+  // engine builds it for the format; an Anthropic-format host alone is
+  // offered its /v1 address. The tiers include Minimal.
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  const requestUrl = providerForm.getByTestId('request-url');
+  await expect(requestUrl).toHaveCount(0);
+  await field('Base URL').fill('https://www.lynshen.org');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/responses');
+  await expect(providerForm.getByRole('button',{name:/^改用 /})).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'Anthropic',exact:true}).click();
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/anthropic/v1/messages');
+  await expect(providerForm.getByText(/多数中转站（包括 LynShen）不支持这个路径/)).toBeVisible();
+  await providerForm.getByRole('button',{name:'改用 https://www.lynshen.org/v1',exact:true}).click();
+  await expect(field('Base URL')).toHaveValue('https://www.lynshen.org/v1');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/messages');
+  await expect(providerForm.getByRole('button',{name:/^改用 /})).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'Chat Completions',exact:true}).click();
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/chat/completions');
+  await expect(tick('Minimal')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(providerForm).toHaveCount(0);
   // A model that takes no images and does not think: the composer refuses
   // an image and shows no effort; one that takes images attaches it.
   await page.goto(base + '?shell&textOnly');

@@ -7,7 +7,9 @@
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import TextField from '$lib/ui/TextField.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import Notice from '$lib/ui/Notice.svelte';
 	import { effortLabel } from '$lib/composer/effort';
+	import { anthropicV1Suggestion, requestUrl } from '$lib/providers/endpoint';
 	import {
 		EFFORT_TIERS,
 		MODALITIES,
@@ -16,6 +18,7 @@
 		modelEfforts,
 		modelFromDraft,
 		newModelDraft,
+		validBaseUrl,
 		validateModel,
 		validateProvider,
 		type ModelDraft,
@@ -66,6 +69,11 @@
 		tried ? validateProvider(form, { taken: mode === 'edit' ? [] : taken, keyRequired }) : {}
 	);
 	const otherNames = $derived(form.models.filter((_, i) => i !== editAt).map((m) => m.name));
+
+	// Where the engine sends requests for this base URL and format, and the
+	// /v1 base to offer when an Anthropic-format URL is only a host.
+	const shownUrl = $derived(validBaseUrl(form.base_url) ? requestUrl(form.format, form.base_url) : '');
+	const v1Url = $derived(shownUrl ? anthropicV1Suggestion(form.format, form.base_url) : null);
 
 	const err = (key?: string) => (key ? t(`settings.custom.error.${key}`) : '');
 	const tierLabel = (tier: string) => (tier === 'none' ? t('settings.custom.effortNone') : effortLabel(tier));
@@ -145,6 +153,15 @@
 			<TextField bind:value={form.base_url} mono placeholder="https://api.example.com/v1" />
 		</label>
 		{#if providerErrors.base_url}<span class="np-err" role="alert">{err(providerErrors.base_url)}</span>{/if}
+		{#if shownUrl}<span class="np-hint" data-testid="request-url">{t('settings.custom.requestUrl')} <span class="url">{shownUrl}</span></span>{/if}
+		{#if v1Url}
+			<Notice tone="warn">
+				<span class="v1">
+					<span>{t('settings.custom.bareHost')}</span>
+					<Button variant="secondary" size="sm" onclick={() => v1Url && (form.base_url = v1Url)}>{t('settings.custom.useV1', { url: v1Url })}</Button>
+				</span>
+			</Notice>
+		{/if}
 	</div>
 	<div class="np-f">
 		<label class="np-f">
@@ -281,6 +298,17 @@
 		font-size: var(--fs-xs);
 		color: var(--dim2);
 		line-height: 16px;
+	}
+	.url {
+		font-family: var(--font-mono);
+		color: var(--dim);
+		overflow-wrap: anywhere;
+	}
+	.v1 {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
 	}
 	.np-err {
 		font-size: var(--fs-xs);
