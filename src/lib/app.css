@@ -37,6 +37,17 @@
 	--brand: #8b5cf6;
 	--brand-bright: #a78bfa;
 
+	/* The logo's light (design.md, "Brand marks"): Aogiri's amber on the
+	   canvas (--logo-light), the launch screen's gradient (--logo-light-from,
+	   the source end, to --logo-light-to), the light on a --text tile (the
+	   navigator's logo, --logo-light-tile), and LynShen's teal for its mark
+	   (engine and gateway). Only logo marks use them. */
+	--logo-light: #f0a465;
+	--logo-light-from: #ffe3bc;
+	--logo-light-to: #f0a465;
+	--logo-light-tile: #c2581f;
+	--lynshen-light: #24b3cd;
+
 	--accent: #ececec;
 	--accent-bright: #ffffff;
 	--accent-deep: #a3a3a3;
@@ -154,6 +165,12 @@
 [data-theme='light'] {
 	--brand: #7c3aed;
 	--brand-bright: #6d28d9;
+
+	--logo-light: #c2581f;
+	--logo-light-from: #d9652f;
+	--logo-light-to: #b24e1a;
+	--logo-light-tile: #f0a465;
+	--lynshen-light: #0e7f94;
 
 	--accent: #1a1917;
 	--accent-bright: #0d0c0b;

@@ -106,6 +106,7 @@
 	import Welcome from '$lib/welcome/Welcome.svelte';
 	import { SETUP_DONE_KEY, firstRunStart } from '$lib/welcome/flow';
 	import { afterWelcomeSignIn } from '$lib/welcome/firstRun';
+	import { launchReady } from '$lib/launch';
 	import { account } from '$lib/accountSession.svelte';
 	import Sidebar from '$lib/Sidebar.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -1521,6 +1522,8 @@
 			// the canvas from the persisted layout.
 			await store.restore(wsEntry.projects);
 			initTiles();
+			// The canvas is built: the launch screen (app.html) can go.
+			launchReady();
 			// 深链在项目恢复完成后再注册，冷启动携带的链接（onOpenUrl 会补发当前
 			// 深链）才能作用于已恢复的项目列表。
 			const undeep = await onOpenUrl((urls) => {

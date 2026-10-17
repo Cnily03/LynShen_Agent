@@ -37,6 +37,7 @@
 	import SignalRaster from './SignalRaster.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import ModelStep from './ModelStep.svelte';
+	import lockup from '$lib/aogiri-lockup.svg?raw';
 
 	let {
 		sessionId,
@@ -198,7 +199,7 @@
 			<div class="raster" aria-hidden="true"><SignalRaster /></div>
 
 			<div class="copy">
-				<div class="wordmark">Aogiri</div>
+				<div class="wordmark" role="img" aria-label={t('common.appName')}>{@html lockup}</div>
 				<h1>{t('setup.welcome.login.title')}</h1>
 				<p class="lede">{t('setup.welcome.login.sub')}</p>
 
@@ -254,7 +255,7 @@
 			<header class="ghead">
 				<div class="band" aria-hidden="true"><SignalRaster /></div>
 				<div class="ghead-copy">
-					<div class="wordmark sm">Aogiri</div>
+					<div class="wordmark sm" role="img" aria-label={t('common.appName')}>{@html lockup}</div>
 					<h1>{t('setup.welcome.guide.title')}</h1>
 					<p class="lede">{t('setup.welcome.guide.sub')}</p>
 				</div>
@@ -374,10 +375,15 @@
 		height: 40px;
 		z-index: 3;
 	}
+	/* The logo lockup (aogiri-lockup.svg): the mark and the drawn wordmark,
+	   letters in the text colour, the light --logo-light. */
 	.wordmark {
-		font-weight: 600;
-		font-size: var(--fs-lg);
-		letter-spacing: -0.01em;
+		line-height: 0;
+		color: var(--text);
+	}
+	.wordmark :global(svg) {
+		height: 26px;
+		width: auto;
 	}
 	/* The first-run title, a display moment (design.md, "Type"). */
 	h1 {
@@ -598,8 +604,10 @@
 		max-width: 560px;
 	}
 	.wordmark.sm {
-		font-size: var(--fs-sm);
 		color: var(--dim);
+	}
+	.wordmark.sm :global(svg) {
+		height: 18px;
 	}
 	.gbody {
 		flex: 1;

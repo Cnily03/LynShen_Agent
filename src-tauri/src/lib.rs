@@ -3716,9 +3716,18 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 show_main_window(tray.app_handle());
             }
         });
-    // 复用应用图标作为托盘图标。
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
+    // 托盘图标（design/icon/make-aogiri-icons.mjs 生成）：macOS 菜单栏用模板图
+    // （黑色 + 透明，系统按菜单栏的深浅着色），Windows / Linux 用 32px 的小图标
+    // （16px 网格放大一倍，Windows 缩到 16px 时依然清晰）。
+    #[cfg(target_os = "macos")]
+    {
+        tray = tray
+            .icon(tauri::include_image!("icons/tray-template.png"))
+            .icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tray = tray.icon(tauri::include_image!("icons/tray.png"));
     }
     tray.build(app)?;
     Ok(())

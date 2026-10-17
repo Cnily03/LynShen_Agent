@@ -29,6 +29,7 @@
 	import Notice from '$lib/ui/Notice.svelte';
 	import type { AgentView } from '$lib/agents.svelte';
 	import { t } from '$lib/i18n';
+	import lockup from '$lib/aogiri-lockup.svg?raw';
 	import Projects from './Projects.svelte';
 	import NewSessionDialog from './NewSessionDialog.svelte';
 	import ProjectScreen from './ProjectScreen.svelte';
@@ -243,7 +244,7 @@
 		</div>
 	{:else}
 		<aside class="side">
-			{#if wide}<div class="brand">Aogiri</div>{/if}
+			{#if wide}<div class="brand" role="img" aria-label={t('common.appName')}>{@html lockup}</div>{/if}
 			<nav>
 				{#if wide && chatHref}
 					<a class="chat" href={chatHref}>
@@ -527,9 +528,12 @@
 	/* Wide: as the chat's sidebar — the name, the sections one per row. */
 	.brand {
 		padding: calc(env(safe-area-inset-top) + 14px) 16px 6px;
-		font-size: var(--fs-md);
-		font-weight: 600;
-		letter-spacing: -0.01em;
+		line-height: 0;
+		color: var(--text);
+	}
+	.brand :global(svg) {
+		height: 20px;
+		width: auto;
 	}
 	.wide nav {
 		position: static;

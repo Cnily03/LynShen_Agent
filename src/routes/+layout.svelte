@@ -10,6 +10,7 @@
 	import ContextMenuHost from '$lib/ui/ContextMenuHost.svelte';
 	import TooltipHost from '$lib/ui/TooltipHost.svelte';
 	import ImageViewerHost from '$lib/ui/ImageViewerHost.svelte';
+	import { initLaunch } from '$lib/launch';
 
 	// Tag the root with the host OS before first paint so platform-specific window
 	// chrome (macOS traffic-light insets vs a native Windows/Linux title bar) is
@@ -17,6 +18,9 @@
 	if (browser) applyPlatformClass();
 	// This computer's shortcut changes, before anything shows a key.
 	if (browser) initShortcuts();
+	// The launch screen app.html shows on a cold start: it leaves on the first
+	// click or key, when +page.svelte says the app is ready, or at its cap.
+	if (browser) initLaunch();
 
 	let { children } = $props();
 	onMount(() => {

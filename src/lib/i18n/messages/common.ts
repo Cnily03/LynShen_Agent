@@ -1,6 +1,8 @@
 // Shared UI strings used across many components (buttons, generic labels).
 const common = {
 	zh: {
+		/** The app's name: the accessible name of its drawn wordmark and logo. */
+		appName: 'Aogiri',
 		copy: '复制',
 		cut: '剪切',
 		paste: '粘贴',
@@ -27,6 +29,7 @@ const common = {
 		}
 	},
 	en: {
+		appName: 'Aogiri',
 		copy: 'Copy',
 		cut: 'Cut',
 		paste: 'Paste',

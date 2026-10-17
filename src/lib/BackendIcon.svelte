@@ -1,7 +1,8 @@
 <script lang="ts">
-	// Engine-backend mark: the app icon's "Ju" + cursor for the native engine
-	// (design/icon/make-mark.py), monochrome vendor SVGs for codex (OpenAI) /
-	// claude and a generic plug for ACP agents.
+	// Engine-backend mark: LynShen's mark for its own engine (lynshen-mark.svg:
+	// two trunks in the text colour, the light --lynshen-light, drawn on a 16px
+	// grid), monochrome vendor SVGs for codex (OpenAI) / claude and a generic
+	// plug for ACP agents.
 	import lynshen from '$lib/lynshen-mark.svg?raw';
 	import openai from '@lobehub/icons-static-svg/icons/openai.svg?raw';
 	import claude from '@lobehub/icons-static-svg/icons/claude.svg?raw';

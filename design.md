@@ -49,7 +49,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - The first-run page hides the navigator toggle. [SHOULD]
 
 ### Navigator
-- Expanded: 240–460px wide (the user drags its right edge; default 272px), `--sidebar` fill. From top to bottom: the logo mark (a 30px `--text` tile with the mark in `--bg`) with the wordmark (`--fs-lg`/700), the primary navigation rows, a toolbar of quiet 28px icon buttons, the list, and the account row at the bottom. [SHOULD]
+- Expanded: 240–460px wide (the user drags its right edge; default 272px), `--sidebar` fill. From top to bottom: the logo mark (a 30px `--text` tile with the mark in `--bg` and its light in `--logo-light-tile`) with the drawn wordmark (`aogiri-wordmark.svg`, 18px high, `--text`), the primary navigation rows, a toolbar of quiet 28px icon buttons, the list, and the account row at the bottom. [SHOULD]
 - Navigation and list rows are 28px high, with 8px side padding, a 16px icon and `--r-sm`. The selected row has a `--surface2` fill and `--text`. [SHOULD]
 - Collapsed (⌘B or the title bar toggle): the same panel narrows to the icon rail, `SIDEBAR_RAIL_WIDTH` (48px). This is the window's only vertical rail. Its items are 44px high with 20px icons, centred on the rail; the current item has a 2px `--text` bar on the rail's left edge and a `--text` icon, the others are `--dim`. It shows the logo (which expands the navigator and shows the panel icon on hover), the primary navigation with tooltips to their right, a dot on an icon for a pending count, and the account avatar. Labels and lists fade out; the icons keep their position. [SHOULD]
 - Peek: hovering or focusing the collapsed rail opens the full navigator over the canvas; the canvas does not move. The open panel has the `--sidebar` fill, a 1px `--divider` right edge and `--shadow-pop`. It folds back when the pointer leaves. [SHOULD]
@@ -86,7 +86,12 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - A quota or usage figure shows as text with a 4px meter under it. [SHOULD]
 
 ### First-run page
-- It covers the window below the title bar (all of it on macOS) on `--bg`. One copy column at the left (at most 440px): the wordmark, an `h1` in the display type (§4 Type), a lede (`--fs-md`, `--dim`), then the action column (at most 320px): one primary action, at most one secondary action, then a text link to skip or go back. The `SignalRaster` field fills the right part of the window behind the copy, with masked fades. The legal line sits at the bottom left in `--fs-xs`. [SHOULD]
+- It covers the window below the title bar (all of it on macOS) on `--bg`. One copy column at the left (at most 440px): the logo lockup (`aogiri-lockup.svg`, 26px high), an `h1` in the display type (§4 Type), a lede (`--fs-md`, `--dim`), then the action column (at most 320px): one primary action, at most one secondary action, then a text link to skip or go back. The `SignalRaster` field fills the right part of the window behind the copy, with masked fades. The legal line sits at the bottom left in `--fs-xs`. [SHOULD]
+
+### Launch screen
+- On a cold start the desktop app's main window shows the logo on the theme's `--bg` from its first frame (`#launch` in `src/app.html`), centred: the mark 96px high, the drawn wordmark under it. The two trunks rise from the ground (the short one 60 ms, the tall one 150 ms after the first frame, 400 ms each), the light slides in along its slant and its glow comes and goes once (470 and 620 ms), the wordmark fades in (820 ms); the entrance ends at 1.22 s. Each part is within `--t-enter`; the sequence is the one longer than it. Only transform and opacity animate (no filter or blur), every entrance holds only its start (`backwards`), and nothing stays transformed afterwards. [MUST] — Decision 2026-10-17 (owner): "启动软件可以设计一个展示 Logo 的动画欢迎页"; timing in `src/lib/launch.ts` and the logo kit's 欢迎页说明.md.
+- It never makes the reader wait: it fades out (220 ms, `--ease-base`) as soon as the canvas is built, takes no clicks while it fades, and leaves on the first click or key (140 ms). A first run shows the whole entrance once. It leaves at 2.2 s after the start whatever the app's state, and if the scripts never run, app.html takes it away at 4 s. With reduced motion it shows the still logo and fades in 120 ms. The phone page, the web chat and the browser windows have none. [MUST]
+- The glow, the gradient and the drawn wordmark belong to the logo (§4 Color, "Brand marks"). They are not a pattern for the interface. [SHOULD]
 
 ## 4. Visual Rules
 
@@ -108,6 +113,7 @@ Conflict order: user facts and requirements → accessibility and keyboard use �
 - Light theme: no surface larger than a card, a menu or an input is pure white. `--bg` is an off-white with CIE L* between 95.5 and 97 and a slightly warm, low-chroma hue. `--panel` may be lighter than `--bg`, up to L* 99. [MUST] — Decision 2026-10-13: user feedback that the white light theme is glaring while the dark theme is comfortable; the warm hue matches the Aogiri brand.
 - Contrast, both themes, measured on `--bg` and the frame tone: `--text` at least 12:1, `--dim` at least 7:1, `--dim2` at least 4.5:1. A status color used as text is at least 4.5:1 on the surface it sits on. [MUST]
 - Launch: the native window background and the first painted frame use the active theme's `--bg`. A white frame must not show before the interface in either theme. [MUST]
+- Brand marks: the logo is 04 林光, two trunks and a light (owner's choice 2026-10-17, the logo kit in `design/icon/`). Its trunks and letters take the text colour of where they sit; only its light has a colour, from `--logo-light` (Aogiri's amber on the canvas), `--logo-light-tile` (on a `--text` tile), `--logo-light-from` / `--logo-light-to` (the gradient, on the launch screen only) and `--lynshen-light` (LynShen's teal, for its engine and gateway). Each holds 3:1 on what it sits on. Under 32px the marks are drawn on their own pixel grid with a flat light (`aogiri-mark.svg` 30px, `lynshen-mark.svg` 16px); a large mark is never scaled down instead. [MUST]
 
 ### Surfaces and depth
 - Layers back to front: the frame tone (`--rail`, `--sidebar`) → `--bg` (canvas) → `--panel` with `--shadow-float` (composer, approval card) → `--panel` with `--shadow-pop` (menus, popovers, tooltips, the peeking navigator) → `--shadow-modal` (dialogs). [SHOULD]
@@ -159,6 +165,8 @@ Decision 2026-10-14 for this section. The owner's feedback was that a prototype 
 | Role | Name | Source | Use | Status |
 |---|---|---|---|---|
 | Tokens | `--bg` `--sidebar` `--rail` `--divider` `--panel` `--surface` `--surface2` `--hairline` `--border` `--border-strong` `--text` `--dim` `--dim2` `--accent*` `--on-accent` `--brand*` `--ok` `--info` `--warn` `--err` `--font-sans` `--font-mono` `--font-display` `--fs-*` `--r-*` `--t-*` `--ease-*` `--shadow-*` `--scrim` | `src/lib/app.css` | All styling | Implemented |
+| Logo marks | `aogiri-mark.svg` (navigator tile), `aogiri-wordmark.svg`, `aogiri-lockup.svg` (first run, Settings → 更新), `lynshen-mark.svg` (14–19px; `BackendIcon`, `Vendor`), all `?raw` inline SVG in `currentColor` with the light from a token | `src/lib/`, sources and icon files from `design/icon/make-aogiri-icons.mjs` | Every place that shows the logo; no other drawing of it | Implemented |
+| Launch screen | `#launch` (app.html), `initLaunch`, `launchReady`, `LaunchScreen`, `LAUNCH` | `src/app.html`, `src/lib/launch.ts` | The cold start of the desktop window only | Implemented |
 | Display face | Noto Serif SC 500 (`@font-face` in `app.css`), a subset of the display lines and printable ASCII; SIL OFL 1.1 | `src/lib/fonts/noto-serif-sc-display.woff2`, `src/lib/fonts/OFL.txt`, `scripts/subset-display-font.py` | The two display moments | Implemented |
 | Glass, frost, background | `--float-tint` `--chrome-tint` `--glass-filter` `--glass-rim` `--glass-strong` `--vibrancy-chrome` `--vibrancy-tint` `--canvas-veil`; root attributes `data-glass` `data-vibrancy` `data-canvas-bg` | `src/lib/app.css`, `src/lib/prefs.svelte.ts` | Set by preferences; components read them, never set them | Implemented |
 | Window frame | `.app` (`--rail`), `.body`, `.panel`, `.canvas` (`--bg`), `.stage` | `src/routes/+page.svelte` | The one frame | Implemented |
@@ -211,6 +219,9 @@ The values of the direction in §2. Values are light / dark where they differ; "
 | `--shadow-canvas` | defined, used by no component | removed | No inset canvas (D3) | Implemented (removed) |
 | Title bar height | 48px | 38px | §3 Title bar | Implemented: `.titlebar`, `src/lib/shell/TitleBar.svelte` |
 | `trafficLightPosition.y` | 26 (21.5 with PR #26) | 16.5, centred on the 38px bar | §3 Title bar | Implemented: `src-tauri/tauri.macos.conf.json`; not yet checked on a macOS build |
+| `--logo-light` `--logo-light-tile` | — | #c2581f / #f0a465 and #f0a465 / #c2581f | The Aogiri mark's light on the canvas and on a `--text` tile (§4 Color, "Brand marks") | Implemented: `src/lib/app.css` (Decision 2026-10-17) |
+| `--logo-light-from` `--logo-light-to` | — | #d9652f → #b24e1a / #ffe3bc → #f0a465 | The light's gradient on the launch screen | Implemented: `src/lib/app.css`, repeated in `src/app.html` (`brand.test.ts`) |
+| `--lynshen-light` | — | #0e7f94 / #24b3cd | LynShen's mark (engine, gateway) | Implemented: `src/lib/app.css` |
 | `SIDEBAR_RAIL_WIDTH` | 62 | 48 | Collapsed rail | Implemented: `src/lib/shell/sidebarState.ts` |
 | Navigator default width | 292 | 272 | Expanded navigator | Implemented: `SIDEBAR_DEFAULT_WIDTH`, `src/lib/shell/sidebarState.ts` |
 
@@ -305,3 +316,5 @@ Extension boundary:
 | Page over the canvas | `HomePage`, `ProjectPage` |
 | Full-panel page | `SettingsPage`, `DeskPage` |
 | First-run page | `Welcome`, `SignalRaster` |
+| Launch screen | `#launch` in `src/app.html`, `LaunchScreen` (`src/lib/launch.ts`) |
+| Logo marks / logo light | `aogiri-mark.svg` `aogiri-wordmark.svg` `aogiri-lockup.svg` `lynshen-mark.svg` / `--logo-light*` `--lynshen-light` |
