@@ -1443,13 +1443,14 @@ try {
         assert.ok(start.end - start.top <= 1, `${engine}: the conversation is not at its end (${JSON.stringify(start)})`);
         assert.ok(start.listEnd > 100, `${engine}: the subagents list does not scroll (${JSON.stringify(start)})`);
         // Following the end: the list scrolls to its end and back; past
-        // either end the conversation stays, and keeps following.
+        // either end the conversation stays at its end (it may grow: the
+        // work line), and keeps following.
         let v = await wheelOver(list, 300, 8);
         assert.ok(v.listEnd - v.list <= 1, `${engine}: the list did not scroll to its end (${JSON.stringify(v)})`);
-        assert.equal(v.top, start.top, `${engine}: the wheel down over the list moved the conversation`);
+        assert.ok(v.end - v.top <= 1, `${engine}: the wheel down over the list moved the conversation (${JSON.stringify(v)})`);
         v = await wheelOver(list, -300, 12);
         assert.equal(v.list, 0, `${engine}: the list did not scroll back`);
-        assert.equal(v.top, start.top, `${engine}: the wheel up over the list moved the conversation`);
+        assert.ok(v.end - v.top <= 1, `${engine}: the wheel up over the list moved the conversation (${JSON.stringify(v)})`);
         await expect(jump).toHaveCount(0);
         // The reader scrolls the conversation up (beside the cards); the
         // wheel over the list, the plan's title line or the navigator's
@@ -1457,7 +1458,7 @@ try {
         await wheelOver(p.locator('.chatpane main'), -300, 2);
         await expect(jump).toBeVisible();
         const up = await settled();
-        assert.ok(up.top < start.top - 100, `${engine}: the reader's wheel did not scroll the conversation up`);
+        assert.ok(up.end - up.top > 100, `${engine}: the reader's wheel did not scroll the conversation up (${JSON.stringify(up)})`);
         v = await wheelOver(list, 300, 12);
         assert.ok(v.listEnd - v.list <= 1, `${engine}: the list did not scroll to its end`);
         assert.equal(v.top, up.top, `${engine}: the wheel past the list's end scrolled the conversation`);
@@ -1521,14 +1522,16 @@ try {
           assert.equal(await tipOf(row.locator('button.agent')), ERR, `${engine}: ${PATHS[i]}'s error is not on hover in 工作组`);
         }
         await expect(team.locator('.arow', {hasText: 'Done'})).toHaveCount(0);
-        const main = () => tp.evaluate(() => Math.round(document.querySelector('.chatpane main').scrollTop));
-        const top = await main();
+        // (The conversation follows its end there.)
+        const shortOfEnd = () => tp.evaluate(() => { const m = document.querySelector('.chatpane main'); return Math.round(m.scrollHeight - m.clientHeight - m.scrollTop); });
+        assert.ok(await shortOfEnd() <= 1, `${engine}: the conversation beside 工作组 is not at its end`);
         for (const dy of [600, -600]) {
           const box = await team.boundingBox();
           await tp.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           for (let i = 0; i < 4; i++) await tp.mouse.wheel(0, dy);
           await tp.waitForTimeout(500);
-          assert.equal(await main(), top, `${engine}: the wheel over 工作组 scrolled the conversation`);
+          assert.ok(await shortOfEnd() <= 1, `${engine}: the wheel over 工作组 scrolled the conversation`);
+          await expect(tp.getByRole('button', {name: '滚动到底部'})).toHaveCount(0);
         }
         await tp.close();
       }
