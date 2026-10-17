@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Msg, TurnStats } from './chat.svelte';
 import { isPickKey, keysFree, lastParagraph, markStopped, pickKeyLabel, recapOf, type RecapContext } from './recap';
 
-const stats = (files = 0, added = 0, removed = 0): TurnStats => ({ elapsed: 1000, inTokens: 0, outTokens: 0, files, added, removed, tools: 0, cost: 0, model: 'm' });
+const stats = (files = 0, added = 0, removed = 0): TurnStats => ({ elapsed: 1000, inTokens: 0, outTokens: 0, files, added, removed, tools: 0, cost: 0, model: 'm', segments: 1 });
 const user = (text = 'go'): Msg => ({ kind: 'user', text }) as Msg;
 const reply = (text: string, turn?: TurnStats, extra: object = {}): Msg => ({ kind: 'assistant', text, ...(turn ? { turn } : {}), ...extra }) as Msg;
 const tool = (): Msg => ({ kind: 'tool', id: 't', name: 'edit', input: '', output: '' }) as unknown as Msg;
