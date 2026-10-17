@@ -1201,6 +1201,25 @@ try {
   await expect(cardsPhone.locator('.trace-sheet')).toBeVisible();
   assert.equal(await cardsPhone.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'the phone page scrolls sideways');
   await cardsPhone.close();
+  // Outside the window, how many conversations wait for the user: "(2) "
+  // before the window's title, and the Dock badge, or on Windows an overlay
+  // icon on the taskbar button (a 32px image the page draws). All clear
+  // once nothing waits.
+  for (const os of ['macos', 'windows']) {
+    const w = await browser.newPage();
+    w.on('pageerror', e => errors.push(e.message));
+    await w.addInitScript((os) => { const set = () => document.documentElement && (document.documentElement.dataset.os = os); set(); document.addEventListener('readystatechange', set); }, os);
+    await w.goto(base + '?shell&states');
+    await expect(w.locator('.composer')).toBeVisible({timeout:30000});
+    const outside = () => w.evaluate(() => window.__calls.filter((c) => /set_title|set_badge_count|set_overlay_icon|image\|new/.test(c.command)).map((c) => [c.command.replace('plugin:window|', '').replace('plugin:', ''), c.args.rgba ? c.args.rgba.length : c.args.value ?? null]));
+    await expect(w).toHaveTitle('(2) Aogiri');
+    await expect.poll(outside).toEqual(os === 'macos' ? [['set_title', '(2) Aogiri'], ['set_badge_count', 2]] : [['set_title', '(2) Aogiri'], ['image|new', 32 * 32 * 4], ['set_overlay_icon', null]]);
+    const before = (await outside()).length;
+    await w.evaluate(() => { for (const s of window.__shellStore.allSessions) { const a = s.chat.pendingApproval; if (a) s.chat.handle({ type: 'tool_output', call_id: a.callId, name: a.name, output: 'ok' }); } });
+    await expect(w).toHaveTitle('Aogiri');
+    await expect.poll(async () => (await outside()).slice(before)).toEqual([['set_title', 'Aogiri'], [os === 'macos' ? 'set_badge_count' : 'set_overlay_icon', null]]);
+    await w.close();
+  }
   // The window frost is off unless chosen. Preferences stored with the old
   // default (on, without a version) are switched off once: in storage, in
   // what the app is told, and nothing is translucent. (?frost: the system

@@ -41,7 +41,8 @@
 	//                           catalog, or (=old) by their ids only
 	// `window.__prefs` is the preferences store (the regressions change the
 	// conversation width through it); `window.__shellChat` the conversation's
-	// chat (to send it more events), `window.__opened` what the chat asked the
+	// chat (to send it more events), `window.__shellStore` its sessions,
+	// `window.__opened` what the chat asked the
 	// page to open (a subagent's page, the team panel, the agent trace) and,
 	// with &cards, `window.__sent` the ops it sent its engine.
 	import { onMount, untrack } from 'svelte';
@@ -63,6 +64,7 @@
 	import { daemon, type Op } from '../../src/lib/protocol';
 	import { adapterFor, clearDraft } from '../../src/lib/backends/router';
 	import { prefs } from '../../src/lib/prefs.svelte';
+	import { showWaiting } from '../../src/lib/shell/attention.svelte';
 	import PlanPanel from '../../src/lib/PlanPanel.svelte';
 	import { subagentPages } from '../../src/lib/agents/subagentPages.svelte';
 	import { setLocale } from '../../src/lib/i18n';
@@ -101,6 +103,10 @@
 	}
 	const session = store.allSessions.find((s) => s.id === first.sessions[0].id)!;
 	store.activeId = session.id;
+	// As the page does: the count of conversations that wait for the user in
+	// the window's title, the Dock badge or the Windows overlay
+	// (`window.__calls`).
+	showWaiting(() => store.allSessions);
 
 	const DIFF = [
 		'--- a/src/lib/ChatPane.svelte',
@@ -289,7 +295,7 @@
 		const adapter = adapterFor(session.id);
 		if (adapter) adapter.encodeOp = (op: Op) => (sent.push(op), []);
 	}
-	Object.assign(window, { __shellChat: session.chat, __shellSession: session.id, __opened: opened, __sent: sent });
+	Object.assign(window, { __shellChat: session.chat, __shellSession: session.id, __shellStore: store, __opened: opened, __sent: sent });
 	$effect(() => {
 		const request = subagentPages.request;
 		if (request) untrack(() => opened.push(`agent:${request.agentId}:${request.place}`));

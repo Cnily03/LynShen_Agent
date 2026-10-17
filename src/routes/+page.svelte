@@ -11,6 +11,7 @@
 	import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleTextIcon';
 	import SessionMark from '$lib/SessionMark.svelte';
 	import { sessionStatus } from '$lib/sessionStatus';
+	import { showWaiting } from '$lib/shell/attention.svelte';
 	import { joinPath, parseFileHref, pathExt } from '$lib/fileRefs';
 	import { PROVIDER_CATALOG } from '$lib/providers/catalog';
 	import { applyOverride, readOverrides } from '$lib/providers/overrides';
@@ -202,6 +203,9 @@
 	}
 	const notifyDone = (title: string) =>
 		notify('Aogiri', t('shell.notifyDone', { title: shownTitle(title) }));
+	// How many conversations wait for the user: the Dock badge, the Windows
+	// taskbar overlay and the window title's "(2) ".
+	showWaiting(() => store.allSessions);
 	// An agent's question, pending action or report while the window is in
 	// the background.
 	agentDirectory.onArrival = (kind, agent, text, agentId) => {
