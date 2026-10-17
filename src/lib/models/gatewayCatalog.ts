@@ -21,6 +21,9 @@ export interface CatalogModel extends ModelInfo {
 	/** The balance can run it (a route in the key's own groups); false for a
 	 *  model only the plan's groups serve. Unset from an older gateway. */
 	balanceOk?: boolean;
+	/** The row states whether the model thinks (`reasoning` is not a guess
+	 *  from the id). */
+	reasoningStated?: boolean;
 }
 
 export interface CatalogPlan {
@@ -118,7 +121,8 @@ function modelOf(raw: unknown, recommendedAt: number | undefined): CatalogModel 
 		...(num(caps.context_total) ? { contextTotal: num(caps.context_total) } : {}),
 		...(num(caps.max_output_tokens) ? { maxOutput: num(caps.max_output_tokens) } : {}),
 		cataloged,
-		...(typeof o.balance_available === 'boolean' ? { balanceOk: o.balance_available } : {})
+		...(typeof o.balance_available === 'boolean' ? { balanceOk: o.balance_available } : {}),
+		...(typeof caps.reasoning === 'boolean' ? { reasoningStated: true } : {})
 	};
 }
 

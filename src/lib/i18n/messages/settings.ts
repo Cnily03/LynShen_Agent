@@ -758,6 +758,7 @@ const settings = {
 			thinking: '支持思考（推理）',
 			efforts: '可选的思考强度',
 			effortNone: '关闭',
+			effortDefault: '默认',
 			ultraHint: 'Minimal 是 GPT 最低的思考档，Anthropic 格式下按不思考发送。Ultra 沿用 GPT 的叫法，发请求时换成这个模型勾选的其他档位中最高的一档，没有其他档位时发 Max。',
 			addModel: '添加模型',
 			updateModel: '更新模型',
@@ -814,6 +815,7 @@ const settings = {
 			configured: '已按模型目录更新 {n} 个模型。',
 			nothingKnown: '模型目录里没有列表中的模型。',
 			upToDate: '列表中的模型已和模型目录一致。',
+			keptThinking: '模型目录说 {n} 个模型不支持思考，它们的思考设置没有改；确认不支持时请在模型里取消“支持思考”。',
 			failed: '获取失败：{msg}'
 		},
 		catalog: {
@@ -1998,6 +2000,7 @@ const settings = {
 			thinking: 'Supports thinking (reasoning)',
 			efforts: 'Effort levels it accepts',
 			effortNone: 'Off',
+			effortDefault: 'Default',
 			ultraHint: 'Minimal is GPT\'s lowest thinking level; the Anthropic format sends it as no thinking. Ultra follows GPT\'s naming: requests send the highest other level checked for this model, or Max when there is none.',
 			addModel: 'Add model',
 			updateModel: 'Update model',
@@ -2054,6 +2057,7 @@ const settings = {
 			configured: '{n} models updated from the model catalog.',
 			nothingKnown: 'The model catalog has none of the listed models.',
 			upToDate: 'The listed models already match the model catalog.',
+			keptThinking: 'The model catalog says {n} models do not think; their thinking setting was not changed. If they really do not, clear "Supports thinking" on them.',
 			failed: 'Could not fetch the models: {msg}'
 		},
 		catalog: {

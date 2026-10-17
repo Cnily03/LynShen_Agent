@@ -18,6 +18,7 @@
 	import { sessionStatus } from '$lib/sessionStatus';
 	import { readConfig } from '$lib/protocol';
 	import { configModelList } from '$lib/configModels';
+	import { modelEfforts } from '$lib/settings/providerFields';
 	import { isImageModel } from '$lib/providers/monoize';
 	import ModelPicker from '$lib/models/ModelPicker.svelte';
 	import { itemsFromOptions } from '$lib/models/items';
@@ -67,7 +68,7 @@
 						name: String(m.name),
 						label: typeof m.display_name === 'string' && m.display_name ? m.display_name : String(m.name),
 						window: typeof m.context_window === 'number' ? m.context_window : 0,
-						efforts: Array.isArray(m.reasoning_efforts) ? (m.reasoning_efforts as string[]) : undefined
+						efforts: modelEfforts(m as { reasoning?: boolean; reasoning_efforts?: string[] })
 					}));
 				provider = typeof cfg.provider === 'string' ? cfg.provider : '';
 				const current = typeof cfg.model === 'string' ? cfg.model : '';

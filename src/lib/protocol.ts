@@ -1072,7 +1072,11 @@ export interface ProviderInfo {
 		context_window?: number;
 		max_context_window?: number;
 		max_output_tokens?: number;
+		/** Stated by LynShen CLI 0.7.1 and later; without it, a list of only
+		 *  "none" does not say whether the model thinks. */
+		reasoning?: boolean;
 		reasoning_efforts?: string[];
+		input_modalities?: string[];
 	}[];
 }
 export function listProviders(): Promise<ProviderInfo[]> {
@@ -1086,6 +1090,11 @@ export interface ListedModel {
 	context_window?: number;
 	max_output_tokens?: number;
 	input_modalities?: string[];
+	/** Whether the model thinks, when the list says so (capabilities,
+	 *  OpenRouter's supported_parameters, …). */
+	reasoning?: boolean;
+	/** Effort tiers the list states (Anthropic's capabilities.effort, …). */
+	reasoning_efforts?: string[];
 }
 /** The model list of a provider's endpoint, read by the app (provider_models.rs):
  *  with `key` (typed, not saved yet), else the key saved for `provider`. */

@@ -19,15 +19,22 @@ export interface ProviderModel {
 	input_modalities?: string[];
 }
 
-/** Effort tiers the form offers, lowest first, as the engine ranks them
- *  (agent-core `EFFORT_ORDER`). "none" lets the composer turn thinking off;
- *  "minimal" is the lowest tier that still thinks (GPT-5's Responses value);
- *  "ultra" is GPT's name for the top tier (the engine sends the model's
- *  highest other tier). */
-export const EFFORT_TIERS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+/** Effort tiers the form offers. "default" comes first: it sends no
+ *  thinking setting, so the provider's own applies (LynShen CLI 0.7.1 lists
+ *  it first for Chat Completions models that think). The rest go lowest
+ *  first, as the engine ranks them (agent-core `EFFORT_ORDER`). "none" lets
+ *  the composer turn thinking off; "minimal" is the lowest tier that still
+ *  thinks (GPT-5's Responses value); "ultra" is GPT's name for the top tier
+ *  (the engine sends the model's highest other tier). */
+export const EFFORT_TIERS = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 export const MODALITIES = ['text', 'image'] as const;
 /** What a model without a stated list gets: the engine's default tiers. */
 export const DEFAULT_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'];
+/** What a model of a built-in provider thinks with when no source states
+ *  its tiers: the provider's default, or off. The engine lists the tiers
+ *  each built-in endpoint documents; DEFAULT_EFFORTS there could send a
+ *  setting the endpoint rejects. */
+export const SAFE_EFFORTS = ['default', 'none'];
 /** Today's values for a new model left empty. */
 export const DEFAULT_CONTEXT = 128_000;
 export const DEFAULT_MAX_OUTPUT = 8_192;
@@ -67,11 +74,16 @@ export function validBaseUrl(text: string): boolean {
 	}
 }
 
-/** The tiers the composer offers for a model: none when it does not reason. */
+/** The tiers the engine offers for a model: none when it does not reason,
+ *  its list, or the default tiers when it lists none (the engine's
+ *  `read_model_configs`). */
 export function modelEfforts(model?: Pick<ProviderModel, 'reasoning' | 'reasoning_efforts'> | null): string[] {
 	if (!model || model.reasoning === false) return [];
-	return model.reasoning_efforts ?? [];
+	return model.reasoning_efforts?.length ? model.reasoning_efforts : DEFAULT_EFFORTS;
 }
+
+/** A tier list that offers thinking: a tier other than "none". */
+export const offersThinking = (tiers?: string[] | null): tiers is string[] => !!tiers?.some((tier) => tier !== 'none');
 
 /** Image attachments may go to the model (unset modalities: yes). */
 export function acceptsImages(model?: Pick<ProviderModel, 'input_modalities'> | null): boolean {
@@ -109,17 +121,21 @@ export function newModelDraft(): ModelDraft {
 	};
 }
 
-/** The form's view of a stored model; unset fields show what applies today. */
-export function draftFromModel(model: ProviderModel): ModelDraft {
+/** The form's view of a stored model; unset fields show what applies today.
+ *  A model that does not think keeps `offTiers` in the draft (the default
+ *  tiers; SAFE_EFFORTS for a built-in provider's model), so turning 支持思考
+ *  on offers them. */
+export function draftFromModel(model: ProviderModel, offTiers: string[] = DEFAULT_EFFORTS): ModelDraft {
 	const reasoning = model.reasoning !== false;
 	const kinds = (model.input_modalities ?? []).filter((kind) => (MODALITIES as readonly string[]).includes(kind));
+	const tiers = model.reasoning_efforts ?? [];
 	return {
 		name: model.name,
 		display_name: model.display_name ?? '',
 		context: formatTokens(model.context_window),
 		maxOutput: formatTokens(model.max_output_tokens),
 		reasoning,
-		efforts: reasoning ? orderTiers(model.reasoning_efforts?.length ? model.reasoning_efforts : DEFAULT_EFFORTS) : [],
+		efforts: orderTiers(reasoning ? (tiers.length ? tiers : DEFAULT_EFFORTS) : offersThinking(tiers) ? tiers : offTiers),
 		modalities: kinds.length ? kinds : [...MODALITIES]
 	};
 }

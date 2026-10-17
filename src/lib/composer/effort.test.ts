@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { defaultEffort, effortLabel, stepStop, stopAt } from './effort';
 
 describe('effort helpers', () => {
-	it('defaults to medium, else the first tier', () => {
+	it('defaults to the provider default, else medium, else the first tier', () => {
+		expect(defaultEffort(['default', 'none', 'low', 'medium', 'high', 'xhigh'])).toBe('default');
+		expect(defaultEffort(['none', 'low', 'default'])).toBe('default');
 		expect(defaultEffort(['low', 'medium', 'high'])).toBe('medium');
 		expect(defaultEffort(['low', 'high'])).toBe('low');
 		expect(defaultEffort([])).toBe('');
@@ -11,6 +13,7 @@ describe('effort helpers', () => {
 	it('labels efforts', () => {
 		expect(effortLabel('high')).toBe('High');
 		expect(effortLabel('xhigh')).toBe('XHigh');
+		expect(effortLabel('default')).toBe('Default');
 		expect(effortLabel('')).toBe('');
 	});
 

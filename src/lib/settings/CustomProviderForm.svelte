@@ -13,11 +13,13 @@
 	import { effortLabel } from '$lib/composer/effort';
 	import { anthropicV1Suggestion, requestUrl } from '$lib/providers/endpoint';
 	import { diffModel } from '$lib/providers/overrides';
-	import { configureModel, modelFromListed, type KnownModel } from '$lib/providers/discovery';
+	import { configureModel, knownFromListed, mergeKnown, modelFromListed, staysThinking, type KnownModel } from '$lib/providers/discovery';
 	import type { ListedModel } from '$lib/protocol';
 	import {
+		DEFAULT_EFFORTS,
 		EFFORT_TIERS,
 		MODALITIES,
+		SAFE_EFFORTS,
 		draftFromModel,
 		formatTokens,
 		modelEfforts,
@@ -84,6 +86,11 @@
 	} = $props();
 
 	const builtin = $derived(mode === 'builtin');
+	/** Tiers for a model that thinks and has none stated. A built-in Chat
+	 *  Completions provider gets its default or off, never the generic list:
+	 *  the engine lists the tiers each such endpoint documents, and a setting
+	 *  it does not take can be a 400. */
+	const fallbackTiers = $derived(builtin && form.format === 'chat' ? SAFE_EFFORTS : DEFAULT_EFFORTS);
 	/** The built-in version of a model; none for a model the user added. */
 	const builtinModel = (name: string) => (builtin ? builtinDefaults?.models.find((m) => m.name === name) : undefined);
 	/** A built-in model whose fields the user changed. */
@@ -113,10 +120,16 @@
 	// 获取可用模型: the endpoint's list, the names picked to add, and a
 	// filter for long lists. `note`: what the last 添加 / 自动配置 did.
 	let found = $state<{ models: ListedModel[]; picked: string[] } | null>(null);
+	/** What the last list said about each model, for 自动配置 after 添加. */
+	let listed: Record<string, ListedModel> = {};
+	/** What the list and the catalogs know about a model, the list first. */
+	const knownAbout = (name: string, m: ListedModel | undefined = listed[name]) => mergeKnown([m && knownFromListed(m), lookup?.(name)]);
 	let finding = $state(false);
 	let findError = $state('');
 	let findFilter = $state('');
 	let note = $state('');
+	/** 自动配置 left thinking on where a catalog says the model does not think. */
+	let keptNote = $state('');
 	const inList = (id: string) => form.models.some((m) => m.name === id);
 	const shownFound = $derived(
 		(found?.models ?? []).filter((m) => !findFilter.trim() || m.id.toLowerCase().includes(findFilter.trim().toLowerCase()))
@@ -127,6 +140,7 @@
 	async function findModels() {
 		if (!discover || finding) return;
 		note = '';
+		keptNote = '';
 		findError = '';
 		if (!validBaseUrl(baseUrl)) {
 			findError = t('settings.custom.error.url');
@@ -135,6 +149,7 @@
 		finding = true;
 		try {
 			const { models } = await discover({ id: form.id.trim(), base_url: baseUrl, format: form.format, key: form.key.trim() });
+			listed = Object.fromEntries(models.map((m) => [m.id, m]));
 			const add = models.filter((m) => !inList(m.id));
 			// A short list is picked whole; a long one (OpenRouter) is chosen from.
 			found = { models, picked: add.length <= 20 ? add.map((m) => m.id) : [] };
@@ -158,19 +173,24 @@
 	function addFound() {
 		if (!found) return;
 		const picked = found.models.filter((m) => found!.picked.includes(m.id) && !inList(m.id));
-		form.models = [...form.models, ...picked.map((m) => modelFromListed(m, lookup?.(m.id)))];
+		form.models = [...form.models, ...picked.map((m) => modelFromListed(m, knownAbout(m.id, m), fallbackTiers))];
 		note = t('settings.discover.added', { n: picked.length });
+		keptNote = '';
 		found = null;
 	}
-	/** 自动配置: the catalogs' values over every listed model they know. */
+	/** 自动配置: what the last list and the catalogs say, over every model in
+	 *  the list they know. Thinking is never turned off here: a model the
+	 *  catalog says does not think keeps it, and the note says how many. */
 	function autoConfigure() {
 		if (!lookup) return;
 		let knownCount = 0;
 		let changedCount = 0;
+		let keptCount = 0;
 		form.models = form.models.map((m) => {
-			const known = lookup(m.name);
+			const known = knownAbout(m.name);
 			if (known) knownCount++;
-			const next = known ? configureModel(m, known) : null;
+			if (staysThinking(m, known)) keptCount++;
+			const next = known ? configureModel(m, known, fallbackTiers) : null;
 			if (next) changedCount++;
 			return next ?? m;
 		});
@@ -180,17 +200,19 @@
 			: knownCount
 				? t('settings.discover.upToDate')
 				: t('settings.discover.nothingKnown');
+		keptNote = keptCount ? t('settings.discover.keptThinking', { n: keptCount }) : '';
 	}
 	/** The second line of a listed model: what adding it would give. */
 	function foundDesc(m: ListedModel): string {
 		if (inList(m.id)) return t('settings.discover.inList');
-		const known = lookup?.(m.id);
-		if (!known && !m.context_window) return t('settings.discover.unknown');
-		return summary(modelFromListed(m, known));
+		const known = knownAbout(m.id, m);
+		if (!known) return t('settings.discover.unknown');
+		return summary(modelFromListed(m, known, fallbackTiers));
 	}
 
 	const err = (key?: string) => (key ? t(`settings.custom.error.${key}`) : '');
-	const tierLabel = (tier: string) => (tier === 'none' ? t('settings.custom.effortNone') : effortLabel(tier));
+	const tierLabel = (tier: string) =>
+		tier === 'none' ? t('settings.custom.effortNone') : tier === 'default' ? t('settings.custom.effortDefault') : effortLabel(tier);
 
 	/** The quiet second line of a model row: window · output · thinking · input,
 	 *  after 已修改 / 自己添加 on a built-in provider. */
@@ -216,7 +238,7 @@
 
 	function editModel(i: number) {
 		editAt = i;
-		draft = draftFromModel(form.models[i]);
+		draft = draftFromModel(form.models[i], fallbackTiers);
 		modelErrors = {};
 	}
 	function resetEditor() {
@@ -325,6 +347,7 @@
 		</div>
 		{#if findError}<span class="np-err" role="alert">{findError}</span>{/if}
 		{#if note}<span class="np-hint" role="status">{note}</span>{/if}
+		{#if keptNote}<span class="np-hint" role="status">{keptNote}</span>{/if}
 		{#if found}
 			<section class="found" aria-label={t('settings.discover.title')}>
 				<span class="np-hint">

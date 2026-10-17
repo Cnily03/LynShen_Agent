@@ -11,6 +11,7 @@ import {
 	newModelDraft,
 	orderTiers,
 	parseTokens,
+	SAFE_EFFORTS,
 	validateModel,
 	validateProvider,
 	validBaseUrl
@@ -71,6 +72,7 @@ describe('model drafts', () => {
 		expect(draft).toMatchObject({ context: '272k', maxOutput: '128k', reasoning: true, efforts: DEFAULT_EFFORTS, modalities: ['text', 'image'] });
 		// A "none"-only list is a model that can think, offered only off.
 		expect(draftFromModel({ name: 'deepseek-chat', reasoning_efforts: ['none'] })).toMatchObject({ reasoning: true, efforts: ['none'] });
+		expect(draftFromModel({ name: 'kimi-k3', reasoning: true })).toMatchObject({ reasoning: true, efforts: DEFAULT_EFFORTS });
 	});
 
 	it('writes thinking off, tiers in order, modalities and keeps other keys', () => {
@@ -91,13 +93,30 @@ describe('model drafts', () => {
 		expect(off.reasoning_efforts).toEqual(['none']);
 		expect(off.input_modalities).toEqual(['text']);
 		expect('display_name' in off).toBe(false);
-		// Read back: thinking off, no tiers.
-		expect(draftFromModel(off)).toMatchObject({ reasoning: false, efforts: [], modalities: ['text'] });
+		// Read back: thinking off; the default tiers wait for 支持思考.
+		expect(draftFromModel(off)).toMatchObject({ reasoning: false, efforts: DEFAULT_EFFORTS, modalities: ['text'] });
+		// Turned back on, the draft is valid as it is (the default tiers).
+		expect(validateModel({ ...draftFromModel(off), reasoning: true }, [])).toEqual({});
+		// A model that does not think but lists tiers keeps them for when it does.
+		expect(draftFromModel({ name: 'm', reasoning: false, reasoning_efforts: ['high', 'low'] }).efforts).toEqual(['low', 'high']);
 	});
 
 	it('orders known tiers and keeps unknown ones', () => {
 		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'minimal', 'low', 'max', 'ultra']);
 		expect(orderTiers(['turbo', 'high', 'none'])).toEqual(['none', 'high', 'turbo']);
+		// "default" (the provider's own setting, CLI 0.7.1) stays first.
+		expect(orderTiers(['high', 'none', 'default', 'low'])).toEqual(['default', 'none', 'low', 'high']);
+	});
+
+	it('a model of a built-in provider the engine says does not think offers the provider default or off', () => {
+		const off = { name: 'minimax-m1', reasoning: false, reasoning_efforts: ['none'] };
+		expect(draftFromModel(off, SAFE_EFFORTS)).toMatchObject({ reasoning: false, efforts: ['default', 'none'] });
+		const on = modelFromDraft({ ...draftFromModel(off, SAFE_EFFORTS), reasoning: true }, off);
+		expect(on).toMatchObject({ reasoning: true, reasoning_efforts: ['default', 'none'] });
+		// The engine's own list (CLI 0.7.1) is kept as it is.
+		const deepseek = { name: 'deepseek-v4-pro', reasoning: true, reasoning_efforts: ['default', 'none', 'low', 'high', 'max'] };
+		expect(draftFromModel(deepseek, SAFE_EFFORTS).efforts).toEqual(['default', 'none', 'low', 'high', 'max']);
+		expect(validateModel({ ...draftFromModel({ name: 'minimax-m2', reasoning: true, reasoning_efforts: ['default'] }), name: 'minimax-m2' }, [])).toEqual({});
 	});
 
 	it('validates names, token counts, tiers and modalities', () => {
@@ -144,6 +163,11 @@ describe('engine-facing reads', () => {
 		expect(modelEfforts({ reasoning: false, reasoning_efforts: ['none'] })).toEqual([]);
 		expect(modelEfforts({ reasoning_efforts: ['low', 'high'] })).toEqual(['low', 'high']);
 		expect(modelEfforts(undefined)).toEqual([]);
+	});
+	it('a model that thinks always offers tiers (the engine\'s default ones without a list)', () => {
+		expect(modelEfforts({ reasoning: true })).toEqual(DEFAULT_EFFORTS);
+		expect(modelEfforts({ reasoning: true, reasoning_efforts: [] })).toEqual(DEFAULT_EFFORTS);
+		expect(modelEfforts({})).toEqual(DEFAULT_EFFORTS);
 	});
 	it('images are accepted unless the modalities leave them out', () => {
 		expect(acceptsImages({})).toBe(true);
