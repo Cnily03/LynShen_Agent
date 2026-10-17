@@ -1409,6 +1409,83 @@ try {
   await expect(preview.locator('.head').getByRole('button',{name:'在文件夹中显示'})).toBeDisabled();
   assert.equal(await tabbed.evaluate(() => window.__calls.filter((c) => c.command === 'preview_file').every((c) => c.args.path.startsWith('/Users/me/'))), true);
   await tabbed.close();
+  // The end of a turn hands control back (?shell&recap): a card above the
+  // composer with 本轮完成, the result (the turn's changes and its last
+  // paragraph), a question, the engine's suggestion as the one primary
+  // button, 暂不 and ×; the keys only in the tooltips. It fades in (180 ms,
+  // opacity only, fill backwards) and the composer stops offering the
+  // suggestion. ⌘↵ (Ctrl+↵) in the empty composer sends it; the card closes
+  // its height and leaves a receipt under the reply. Esc closes it, no
+  // receipt, but not while the composer has text or its menu is open.
+  const recapPage = await browser.newPage();
+  recapPage.on('pageerror', e => errors.push(e.message));
+  const openRecap = async (q) => { await recapPage.goto(base + q); await expect(recapPage.locator('.recap')).toBeVisible({timeout:30000}); };
+  const recapCard = recapPage.locator('.recap');
+  const recapGo = recapCard.locator('.go button');
+  const recapEditor = recapPage.locator('.composer [contenteditable]').first();
+  const recapHint = recapPage.locator('.composer [data-placeholder]');
+  await openRecap('?shell&recap');
+  assert.deepEqual(await recapCard.evaluate((el) => { const cs = getComputedStyle(el); return [cs.animationName, cs.animationDuration, cs.animationFillMode, cs.transform, cs.filter]; }), ['fade', '0.18s', 'backwards', 'none', 'none']);
+  await expect(recapCard.locator('.title')).toHaveText('本轮完成');
+  await expect(recapCard.locator('.result')).toHaveText('改了 3 个文件，+42 −7。缓存已按会话分片：每个会话一份键空间，旧缓存在启动时迁移。12 个单元测试全部通过。');
+  await expect(recapCard.locator('.ask')).toHaveText('要继续吗？');
+  await expect(recapGo).toHaveText('提交并推送');
+  await expect(recapGo).toHaveClass(/primary/);
+  await expect(recapGo).toHaveAttribute('title', /^提交并推送 · (⌘↵|Ctrl\+Enter)$/);
+  await expect(recapCard.getByRole('button', {name: '暂不'})).toBeVisible();
+  await expect(recapCard.getByRole('button', {name: '关闭'})).toHaveAttribute('title', '关闭 · Esc');
+  await expect(recapHint).not.toHaveAttribute('data-placeholder', '提交并推送');
+  await recapEditor.click();
+  const recapHeights = recapPage.evaluate(() => new Promise((done) => {
+    const wrap = document.querySelector('.recap').parentElement;
+    const hs = [];
+    const t0 = performance.now();
+    const tick = () => { hs.push(wrap.isConnected ? Math.round(wrap.getBoundingClientRect().height) : -1); if (performance.now() - t0 < 700) requestAnimationFrame(tick); else done(hs); };
+    tick();
+  }));
+  await recapPage.keyboard.press('ControlOrMeta+Enter');
+  const heights = await recapHeights;
+  assert.ok(heights.some((h) => h > 5 && h < heights[0] - 5) && heights.at(-1) === -1, `the card closes its height: ${heights}`);
+  await expect(recapPage.locator('.receipt')).toHaveText('已选择：提交并推送');
+  assert.deepEqual(await recapPage.evaluate(() => window.__sent.filter((o) => o.op === 'user_message').map((o) => o.content)), ['提交并推送']);
+  await openRecap('?shell&recap');
+  await recapEditor.click();
+  await recapPage.keyboard.type('还有一件事');
+  await recapPage.keyboard.press('Escape');
+  await expect(recapCard).toBeVisible();
+  await recapPage.keyboard.press('ControlOrMeta+a');
+  await recapPage.keyboard.press('Backspace');
+  await recapPage.getByRole('button', {name: '添加', exact: true}).click();
+  await expect(recapPage.getByRole('listbox', {name: '添加'})).toBeVisible();
+  await recapPage.keyboard.press('Escape');
+  await expect(recapPage.getByRole('listbox', {name: '添加'})).toHaveCount(0);
+  await expect(recapCard).toBeVisible();
+  await recapPage.keyboard.press('Escape');
+  await expect(recapCard).toHaveCount(0);
+  await expect(recapPage.locator('.receipt')).toHaveCount(0);
+  await expect(recapHint).toHaveAttribute('data-placeholder', '提交并推送');
+  // 暂不 says so under the reply; with changes only, the button opens them.
+  await openRecap('?shell&recap');
+  await recapCard.getByRole('button', {name: '暂不'}).click();
+  await expect(recapPage.locator('.receipt')).toHaveText('未采用：提交并推送');
+  await openRecap('?shell&recap=changes');
+  await expect(recapCard.locator('.ask')).toHaveText('要看看改动吗？');
+  await recapGo.click();
+  await expect(recapPage.locator('.receipt')).toHaveText('已选择：查看改动');
+  assert.deepEqual(await recapPage.evaluate(() => window.__opened), ['changes']);
+  // A long suggestion keeps one line at 1040 × 680 (all of it in the
+  // tooltip); an approval arriving takes the place of the card.
+  await recapPage.setViewportSize({width: 1040, height: 680});
+  await openRecap('?shell&recap=long');
+  assert.deepEqual(await recapCard.evaluate((el) => { const label = el.querySelector('.go .label'); const skip = el.querySelectorAll('.acts button')[1]; return [label.scrollWidth > label.clientWidth, el.querySelector('.go button').offsetHeight === skip.offsetHeight, document.documentElement.scrollWidth <= innerWidth]; }), [true, true, true]);
+  await recapPage.evaluate(() => window.__shellChat.handle({type: 'approval_request', call_id: 'c9', name: 'shell', summary: 'git push', scopes: ['session']}));
+  await expect(recapPage.locator('.approval')).toBeVisible();
+  await expect(recapCard).toHaveCount(0);
+  // Reduced motion: no fade.
+  await recapPage.emulateMedia({reducedMotion: 'reduce'});
+  await openRecap('?shell&recap');
+  assert.equal(await recapCard.evaluate((el) => el.getAnimations().length), 0);
+  await recapPage.close();
   // The phone page reads the history the same way; its chips only show the
   // files, and a quoted message brings its files back to its message box.
   const phone = await browser.newPage({viewport:{width:390,height:844}});
