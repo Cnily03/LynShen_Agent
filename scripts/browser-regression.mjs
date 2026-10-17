@@ -1303,6 +1303,21 @@ try {
   await expect.poll(async () => (await chatList()).indexOf('对话宽度跟随窗口')).toBe((await chatList()).indexOf('进行中4') + 1);
   // (Once the rows making room have landed.)
   await groups.waitForFunction(() => [...document.querySelectorAll('aside .item')].every((it) => !it.getAnimations().length));
+  // A row's menu open holds the order too, with the pointer anywhere; it
+  // opens where it was asked for (no moving row around it), and the order
+  // catches up once it closes.
+  await groups.locator('aside .sess', {hasText: '设置页搜索'}).first().click({button: 'right'});
+  const rowMenu = groups.getByRole('dialog', {name: '外观'});
+  await expect(rowMenu).toBeVisible();
+  await groups.mouse.move(900, 400);
+  const heldOrder = await chatList();
+  await stateOf('对话列表虚拟滚动', {type: 'status', message: 'ready'});
+  await groups.waitForTimeout(500);
+  assert.deepEqual(await chatList(), heldOrder.map((x) => x.replace(/^进行中(\d+)$/, (_, n) => `进行中${n - 1}`).replace(/^已完成(\d+)$/, (_, n) => `已完成${Number(n) + 1}`)));
+  await groups.keyboard.press('Escape');
+  await expect(rowMenu).toHaveCount(0);
+  await expect.poll(async () => { const l = await chatList(); return l.indexOf('对话列表虚拟滚动') - l.findIndex((x) => x.startsWith('已完成')); }).toBe(1);
+  await groups.waitForFunction(() => [...document.querySelectorAll('aside .item')].every((it) => !it.getAnimations().length));
   await groups.emulateMedia({reducedMotion: 'reduce'});
   const still = moving('设置页搜索');
   await stateOf('设置页搜索', {type: 'status', message: 'ready'});

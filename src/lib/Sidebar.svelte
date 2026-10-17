@@ -27,8 +27,8 @@
 	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
 	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
-	import { listIn, moveRow, rowIn } from '$lib/ui/motion';
-	import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
+	import { T_ENTER, listIn, motionMs, moveRow, rowIn } from '$lib/ui/motion';
+	import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, sameList, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
 	import StackSimpleIcon from 'phosphor-svelte/lib/StackSimpleIcon';
 	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -242,22 +242,27 @@
 			shownRecent.map((x) => ({ id: x.s.id, status: sessionStatus(x.s.chat), at: x.at, item: x })),
 			listOrder,
 			places,
-			{ limit: showAllRecent || query ? Infinity : RECENT_LIMIT, active: activeId }
+			{ limit: showAllRecent || query ? Infinity : RECENT_LIMIT, active: activeId, listed: recent.map((x) => x.s.id) }
 		)
 	);
 	let pointerIn = $state(false);
 	const orderHeld = $derived(pointerIn || holdOpen);
 	let chatItems = $state<ListItem<Recent>[]>(untrack(() => nextChats.items));
-	// The rows that just changed group: they pass over the others (moveRow
-	// reads it when the list moves; nothing else depends on it).
-	const crossing = new Set<string>();
+	// The rows that just changed group, until they land: they pass over the
+	// others (moveRow reads it when the list moves; nothing else depends on it).
+	const crossing = new Map<string, number>();
+	const crosses = (key: string) => (crossing.get(key) ?? 0) > performance.now();
 	$effect.pre(() => {
 		const next = nextChats.items;
 		const hold = orderHeld;
 		untrack(() => {
 			const shown = hold && chatItems.length ? heldList(chatItems, next) : next;
-			crossing.clear();
-			for (const key of changedGroup(chatItems, shown)) crossing.add(key);
+			// Nothing to move or show anew (a running conversation's activity, a
+			// hold starting): the rows in flight keep going.
+			if (sameList(chatItems, shown)) return;
+			const until = performance.now() + motionMs(T_ENTER);
+			for (const key of changedGroup(chatItems, shown)) crossing.set(key, until);
+			for (const [key, t] of crossing) if (t < performance.now()) crossing.delete(key);
 			chatItems = shown;
 		});
 	});
@@ -775,7 +780,7 @@
 				<Collapse open={chatsOpen}>
 					<!-- One flat keyed list, headings included, so every item can move. -->
 					{#each chatItems as it (it.key)}
-						<div class="item" animate:moveRow={{ over: crossing.has(it.key), fill: 'var(--list-fill)' }} in:listIn={{ head: it.kind === 'head' }}>
+						<div class="item" animate:moveRow={{ over: crosses(it.key), fill: 'var(--list-fill)' }} in:listIn={{ head: it.kind === 'head' }}>
 							{#if it.kind === 'head'}
 								<div class="ghead">{t(`shell.group.${it.group}`)}<span class="gcount">{it.n}</span></div>
 							{:else}

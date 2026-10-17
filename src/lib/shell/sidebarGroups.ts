@@ -46,16 +46,25 @@ export interface Entry<T> {
 	item: T;
 }
 
+/** A conversation's place in its group: when it entered it (`at`, newest
+ *  first), and the order it entered in (`seq`) for those that entered
+ *  together, so later activity never reorders them. */
+export interface Place {
+	at: number;
+	seq: number;
+}
+
 /** When each conversation entered its group: its place there. */
 export class GroupPlaces {
-	#seen = new Map<string, { group: StateGroup; at: number }>();
+	#seen = new Map<string, Place & { group: StateGroup }>();
+	#seq = 0;
 	/** Its place in `group`: kept while it stays there; `now` when it moves in
 	 *  (the top); its last activity the first time it is seen. */
-	place(id: string, group: StateGroup, at: number, now: number): number {
+	place(id: string, group: StateGroup, at: number, now: number): Place {
 		const seen = this.#seen.get(id);
-		if (seen?.group === group) return seen.at;
-		const place = seen ? Math.max(now, at) : at;
-		this.#seen.set(id, { group, at: place });
+		if (seen?.group === group) return seen;
+		const place = { group, at: seen ? Math.max(now, at) : at, seq: this.#seq++ };
+		this.#seen.set(id, place);
 		return place;
 	}
 	/** Forget the conversations no longer listed. */
@@ -66,12 +75,14 @@ export class GroupPlaces {
 }
 
 /** The list in `order`. By state: headings and rows, `limit` rows of 已完成
- *  shown (and the active one wherever it is); by time: rows only. */
+ *  shown (and the active one wherever it is); by time: rows only. `listed`:
+ *  every conversation the list has, filtered out or not (a filter does not
+ *  make a conversation lose its place); the entries by default. */
 export function orderedList<T>(
 	entries: readonly Entry<T>[],
 	order: ListOrder,
 	places: GroupPlaces,
-	{ now = Date.now(), limit = Infinity, active = '' }: { now?: number; limit?: number; active?: string } = {}
+	{ now = Date.now(), limit = Infinity, active = '', listed }: { now?: number; limit?: number; active?: string; listed?: Iterable<string> } = {}
 ): { items: ListItem<T>[]; hidden: number } {
 	const sorted = entries.map((e, i) => ({ e, i, group: stateGroup(e.status) }));
 	if (order === 'time') {
@@ -80,13 +91,13 @@ export function orderedList<T>(
 		return { items: shown.map(({ e, group }) => ({ kind: 'row', key: e.id, group, item: e.item })), hidden: sorted.length - shown.length };
 	}
 	const placed = sorted.map((x) => ({ ...x, place: places.place(x.e.id, x.group, x.e.at, now) }));
-	places.keep(entries.map((e) => e.id));
+	places.keep(listed ?? entries.map((e) => e.id));
 	const items: ListItem<T>[] = [];
 	let hidden = 0;
 	for (const group of STATE_GROUPS) {
 		const rows = placed
 			.filter((x) => x.group === group)
-			.sort((a, b) => (group === 'done' ? unread(b.e) - unread(a.e) : 0) || b.place - a.place || a.i - b.i);
+			.sort((a, b) => (group === 'done' ? unread(b.e) - unread(a.e) : 0) || b.place.at - a.place.at || a.place.seq - b.place.seq);
 		if (!rows.length) continue;
 		const shown = group === 'done' ? cut(rows, limit, active) : rows;
 		hidden += rows.length - shown.length;
@@ -155,6 +166,28 @@ export function writeListOrder(store: Store, order: ListOrder): void {
 	} catch {
 		/* private mode: for this run only */
 	}
+}
+
+/** The same items in the same places, with the same groups and counts (a
+ *  row's look comes from its conversation, not from the list). */
+export function sameList<T>(a: readonly ListItem<T>[], b: readonly ListItem<T>[]): boolean {
+	return (
+		a.length === b.length &&
+		a.every((x, i) => {
+			const y = b[i];
+			if (x.key !== y.key || x.group !== y.group) return false;
+			if (x.kind === 'head' || y.kind === 'head') return x.kind === y.kind && (x as ListHead).n === (y as ListHead).n;
+			return same(x.item, y.item);
+		})
+	);
+}
+
+/** Two list items that render the same: the same object, or records whose
+ *  object fields are the same objects (the navigator's {s, p, at, i}). */
+function same(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+	return Object.entries(a).every(([k, v]) => typeof v !== 'object' || v === (b as Record<string, unknown>)[k]);
 }
 
 /** The rows that changed group between two lists: they pass over the others

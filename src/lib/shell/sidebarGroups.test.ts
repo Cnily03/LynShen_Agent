@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionStatus } from '$lib/sessionStatus';
-import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, stateGroup, writeListOrder, type Entry, type ListItem } from './sidebarGroups';
+import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, sameList, stateGroup, writeListOrder, type Entry, type ListItem } from './sidebarGroups';
 
 const S = {
 	ask: { kind: 'input', ask: 'approve', what: '' } as SessionStatus,
@@ -40,6 +40,29 @@ describe('orderedList by state', () => {
 		// c starts again: the top of 进行中.
 		const again = orderedList([entry('a', S.idle, 30), entry('b', S.running, 90), entry('c', S.running, 10)], 'state', places, { now: 400 });
 		expect(keys(again.items)).toEqual(['[working 2]', 'c', 'b', '[done 1]', 'a']);
+	});
+
+	it('keeps the order of rows that entered a group together, whatever their activity after', () => {
+		const places = new GroupPlaces();
+		orderedList([entry('a', S.idle, 30), entry('b', S.idle, 20)], 'state', places, { now: 100 });
+		// Both start in the same update: a (more recent) above b.
+		const both = orderedList([entry('a', S.running, 30), entry('b', S.running, 20)], 'state', places, { now: 200 });
+		expect(keys(both.items)).toEqual(['[working 2]', 'a', 'b']);
+		// b gets newer activity (the list passes the newest first): no move.
+		const later = orderedList([entry('b', S.running, 300), entry('a', S.running, 30)], 'state', places, { now: 300 });
+		expect(keys(later.items)).toEqual(['[working 2]', 'a', 'b']);
+	});
+
+	it('keeps the places of the conversations a filter hides', () => {
+		const places = new GroupPlaces();
+		const all = [entry('a', S.idle, 30), entry('b', S.idle, 20), entry('c', S.running, 10)];
+		orderedList(all, 'state', places, { now: 100 });
+		// c finishes: the top of 已完成, above a and b.
+		const done = [entry('a', S.idle, 30), entry('b', S.idle, 20), entry('c', S.idle, 10)];
+		expect(keys(orderedList(done, 'state', places, { now: 200 }).items)).toEqual(['[done 3]', 'c', 'a', 'b']);
+		// A filter shows a only for a while; c keeps its place after.
+		orderedList([done[0]], 'state', places, { now: 300, listed: ['a', 'b', 'c'] });
+		expect(keys(orderedList(done, 'state', places, { now: 400 }).items)).toEqual(['[done 3]', 'c', 'a', 'b']);
 	});
 
 	it('shows `limit` rows of 已完成 and the active one, never cuts the other groups', () => {
@@ -102,5 +125,16 @@ describe('changedGroup', () => {
 		const held = heldList(shown, next);
 		expect([...changedGroup(shown, held)]).toEqual([]);
 		expect([...changedGroup(held, next)]).toEqual(['a']);
+	});
+});
+
+describe('sameList', () => {
+	it('is true when only a conversation\'s activity changed, false when a row moves or a count changes', () => {
+		const s = { a: { id: 'a' }, b: { id: 'b' } };
+		const rows = (at: number, order: ('a' | 'b')[] = ['a', 'b'], status = S.running) =>
+			orderedList(order.map((k, i) => ({ id: k, status: k === 'a' ? status : S.running, at: at - i, item: { s: s[k], at: at - i } })), 'state', new GroupPlaces(), { now: 1 }).items;
+		expect(sameList(rows(10), rows(20))).toBe(true);
+		expect(sameList(rows(10), rows(10, ['b', 'a']))).toBe(false);
+		expect(sameList(rows(10), rows(10, ['a', 'b'], S.idle))).toBe(false);
 	});
 });
