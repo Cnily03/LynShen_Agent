@@ -1972,6 +1972,35 @@ try {
     await expect(cp.getByText('Connected', {exact:true})).toBeVisible();
     await cp.close();
   }
+  // Settings → 导入 (ticket #35): Codex Desktop's threads listed with their
+  // prompts (the scan as the app reads tests/fixtures/codex), and the result
+  // opens each imported conversation in its project.
+  {
+    const ip = await browser.newPage({viewport:{width:1280,height:860}});
+    ip.on('pageerror', e => errors.push(e.message));
+    await ip.goto(base + '?shell&settings=import');
+    await expect(ip.getByRole('button', {name:'扫描', exact:true})).toBeVisible({timeout:30000});
+    const cwd = 'D:\\我要干大活\\三角帧不掉洲';
+    const threads = [['019a3b10', '添加关闭预启动开关', 2], ['019a1f22', '修复安装包进程终止与启动', 3], ['019a3b55', '修复游戏目录识别崩溃', 1], ['019a2c33', '评估项目能否用于优化工具', 2], ['019963aa', '检查前台游戏调度时间片', 2]];
+    await ip.evaluate(({threads, cwd}) => {
+      const original = window.__TAURI_INTERNALS__.invoke;
+      window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === 'import_scan') return {skipped: [], skills: [], mcp: [], sessions: threads.map(([id, title, messages], i) => ({source: 'codex', id, title, cwd, messages, imported: false, updated_at_ms: Date.UTC(2026, 9, 17 - i)}))};
+        if (command === 'import_apply') return args.selection.sessions.map((s) => ({kind: 'session', source: s.source, key: s.id, status: 'imported', target: `copy-${s.id}`, title: threads.find(([id]) => id === s.id)[1], cwd: s.cwd, engine: 'codex', cwd_exists: true, error: null}));
+        return original(command, args);
+      };
+    }, {threads, cwd});
+    await ip.getByRole('button', {name:'扫描', exact:true}).click();
+    await ip.locator('.ghead').filter({hasText:'Codex'}).locator('.gtoggle').click();
+    for (const [, title, n] of threads) await expect(ip.locator('.item').filter({hasText:title})).toContainText(`${n} 轮`);
+    await ip.getByRole('button', {name:/一键导入/}).click();
+    const opened = ip.locator('.opened');
+    await expect(opened.locator('.otitle')).toHaveText('导入的会话');
+    await expect(opened.locator('.oname')).toHaveText(threads.map(([, title]) => title));
+    await opened.locator('.orow').filter({hasText:'修复安装包进程终止与启动'}).getByRole('button', {name:'打开', exact:true}).click();
+    assert.deepEqual(await ip.evaluate(() => window.__opened), [`import:codex:copy-019a1f22:${cwd}`]);
+    await ip.close();
+  }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields), Settings → 导入 (Codex prompts, opening what a run imported).');
 } finally { await browser.close(); await server.close(); }

@@ -101,7 +101,7 @@
 	import ChatPane, { type ChatPaneApi, type ProviderOption } from '$lib/ChatPane.svelte';
 	import SettingsPage from '$lib/settings/SettingsPage.svelte';
 	import type { SectionKey } from '$lib/settings/nav';
-	import { folderName } from '$lib/agentImport';
+	import { folderName, type OpenableImport } from '$lib/agentImport';
 	import Welcome from '$lib/welcome/Welcome.svelte';
 	import { SETUP_DONE_KEY, firstRunStart } from '$lib/welcome/flow';
 	import { afterWelcomeSignIn } from '$lib/welcome/firstRun';
@@ -1129,6 +1129,17 @@
 		}
 		return added;
 	}
+	/** A conversation 导入 brought over, opened in its project: the folder is
+	 *  added to the sidebar first when it is not there. */
+	function openImportedSession(s: OpenableImport) {
+		addImportedFolders([s.cwd]);
+		const project = store.userProjects.find((p) => normPath(p.path) === normPath(s.cwd));
+		if (!project) return;
+		showSettings = false;
+		showHome = false;
+		projectPageId = null;
+		store.openSaved(project, s.id, s.title, s.engine);
+	}
 	async function addProject() {
 		const path = await open({ directory: true, title: t('shell.pickDirTitle') });
 		if (!path || Array.isArray(path)) return;
@@ -1873,6 +1884,7 @@
 					onAccountLogout={afterAccountLogout}
 					onFeedback={() => (showFeedback = true)}
 					onAddFolders={addImportedFolders}
+					onOpenSession={openImportedSession}
 					project={activeProject && !activeProject.chats ? activeProject.path : ''}
 					sessions={store.allSessions}
 					onClose={closeSettings}

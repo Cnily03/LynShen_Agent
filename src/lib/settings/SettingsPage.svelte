@@ -114,6 +114,7 @@
 	import ChatConnectorsSection from './ChatConnectorsSection.svelte';
 	import McpSection from './McpSection.svelte';
 	import ImportSection from './ImportSection.svelte';
+	import type { OpenableImport } from '$lib/agentImport';
 	import SkillsSection from './SkillsSection.svelte';
 	import PluginsSection from './PluginsSection.svelte';
 	import ShortcutsSection from './ShortcutsSection.svelte';
@@ -141,6 +142,7 @@
 		onAccountLogout,
 		onFeedback,
 		onAddFolders,
+		onOpenSession,
 		project = '',
 		sessions = []
 	}: {
@@ -159,6 +161,8 @@
 		onFeedback?: () => void;
 		/** Show these folders as projects in the sidebar (导入); how many were new. */
 		onAddFolders?: (paths: string[]) => number;
+		/** Open a conversation 导入 brought over, in its project (added if needed). */
+		onOpenSession?: (session: OpenableImport) => void;
 		/** The open project's root ('' for none): 权限与沙箱 lists its entries first. */
 		project?: string;
 		/** The open sessions: 权限与沙箱 applies its changes to the running LynShen ones. */
@@ -1470,7 +1474,7 @@
 				{:else if current === 'acp'}
 					<AcpSection />
 				{:else if current === 'import'}
-					<ImportSection {onAddFolders} />
+					<ImportSection {onAddFolders} {onOpenSession} />
 				{:else if current === 'daemon'}
 					<DaemonSection />
 				{:else if current === 'chat'}

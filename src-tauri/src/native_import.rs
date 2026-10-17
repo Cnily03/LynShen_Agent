@@ -28,15 +28,28 @@
 //! context from the full history (verified: the same context and input size
 //! as with the record stripped or kept).
 //!
+//! Codex Desktop can compress the rollouts of threads not touched for a week
+//! (`rollout-*.jsonl.zst`, one Zstandard frame of the whole file; Codex
+//! decompresses one again when the thread continues). They are read as their
+//! text, and the copy is written plain. When both forms of one file exist the
+//! plain one is current, as Codex reads it.
+//!
+//! Threads Codex writes in its paginated history mode (Codex 0.158 and later;
+//! `history_mode: "paginated"`, every row with an `ordinal`) keep the user's
+//! prompts as `item_completed` events of a `UserMessage` item instead of the
+//! `user_message` events older rollouts have; both are read.
+//!
 //! `~/.lynshen/native-imports.json` records each import, so a copy is not
 //! listed as a native session of its own and re-importing opens the copy.
 
 use crate::claude_history::{self, is_session_id, preview_of, project_dirs, truncate_chars};
+use ruzstd::decoding::errors::{FrameDecoderError, ReadFrameHeaderError};
+use ruzstd::decoding::{BlockDecodingStrategy, FrameDecoder};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -299,13 +312,13 @@ fn clean_claude(src: &Path, dst: &Path, to: &str) -> Result<(), String> {
     out.flush().map_err(|e| e.to_string())
 }
 
-/// A JSONL file's rows. A read error fails the import (a copy cut short at
-/// it would look whole); a line that is not JSON — a row being written as we
-/// read — is skipped.
+/// A JSONL file's rows (a `.jsonl.zst` rollout decompressed). A read error
+/// fails the import (a copy cut short at it would look whole); a line that is
+/// not JSON — a row being written as we read — is skipped.
 fn json_lines(path: &Path) -> Result<impl Iterator<Item = Result<Value, String>>, String> {
-    let file = fs::File::open(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let reader = open_rollout(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let shown = path.display().to_string();
-    Ok(BufReader::new(file).lines().filter_map(move |line| match line {
+    Ok(reader.lines().filter_map(move |line| match line {
         Ok(l) => serde_json::from_str::<Value>(&l).ok().map(Ok),
         Err(e) => Some(Err(format!("cannot read {shown}: {e}"))),
     }))
@@ -349,12 +362,80 @@ pub(crate) struct Segment {
     pub archived: bool,
 }
 
+/// A rollout compressed by Codex (`.jsonl.zst`).
+pub(crate) fn is_compressed(path: &Path) -> bool {
+    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".jsonl.zst"))
+}
+
+/// A rollout's name without `.jsonl` or `.jsonl.zst`.
+fn rollout_stem(path: &Path) -> &str {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    name.strip_suffix(".jsonl.zst").or_else(|| name.strip_suffix(".jsonl")).unwrap_or(name)
+}
+
+/// A `.jsonl.zst` rollout read as its text. Codex writes one Zstandard frame
+/// of the whole file; frames after it, and skippable frames, are read past
+/// too, as Codex reads them. Decoded as it is read: rollouts reach 100 MB.
+struct Zstd<R> {
+    source: R,
+    frame: Option<FrameDecoder>,
+}
+
+impl<R: BufRead> Read for Zstd<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if let Some(frame) = self.frame.as_mut() {
+                while frame.can_collect() == 0 && !frame.is_finished() {
+                    frame
+                        .decode_blocks(&mut self.source, BlockDecodingStrategy::UptoBlocks(1))
+                        .map_err(|e| io::Error::other(e.to_string()))?;
+                }
+                let n = frame.read(buf)?;
+                if n > 0 {
+                    return Ok(n);
+                }
+                // The frame is done and read out.
+                self.frame = None;
+            }
+            if self.source.fill_buf()?.is_empty() {
+                return Ok(0);
+            }
+            let mut frame = FrameDecoder::new();
+            match frame.init(&mut self.source) {
+                Ok(()) => self.frame = Some(frame),
+                Err(FrameDecoderError::ReadFrameHeaderError(ReadFrameHeaderError::SkipFrame { length, .. })) => {
+                    io::copy(&mut self.source.by_ref().take(u64::from(length)), &mut io::sink())?;
+                }
+                Err(e) => return Err(io::Error::other(e.to_string())),
+            }
+        }
+    }
+}
+
+/// A rollout's text, decompressed when Codex compressed it.
+pub(crate) fn open_rollout(path: &Path) -> io::Result<Box<dyn BufRead>> {
+    let file = fs::File::open(path)?;
+    Ok(if is_compressed(path) {
+        Box::new(BufReader::new(Zstd { source: BufReader::new(file), frame: None }))
+    } else {
+        Box::new(BufReader::new(file))
+    })
+}
+
 fn first_line(path: &Path) -> Option<Value> {
     let mut line = String::new();
-    BufReader::new(fs::File::open(path).ok()?).read_line(&mut line).ok()?;
+    open_rollout(path).ok()?.read_line(&mut line).ok()?;
     serde_json::from_str(&line).ok()
 }
 
+/// Every rollout file, plain (`rollout-*.jsonl`) or compressed
+/// (`rollout-*.jsonl.zst`). Of a file in both forms only the plain one counts:
+/// Codex reads that one (the other is left from a compression or a
+/// decompression that did not finish). Codex's staging files (`*.tmp`) are
+/// not rollouts.
 pub(crate) fn rollout_files(codex: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![codex.join("sessions"), codex.join("archived_sessions")];
@@ -364,9 +445,14 @@ pub(crate) fn rollout_files(codex: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                n.starts_with("rollout-") && n.ends_with(".jsonl")
-            }) {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if !name.starts_with("rollout-") {
+                continue;
+            }
+            // `with_extension("")` of `x.jsonl.zst` is `x.jsonl`.
+            if name.ends_with(".jsonl") || (name.ends_with(".jsonl.zst") && !path.with_extension("").is_file()) {
                 out.push(path);
             }
         }
@@ -385,8 +471,7 @@ pub(crate) fn codex_threads(codex: &Path) -> HashMap<String, Vec<Segment>> {
         }
         let meta = line["payload"].clone();
         let Some(id) = meta["id"].as_str().map(str::to_string) else { continue };
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let file_id = stem.rsplit_once('_').map_or(id.clone(), |(_, seg)| seg.to_string());
+        let file_id = rollout_stem(&path).rsplit_once('_').map_or(id.clone(), |(_, seg)| seg.to_string());
         let archived = path.starts_with(&archive);
         threads.entry(id).or_default().push(Segment { path, meta, file_id, archived });
     }
@@ -421,20 +506,78 @@ pub(crate) fn codex_names(codex: &Path) -> HashMap<String, String> {
     names
 }
 
+/// What the user typed, from the row Codex records a prompt with: a
+/// `user_message` event (older rollouts), or the `item_completed` event of a
+/// `UserMessage` item (paginated rollouts), whose text parts are joined. None
+/// for any other row; text Codex injected (environment and instruction
+/// blocks, which start with `<`) is not a prompt.
+pub(crate) fn codex_prompt(row: &Value) -> Option<String> {
+    if row["type"].as_str() != Some("event_msg") {
+        return None;
+    }
+    let p = &row["payload"];
+    let text = match p["type"].as_str() {
+        Some("user_message") => p["message"].as_str()?.to_string(),
+        Some("item_completed") if p["item"]["type"].as_str() == Some("UserMessage") => p["item"]["content"]
+            .as_array()?
+            .iter()
+            .filter(|part| part["type"].as_str() == Some("text"))
+            .filter_map(|part| part["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => return None,
+    };
+    let text = text.trim();
+    (!text.is_empty() && !text.starts_with('<')).then(|| text.to_string())
+}
+
+/// The prompts the user sent in one rollout file, in rows below ordinal
+/// `below` (a row without one counts).
+fn codex_prompts(path: &Path, below: i64) -> usize {
+    let Ok(reader) = open_rollout(path) else { return 0 };
+    let mut n = 0;
+    for line in reader.split(b'\n').map_while(Result::ok) {
+        // Most rows are tool output: only a row that may be a prompt is parsed.
+        let text = String::from_utf8_lossy(&line);
+        if !(text.contains("\"user_message\"") || text.contains("\"UserMessage\"")) {
+            continue;
+        }
+        let Ok(row) = serde_json::from_str::<Value>(&text) else { continue };
+        if row["ordinal"].as_i64().is_none_or(|o| o < below) && codex_prompt(&row).is_some() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The prompts of a thread's current history that its own files hold: a
+/// fork's since the fork, without the turns a rollback dropped. A thread
+/// whose history cannot be followed counts every prompt of its files.
+pub(crate) fn codex_thread_prompts(threads: &HashMap<String, Vec<Segment>>, id: &str) -> usize {
+    let own: HashSet<&Path> =
+        threads.get(id).into_iter().flatten().filter(|s| !s.archived).map(|s| s.path.as_path()).collect();
+    match codex_plan(threads, id) {
+        Ok(plan) => plan.iter().filter(|(path, _)| own.contains(path.as_path())).map(|(path, below)| codex_prompts(path, *below)).sum(),
+        Err(_) => own.iter().map(|path| codex_prompts(path, i64::MAX)).sum(),
+    }
+}
+
 /// The first thing the user typed (Codex injects AGENTS.md and environment
 /// blocks as user messages too; those start with `<` or a heading).
 pub(crate) fn codex_first_prompt(path: &Path) -> String {
-    let Ok(file) = fs::File::open(path) else { return String::new() };
-    for line in BufReader::new(file).take(MAX_TITLE_SCAN).lines().map_while(Result::ok) {
+    let Ok(reader) = open_rollout(path) else { return String::new() };
+    for line in reader.take(MAX_TITLE_SCAN).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
         let p = &v["payload"];
-        let text = match (v["type"].as_str(), p["type"].as_str()) {
-            (Some("event_msg"), Some("user_message")) => p["message"].as_str().unwrap_or(""),
-            (Some("response_item"), Some("message")) if p["role"].as_str() == Some("user") => p["content"]
-                .as_array()
-                .and_then(|c| c.iter().find_map(|b| b["text"].as_str()))
-                .unwrap_or(""),
-            _ => continue,
+        let text = match codex_prompt(&v) {
+            Some(prompt) => prompt,
+            None if v["type"].as_str() == Some("response_item")
+                && p["type"].as_str() == Some("message")
+                && p["role"].as_str() == Some("user") =>
+            {
+                p["content"].as_array().and_then(|c| c.iter().find_map(|b| b["text"].as_str())).unwrap_or("").to_string()
+            }
+            None => continue,
         };
         let t = text.trim();
         if !t.is_empty() && !t.starts_with('<') && !t.starts_with("# AGENTS.md") {
@@ -990,6 +1133,147 @@ mod tests {
         )
         .unwrap();
         assert_eq!(codex_default_provider(&h.codex), "recodex", "the selected profile wins");
+    }
+
+    fn zst(text: &str) -> Vec<u8> {
+        ruzstd::encoding::compress_to_vec(text.as_bytes(), ruzstd::encoding::CompressionLevel::Fastest)
+    }
+
+    fn text_of(path: &Path) -> String {
+        let mut text = String::new();
+        open_rollout(path).unwrap().read_to_string(&mut text).unwrap();
+        text
+    }
+
+    #[test]
+    fn compressed_rollouts_read_as_their_text_across_frames() {
+        let h = fixture("zstd-frames");
+        let path = h.codex.join("sessions/2026/10/01/rollout-2026-10-01T00-00-00-x.jsonl.zst");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let (one, two) = ("{\"a\":\"一\"}\n", "{\"b\":2}\n");
+        fs::write(&path, zst(one)).unwrap();
+        assert_eq!(text_of(&path), one);
+        // Codex reads past further frames and skippable ones; so does this.
+        let mut bytes = zst(one);
+        bytes.extend_from_slice(&0x184D_2A50u32.to_le_bytes());
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(b"xyz");
+        bytes.extend(zst(two));
+        fs::write(&path, &bytes).unwrap();
+        assert_eq!(text_of(&path), format!("{one}{two}"));
+        // Not Zstandard, or cut short: an error, never a shorter text.
+        for bad in [&b"zz"[..], &b"not zstd at all"[..], &bytes[..bytes.len() - 3]] {
+            fs::write(&path, bad).unwrap();
+            assert!(open_rollout(&path).unwrap().read_to_string(&mut String::new()).is_err());
+        }
+        fs::write(&path, b"zz").unwrap();
+        assert!(first_line(&path).is_none());
+    }
+
+    const WIN: &str = r"D:\我要干大活\三角帧不掉洲";
+    const PAGED: &str = "019a3b10-6c2e-7d11-9a40-1d3c5e7f0a01";
+    const PACKED: &str = "019a1f22-3b4c-7e55-8f66-2a4b6c8d0e02";
+    const LEGACY: &str = "019963aa-1b2c-7d3e-8f40-3c5e7a9b1d03";
+    const FORKED: &str = "019a2c33-4d5e-7f60-9a71-4e6f8a0b2c04";
+    const BOTH: &str = "019a3b55-6f70-7182-9c93-6a8192a3b406";
+
+    /// A Codex home with the rollouts tests/fixtures/codex/make-fixtures.mjs
+    /// writes: Codex Desktop's paginated threads, plain and compressed.
+    fn codex_fixtures(name: &str) -> Homes {
+        let h = fixture(name);
+        let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codex/home/.codex");
+        fn copy(from: &Path, to: &Path) {
+            fs::create_dir_all(to).unwrap();
+            for entry in fs::read_dir(from).unwrap().flatten() {
+                if entry.path().is_dir() {
+                    copy(&entry.path(), &to.join(entry.file_name()));
+                } else {
+                    fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+                }
+            }
+        }
+        copy(&from, &h.codex);
+        h
+    }
+
+    fn prompts_of(rows: &[Value]) -> Vec<String> {
+        rows.iter().filter_map(codex_prompt).collect()
+    }
+
+    fn ordinals_run_on(rows: &[Value]) {
+        let ordinals: Vec<i64> = rows.iter().filter_map(|r| r["ordinal"].as_i64()).collect();
+        assert_eq!(ordinals, (0..ordinals.len() as i64).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn codex_paginated_and_compressed_threads_are_listed() {
+        let h = codex_fixtures("codex-paged");
+        let files = rollout_files(&h.codex);
+        assert_eq!(files.len(), 6, "a file in both forms counts once, the staging file not at all: {files:?}");
+        assert!(files.iter().all(|f| !f.to_string_lossy().ends_with(".tmp")));
+        let threads = codex_threads(&h.codex);
+        assert_eq!(threads.len(), 5);
+        assert!(!is_compressed(&threads[BOTH][0].path), "of a file in both forms the plain one is read");
+        assert_eq!(threads[FORKED].len(), 2, "the compressed first file and the plain one that continues it");
+        let prompts = |id: &str| codex_thread_prompts(&threads, id);
+        // FORKED: its first turn, then the one after the rollback (the turn
+        // rolled back is still in its compressed first file).
+        assert_eq!([prompts(PAGED), prompts(PACKED), prompts(LEGACY), prompts(BOTH), prompts(FORKED)], [2, 3, 2, 1, 2]);
+        let listed = list_codex(&h, WIN).unwrap();
+        let title = |id: &str| listed.iter().find(|s| s.id == id).map(|s| s.title.as_str()).unwrap_or("(not listed)");
+        // The name Codex gave it (the last one), else the first prompt, past
+        // the AGENTS.md and environment blocks Codex injects.
+        assert_eq!(title(PAGED), "添加关闭预启动开关");
+        assert_eq!(title(PACKED), "修复安装包进程终止与启动");
+        assert_eq!(title(LEGACY), "检查前台游戏调度时间片");
+        assert_eq!(title(FORKED), "评估项目能否用于优化工具");
+        assert_eq!(title(BOTH), "修复游戏目录识别崩溃");
+        assert_eq!(listed.iter().find(|s| s.id == PAGED).unwrap().origin, "Codex Desktop");
+    }
+
+    #[test]
+    fn codex_compressed_and_paginated_threads_import_whole() {
+        let h = codex_fixtures("codex-paged-import");
+        // Compressed: the copy is the whole thread, written plain.
+        let original = codex_threads(&h.codex)[PACKED][0].path.clone();
+        let got = import_codex(&h, WIN, PACKED).unwrap();
+        let copy = codex_threads(&h.codex)[&got.id][0].path.clone();
+        assert!(!is_compressed(&copy));
+        let rows = read_lines(&copy);
+        assert_eq!(rows.len(), text_of(&original).lines().count());
+        assert_eq!(prompts_of(&rows), ["修复安装包进程终止与启动", "安装失败时给出提示", "再跑一遍测试"]);
+        assert_eq!((rows[0]["payload"]["id"].as_str(), rows[0]["payload"]["history_mode"].as_str()), (Some(got.id.as_str()), Some("paginated")));
+        ordinals_run_on(&rows);
+        assert!(!fs::read_to_string(&copy).unwrap().contains("encrypted_content"));
+        assert!(original.is_file(), "the original is left as it was");
+        // Rolled back after its first file was compressed: that file up to
+        // the point the plain one continues it, then the plain one.
+        let got = import_codex(&h, WIN, FORKED).unwrap();
+        let rows = read_lines(&codex_threads(&h.codex)[&got.id][0].path);
+        assert_eq!(prompts_of(&rows), ["评估项目能否用于优化工具", "改成先评估再优化"]);
+        ordinals_run_on(&rows);
+        // Plain paginated and compressed legacy threads.
+        let got = import_codex(&h, WIN, PAGED).unwrap();
+        assert_eq!(got.title, "添加关闭预启动开关");
+        assert_eq!(prompts_of(&read_lines(&codex_threads(&h.codex)[&got.id][0].path)), ["添加关闭预启动开关", "启动时也读取这个开关"]);
+        let got = import_codex(&h, WIN, LEGACY).unwrap();
+        assert_eq!(prompts_of(&read_lines(&codex_threads(&h.codex)[&got.id][0].path)), ["检查前台游戏调度时间片", "把结果写成表格"]);
+    }
+
+    #[test]
+    fn codex_prompts_are_what_the_user_typed() {
+        let row = |payload: Value| json!({"type": "event_msg", "payload": payload});
+        let item = |content: Value| row(json!({"type": "item_completed", "item": {"type": "UserMessage", "id": "u", "content": content}}));
+        assert_eq!(codex_prompt(&row(json!({"type": "user_message", "message": " fix it "}))).as_deref(), Some("fix it"));
+        assert_eq!(
+            codex_prompt(&item(json!([{"type": "text", "text": "看这张图"}, {"type": "local_image", "path": "a.png"}, {"type": "text", "text": "然后改"}]))).as_deref(),
+            Some("看这张图\n然后改")
+        );
+        // Injected blocks, agent messages, other rows and empty ones are not prompts.
+        assert!(codex_prompt(&row(json!({"type": "user_message", "message": "<environment_context></environment_context>"}))).is_none());
+        assert!(codex_prompt(&item(json!([{"type": "local_image", "path": "a.png"}]))).is_none());
+        assert!(codex_prompt(&row(json!({"type": "item_completed", "item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "hi"}]}}))).is_none());
+        assert!(codex_prompt(&json!({"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}})).is_none());
     }
 
     #[test]
