@@ -130,6 +130,13 @@ export type Msg =
 			 *  (`releaseOutputs`): what the card showed, hashed, so only the
 			 *  same output fills it in again. */
 			released?: string;
+			/** When the call started here (live calls only): the work status
+			 *  line counts the step from it. */
+			startedAt?: number;
+			/** What the call acts on, as the engine named it while it ran:
+			 *  lynshen's first update for a command, `started: <command>`,
+			 *  which its later updates (the output so far) replace. */
+			target?: string;
 	  }
 	| { kind: 'system'; text: string }
 	| { kind: 'error'; text: string }
@@ -1956,6 +1963,7 @@ export class ChatState {
 						output: '',
 						running: true,
 						isError: false,
+						startedAt: Date.now(),
 						...(str(ev.subagent) ? { subagent: str(ev.subagent) } : {})
 					};
 					this.messages.push(toolMsg);
@@ -1971,6 +1979,8 @@ export class ChatState {
 				if (t) {
 					t.output = boundedOutput(str(ev.output));
 					if (SUBAGENT_CALLS.has(t.name) || t.name === 'send_to_session') t.args = t.output;
+					const started = /^started: (.+)/.exec(t.output)?.[1]?.trim();
+					if (started && !t.target) t.target = started;
 				}
 				break;
 			}
