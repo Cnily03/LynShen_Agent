@@ -38,7 +38,7 @@ export const T_BASE = 240;
 
 const reduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** --time-scale on the root (1 unless a debug session slows everything down). */
-function timeScale(): number {
+export function timeScale(): number {
 	if (typeof document === 'undefined') return 1;
 	const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--time-scale'));
 	return Number.isFinite(v) && v >= 0 ? v : 1;

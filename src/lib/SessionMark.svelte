@@ -3,8 +3,10 @@
 	// rows and canvas tabs (design.md, "Status, attention and emphasis"). A
 	// status colour shows only as one 6px dot: --warn while the session waits
 	// for the reader, --err after a failure, --text for a reply not seen yet.
-	// A session at work shows the spinner, in --dim. The words go in the
-	// title (and, in the sidebar, on the line under the session's title).
+	// A session at work shows the spinner, in --dim, on home rows and tabs;
+	// the navigator shows no mark for it and sweeps a light across the title
+	// instead (ui/shimmer.ts). The words go in the title (and, in the
+	// sidebar, on the line under the session's title).
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import { t } from '$lib/i18n';
 	import type { SessionStatus } from '$lib/sessionStatus';
