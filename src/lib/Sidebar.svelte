@@ -563,9 +563,9 @@
 	{#snippet veil()}<i class="veil" role="img" aria-label={t('shell.status.running')} use:shimmer></i>{/snippet}
 
 	<!-- A sub-agent under its conversation (26px, 14px in, on the tree line):
-	     at work, its name is --dim and the light sweeps it like a running
-	     title; done, it is --text at 500; failed, the --err dot. A click opens
-	     its page. -->
+	     at work, its name reads as --dim and the light sweeps it like a
+	     running title; done, it is --text at 500; failed, the --err dot. A
+	     click opens its page. -->
 	{#snippet subRow(s: Session, a: AgentRow)}
 		{@const ended = a.state === 'done' || a.state === 'failed'}
 		{@const state = t(`dock.agents.state.${a.state}`)}
