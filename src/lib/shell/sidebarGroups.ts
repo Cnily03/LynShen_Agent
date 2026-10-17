@@ -115,7 +115,8 @@ export function heldList<T>(shown: readonly ListItem<T>[], next: readonly ListIt
 	const out: ListItem<T>[] = [];
 	for (const it of shown) {
 		const now = fresh.get(it.key);
-		if (now) out.push(now);
+		// A row keeps the group it shows in (its place) until the hold ends.
+		if (now) out.push(now.kind === 'row' && it.kind === 'row' ? { ...now, group: it.group } : now);
 		else if (it.kind === 'head') out.push({ ...it, n: 0 });
 	}
 	// New rows: after the nearest row before them in the next order that shows.
@@ -154,4 +155,11 @@ export function writeListOrder(store: Store, order: ListOrder): void {
 	} catch {
 		/* private mode: for this run only */
 	}
+}
+
+/** The rows that changed group between two lists: they pass over the others
+ *  while they move. */
+export function changedGroup<T>(before: readonly ListItem<T>[], after: readonly ListItem<T>[]): Set<string> {
+	const was = new Map(before.filter((it) => it.kind === 'row').map((it) => [it.key, it.group]));
+	return new Set(after.filter((it) => it.kind === 'row' && was.has(it.key) && was.get(it.key) !== it.group).map((it) => it.key));
 }

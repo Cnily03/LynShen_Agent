@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionStatus } from '$lib/sessionStatus';
-import { GroupPlaces, heldList, orderedList, readListOrder, stateGroup, writeListOrder, type Entry, type ListItem } from './sidebarGroups';
+import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, stateGroup, writeListOrder, type Entry, type ListItem } from './sidebarGroups';
 
 const S = {
 	ask: { kind: 'input', ask: 'approve', what: '' } as SessionStatus,
@@ -89,5 +89,18 @@ describe('the order the user chose', () => {
 		expect(readListOrder(store)).toBe('time');
 		writeListOrder(store, 'state');
 		expect(readListOrder(store)).toBe('state');
+	});
+});
+
+describe('changedGroup', () => {
+	it('names the rows that land in another group, also after a hold', () => {
+		const places = new GroupPlaces();
+		const shown = orderedList([entry('a', S.running, 30), entry('b', S.running, 20), entry('c', S.idle, 10)], 'state', places, { now: 100 }).items;
+		const next = orderedList([entry('a', S.idle, 30), entry('b', S.running, 20), entry('c', S.idle, 10)], 'state', places, { now: 200 }).items;
+		expect([...changedGroup(shown, next)]).toEqual(['a']);
+		// Held, a stays where it shows; released, it is the one that crosses.
+		const held = heldList(shown, next);
+		expect([...changedGroup(shown, held)]).toEqual([]);
+		expect([...changedGroup(held, next)]).toEqual(['a']);
 	});
 });

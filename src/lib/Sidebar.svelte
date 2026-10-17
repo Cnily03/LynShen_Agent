@@ -28,7 +28,7 @@
 	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import { listIn, moveRow, rowIn } from '$lib/ui/motion';
-	import { GroupPlaces, heldList, orderedList, readListOrder, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
+	import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
 	import StackSimpleIcon from 'phosphor-svelte/lib/StackSimpleIcon';
 	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -248,10 +248,18 @@
 	let pointerIn = $state(false);
 	const orderHeld = $derived(pointerIn || holdOpen);
 	let chatItems = $state<ListItem<Recent>[]>(untrack(() => nextChats.items));
+	// The rows that just changed group: they pass over the others (moveRow
+	// reads it when the list moves; nothing else depends on it).
+	const crossing = new Set<string>();
 	$effect.pre(() => {
 		const next = nextChats.items;
 		const hold = orderHeld;
-		untrack(() => (chatItems = hold && chatItems.length ? heldList(chatItems, next) : next));
+		untrack(() => {
+			const shown = hold && chatItems.length ? heldList(chatItems, next) : next;
+			crossing.clear();
+			for (const key of changedGroup(chatItems, shown)) crossing.add(key);
+			chatItems = shown;
+		});
 	});
 	// The archived conversations per place (对话 first, then each project) the
 	// filter matches, and how many there are in all (blank ones are not
@@ -767,7 +775,7 @@
 				<Collapse open={chatsOpen}>
 					<!-- One flat keyed list, headings included, so every item can move. -->
 					{#each chatItems as it (it.key)}
-						<div class="item" animate:moveRow in:listIn={{ head: it.kind === 'head' }}>
+						<div class="item" animate:moveRow={{ over: crossing.has(it.key), fill: 'var(--list-fill)' }} in:listIn={{ head: it.kind === 'head' }}>
 							{#if it.kind === 'head'}
 								<div class="ghead">{t(`shell.group.${it.group}`)}<span class="gcount">{it.n}</span></div>
 							{:else}
@@ -1686,9 +1694,20 @@
 		font-size: var(--fs-xs);
 	}
 	/* An item of the 对话 list: positioned, so a row that passes over others
-	   while it moves (moveRow) stays above them. */
+	   while it moves (moveRow) stays above them, on the list's own fill
+	   (--list-fill, as the panel paints it). */
 	.item {
 		position: relative;
+		border-radius: var(--r-sm);
+	}
+	.list {
+		--list-fill: var(--sidebar);
+	}
+	:global(:root[data-vibrancy='on']) .list {
+		--list-fill: var(--vibrancy-tint);
+	}
+	:global(:root[data-canvas-bg]) .list {
+		--list-fill: color-mix(in oklab, var(--sidebar) var(--chrome-tint), transparent);
 	}
 	/* A group of 对话 (by state): a plain heading with its count. */
 	.ghead {

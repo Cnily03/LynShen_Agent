@@ -145,16 +145,17 @@ export function groupIn(_node: Element, { y = -4, duration = T_BASE, delay = 80 
 
 /** A row moving to its new place in a keyed list (`animate:moveRow`): its
  *  look changed at once; now it moves, 400ms on --ease-in-out, while the
- *  others make room. A row that goes past others (more than a row away)
- *  passes over them. Nothing is kept once it lands. */
-export function moveRow(_node: Element, { from, to }: { from: DOMRect; to: DOMRect }): AnimationConfig {
+ *  others make room. The row that changed group (`over`) passes over the
+ *  others, on `fill` (the list's own fill, so the rows it passes do not
+ *  show through it). Nothing is kept once it lands. */
+export function moveRow(_node: Element, { from, to }: { from: DOMRect; to: DOMRect }, { over = false, fill = 'transparent' } = {}): AnimationConfig {
 	const dy = from.top - to.top;
 	if (!dy) return { duration: 0 };
-	const over = Math.abs(dy) > 40 ? '; z-index: 2' : '';
+	const lift = over ? `; z-index: 2; background-color: ${fill}` : '';
 	return {
 		duration: motionMs(T_ENTER),
 		easing: EASE_IN_OUT,
-		css: (_t, u) => `transform: translateY(${u * dy}px)${over}`
+		css: (_t, u) => `transform: translateY(${u * dy}px)${lift}`
 	};
 }
 
