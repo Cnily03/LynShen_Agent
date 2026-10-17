@@ -200,8 +200,9 @@ export type Picker =
 			/** The project's history picker (source tabs), not an engine's /resume. */
 			history?: boolean;
 			/** Whose saved conversations are listed; claude / codex ones import,
-			 *  opencode ones continue in OpenCode on a copy. */
-			source?: 'lynshen' | 'claude' | 'codex' | 'opencode';
+			 *  opencode ones continue in OpenCode on a copy, dsh ones become
+			 *  LynShen conversations. */
+			source?: 'lynshen' | 'claude' | 'codex' | 'opencode' | 'dsh';
 	  }
 	| { kind: 'checkpoint'; items: ResumeItem[] }
 	| null;

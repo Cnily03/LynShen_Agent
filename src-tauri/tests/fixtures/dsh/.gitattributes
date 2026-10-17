@@ -1,0 +1,2 @@
+# DSH session logs exactly as DSH writes them: no line-ending conversion.
+* -text

@@ -8,12 +8,14 @@ import {
 	isPath,
 	mcpKey,
 	planMcp,
+	projectRows,
+	sessionGroups,
 	sessionKey,
 	skillKey,
 	skippedBySource,
 	summarize
 } from './agentImport';
-import type { ImportMcp, ImportOutcome, ImportSession, ImportSkill } from './protocol';
+import type { ImportMcp, ImportOutcome, ImportScan, ImportSession, ImportSkill, ImportUnreadable } from './protocol';
 
 const session = (over: Partial<ImportSession> = {}): ImportSession => ({
 	source: 'zcode',
@@ -23,6 +25,15 @@ const session = (over: Partial<ImportSession> = {}): ImportSession => ({
 	updated_at_ms: 1000,
 	messages: 3,
 	imported: false,
+	...over
+});
+const blocked = (over: Partial<ImportUnreadable> = {}): ImportUnreadable => ({
+	source: 'dsh',
+	id: 'session-old',
+	title: 'Port the parser',
+	cwd: '/p/a',
+	updated_at_ms: 500,
+	kind: 'old_format',
 	...over
 });
 const skill = (over: Partial<ImportSkill> = {}): ImportSkill => ({
@@ -84,6 +95,67 @@ describe('grouping', () => {
 	it('names a folder by its last component', () => {
 		expect(folderName('/Users/me/proj/')).toBe('proj');
 		expect(folderName('C:\\work\\app')).toBe('app');
+	});
+});
+
+describe('conversations that cannot be imported (DSH)', () => {
+	const scan = (over: Partial<ImportScan>): ImportScan => ({ sessions: [], skipped: [], skills: [], mcp: [], ...over });
+
+	it('gives a tool a group when all it has cannot be imported, after the others', () => {
+		const groups = sessionGroups(
+			scan({ sessions: [session({ source: 'zcode' })], unreadable: [blocked(), blocked({ id: 'b', kind: 'newer_format' })] })
+		);
+		expect(groups.map((g) => [g.source, g.items.length, g.unreadable.map((u) => u.id)])).toEqual([
+			['zcode', 1, []],
+			['dsh', 0, ['session-old', 'b']]
+		]);
+		// A scan from before this field existed.
+		expect(sessionGroups(scan({ sessions: [session({ source: 'dsh' })] })).map((g) => g.unreadable)).toEqual([[]]);
+		expect(sessionGroups(scan({}))).toEqual([]);
+	});
+
+	it('lists them in their folder, the folder ordered by its newest conversation, no folder last', () => {
+		const rows = projectRows(
+			[session({ source: 'dsh', id: 'new', cwd: '/p/a', updated_at_ms: 900 }), session({ source: 'dsh', id: 'b1', cwd: '/p/b', updated_at_ms: 100 })],
+			[
+				blocked({ id: 'nf', cwd: '', updated_at_ms: 9999 }),
+				blocked({ id: 'b-old', cwd: '/p/b', updated_at_ms: 950 }),
+				blocked({ id: 'c-old', cwd: '/p/c', updated_at_ms: 50 })
+			]
+		);
+		expect(rows.map((r) => [r.cwd, r.sessions.map((s) => s.id), r.unreadable.map((u) => u.id)])).toEqual([
+			['/p/b', ['b1'], ['b-old']],
+			['/p/a', ['new'], []],
+			['/p/c', [], ['c-old']],
+			['', [], ['nf']]
+		]);
+		// Without any, the order is byProject's.
+		const plain = [session({ id: 'x', cwd: '/p/a', updated_at_ms: 1 }), session({ id: 'y', cwd: '/p/b', updated_at_ms: 2 })];
+		expect(projectRows(plain).map((r) => r.cwd)).toEqual(byProject(plain).map((g) => g.cwd));
+	});
+
+	it('sums them up with the other reasons', () => {
+		expect(
+			skippedBySource([
+				{ source: 'dsh', count: 1, kind: 'old_format', reason: 'format 3 from an older DSH, which opening it in DSH updates' },
+				{ source: 'dsh', count: 1, kind: 'newer_format', reason: 'format 5 from a newer DSH' },
+				{ source: 'dsh', count: 1, kind: 'newer_format', reason: 'event review/verdict from a newer DSH' },
+				{ source: 'claude', count: 1, kind: 'no_folder', reason: 'no working folder recorded' }
+			])
+		).toEqual([
+			{ source: 'claude', count: 1, whole: false, whys: [{ why: 'no_folder', count: 1 }] },
+			{
+				source: 'dsh',
+				count: 3,
+				whole: false,
+				whys: [
+					{ why: 'old_format', count: 1 },
+					{ why: 'newer_format', count: 2 }
+				]
+			}
+		]);
+		// Nothing they have is picked.
+		expect(defaultPicks(scan({ unreadable: [blocked()] }))).toEqual({});
 	});
 });
 

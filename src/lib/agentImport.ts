@@ -11,17 +11,19 @@ import type {
 	ImportSkill,
 	ImportSkipKind,
 	ImportSkipped,
-	ImportSource
+	ImportSource,
+	ImportUnreadable
 } from './protocol';
 
-export const SOURCES: ImportSource[] = ['claude', 'codex', 'opencode', 'zcode', 'omp'];
+export const SOURCES: ImportSource[] = ['claude', 'codex', 'opencode', 'zcode', 'omp', 'dsh'];
 
 export const SOURCE_LABELS: Record<ImportSource, string> = {
 	claude: 'Claude Code',
 	codex: 'Codex',
 	opencode: 'opencode',
 	zcode: 'zcode',
-	omp: 'omp'
+	omp: 'omp',
+	dsh: 'DeepSeek Harness (DSH)'
 };
 
 export const sessionKey = (s: ImportSession) => `session:${s.source}:${s.id}`;
@@ -85,6 +87,48 @@ export interface SourceGroup<T> {
 export function bySource<T extends { source: ImportSource }>(items: T[]): SourceGroup<T>[] {
 	return SOURCES.map((source) => ({ source, items: items.filter((x) => x.source === source) })).filter(
 		(g) => g.items.length > 0
+	);
+}
+
+export interface SessionGroup {
+	source: ImportSource;
+	items: ImportSession[];
+	/** Conversations found that cannot be imported, each with why. */
+	unreadable: ImportUnreadable[];
+}
+
+/** Conversations per tool in SOURCES order, with the ones that cannot be
+ *  imported; tools with neither are left out. */
+export function sessionGroups(scan: ImportScan): SessionGroup[] {
+	const unreadable = scan.unreadable ?? [];
+	return SOURCES.map((source) => ({
+		source,
+		items: scan.sessions.filter((s) => s.source === source),
+		unreadable: unreadable.filter((u) => u.source === source)
+	})).filter((g) => g.items.length > 0 || g.unreadable.length > 0);
+}
+
+export interface ProjectRows extends ProjectGroup {
+	unreadable: ImportUnreadable[];
+}
+
+/** A tool's conversations per folder as byProject orders them, the ones that
+ *  cannot be imported in their folder too; the ones without a folder last
+ *  (under ''). */
+export function projectRows(sessions: ImportSession[], unreadable: ImportUnreadable[] = []): ProjectRows[] {
+	const rows = new Map<string, ProjectRows>();
+	const newest = new Map<string, number>();
+	const row = (cwd: string, at: number) => {
+		newest.set(cwd, Math.max(newest.get(cwd) ?? 0, at));
+		let r = rows.get(cwd);
+		if (!r) rows.set(cwd, (r = { cwd, sessions: [], unreadable: [] }));
+		return r;
+	};
+	const byTime = <T extends { updated_at_ms: number }>(list: T[]) => [...list].sort((a, b) => b.updated_at_ms - a.updated_at_ms);
+	for (const s of byTime(sessions)) row(s.cwd, s.updated_at_ms).sessions.push(s);
+	for (const u of byTime(unreadable)) row(u.cwd, u.updated_at_ms).unreadable.push(u);
+	return [...rows.values()].sort(
+		(a, b) => Number(!a.cwd) - Number(!b.cwd) || (newest.get(b.cwd) ?? 0) - (newest.get(a.cwd) ?? 0)
 	);
 }
 
