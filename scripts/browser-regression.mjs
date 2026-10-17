@@ -2000,13 +2000,24 @@ try {
   // browser brings the position up into the new range, and that is not the
   // reader scrolling up. The reply to the recap's suggestion comes into
   // view; no ⌄ after either. The reader scrolling up while a reply streams
-  // still stops it there (the wheel, a scroll key), and ⌄ goes back to the
-  // end. (The ⌄ came up at once and the reply stayed below the composer.)
+  // still stops it there (the wheel, a move up no input event shows, a
+  // scroll key), and ⌄ goes back to the end. (The ⌄ came up at once and the reply stayed below the composer.)
   {
     const follow = await browser.newPage({viewport: {width: 1280, height: 800}});
     follow.on('pageerror', e => errors.push(e.message));
     const jumpButton = follow.getByRole('button', {name: '滚动到底部'});
     const shortOfEnd = () => follow.evaluate(() => { const m = document.querySelector('.chatpane main'); return Math.round(m.scrollHeight - m.clientHeight - m.scrollTop); });
+    // Once the reply's reveal has stopped growing the content (a wheel while
+    // it grows can be dropped in WebKit).
+    const stillContent = async () => {
+      let last = -1;
+      for (;;) {
+        const h = await follow.evaluate(() => document.querySelector('.chatpane main').scrollHeight);
+        if (h === last) return;
+        last = h;
+        await follow.waitForTimeout(150);
+      }
+    };
     // Where the view stops once a smooth scroll (the wheel, a key) has run out.
     const settledTop = async () => {
       let last = -1;
@@ -2035,6 +2046,7 @@ try {
     await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
     await expect(jumpButton).toHaveCount(0);
     // Scrolling up while it streams stops following; the reply goes on below.
+    await stillContent();
     await follow.mouse.move(700, 300);
     await follow.mouse.wheel(0, -400);
     await expect(jumpButton).toBeVisible();
@@ -2047,6 +2059,17 @@ try {
     await jumpButton.click();
     await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
     await expect(jumpButton).toHaveCount(0);
+    // So does a move up no input event shows (a scrollbar the page gets no
+    // pointer for, autoscroll, assistive technology): nothing changed size.
+    await stillContent();
+    await follow.evaluate(() => { document.querySelector('.chatpane main').scrollTop -= 300; });
+    await expect(jumpButton).toBeVisible();
+    const movedAt = await settledTop();
+    await reply(2, 7);
+    await follow.waitForTimeout(300);
+    assert.equal(await follow.evaluate(() => document.querySelector('.chatpane main').scrollTop), movedAt);
+    await jumpButton.click();
+    await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
     // A scroll key in the list stops it too (a click there first: the list
     // takes the keys).
     await follow.mouse.click(320, 300);
@@ -2054,7 +2077,7 @@ try {
     await expect.poll(shortOfEnd).toBeGreaterThan(60);
     await expect(jumpButton).toBeVisible();
     const keyAt = await settledTop();
-    await reply(3, 7);
+    await reply(3, 9);
     await follow.waitForTimeout(300);
     assert.equal(await follow.evaluate(() => document.querySelector('.chatpane main').scrollTop), keyAt);
     await jumpButton.click();
@@ -2067,7 +2090,7 @@ try {
     await follow.keyboard.type('再跑一次');
     await follow.keyboard.press('Enter');
     await follow.waitForTimeout(300);
-    await reply(4, 10);
+    await reply(4, 12);
     await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
     await expect(jumpButton).toHaveCount(0);
     await follow.goto(base + '?shell&approval');
