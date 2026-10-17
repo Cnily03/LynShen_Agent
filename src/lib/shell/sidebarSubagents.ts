@@ -19,7 +19,7 @@ export const SUBAGENT_ROWS = 4;
 export const SUBAGENT_STAY_MS = 30_000;
 
 /** What the list reads of a conversation (ChatState). */
-export type SubagentSource = Pick<ChatState, 'agentRuns' | 'subagents' | 'team' | 'turnStartedAt' | 'turnEndedAt' | 'busy'>;
+export type SubagentSource = Pick<ChatState, 'agentRuns' | 'subagents' | 'team' | 'failedAgents' | 'turnStartedAt' | 'turnEndedAt' | 'busy'>;
 
 export interface Subagents {
 	/** The ones listed, oldest first (at most SUBAGENT_ROWS). */
@@ -55,7 +55,13 @@ export function subagentsShown(
  *  until it ends (`turnEndedAt`); a sub-agent's end is when this client saw
  *  it end. */
 export function subagentsOf(chat: SubagentSource, now: number, stay = SUBAGENT_STAY_MS): Subagents {
-	const rows = agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER });
+	const rows = agentRows({
+		runs: chat.agentRuns,
+		subagents: chat.subagents,
+		team: chat.team,
+		failed: chat.failedAgents,
+		since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER
+	});
 	const running = chat.busy || (chat.turnStartedAt > 0 && !chat.turnEndedAt);
 	return subagentsShown(rows, { running, endedAt: chat.turnEndedAt, now, stay });
 }

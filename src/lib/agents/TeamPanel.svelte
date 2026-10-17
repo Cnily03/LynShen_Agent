@@ -21,7 +21,14 @@
 
 	// The subagents of the turn (and any still at work), as the subagents card lists them.
 	const rows = $derived(
-		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, stopping: chat.stopRequested, since: chat.turnStartedAt })
+		agentRows({
+			runs: chat.agentRuns,
+			subagents: chat.subagents,
+			team: chat.team,
+			stopping: chat.stopRequested,
+			failed: chat.failedAgents,
+			since: chat.turnStartedAt
+		})
 	);
 	const board = $derived(chat.taskBoard ?? []);
 	const groups = $derived(boardGroups(board));
@@ -127,8 +134,17 @@
 				<h4 class="sec">{t('dock.team.agents')}<span class="num">{rows.length}</span></h4>
 				<ul class="agents">
 					{#each rows as r (r.id)}
+						{@const failed = r.state === 'failed'}
+						{@const line = teamNote(r) || r.activity || (failed ? t('dock.agents.state.failed') : '')}
 						<li class="arow">
-							<button class="agent" disabled={!onOpenAgent || r.workflow} onclick={() => onOpenAgent?.(r.id)} aria-label={t('chat.progress.open', { name: r.label })}>
+							<!-- A failed one's whole error on hover (its line shows the first). -->
+							<button
+								class="agent"
+								disabled={!onOpenAgent || r.workflow}
+								onclick={() => onOpenAgent?.(r.id)}
+								aria-label={t('chat.progress.open', { name: r.label })}
+								title={failed && r.error ? r.error : undefined}
+							>
 								<StateIcon state={r.state} size={14} label={t(`dock.agents.state.${r.state}`)} />
 								<span class="acol">
 									<span class="aline">
@@ -140,7 +156,7 @@
 										<span class="grow"></span>
 										<Elapsed row={r} />
 									</span>
-									{#if teamNote(r) || r.activity}<span class="act" class:err={r.state === 'failed'} class:warn={!!teamNote(r)}>{teamNote(r) || r.activity}</span>{/if}
+									{#if line}<span class="act" class:err={failed} class:warn={!!teamNote(r)}>{line}</span>{/if}
 								</span>
 							</button>
 							{#if teamSwitch.on && (r.stopping || canStop(r))}<span class="stop" class:held={r.stopping}><StopAgent row={r} onStop={stop} /></span>{/if}

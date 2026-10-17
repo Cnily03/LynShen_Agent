@@ -15,11 +15,17 @@
 	// itself (once per step and reason). The agent team's panel is a button
 	// on the subagents card's title line (beside), or on the first line of
 	// its popover.
+	//
+	// The wheel over the cards is theirs (ui/keepWheel.ts): it scrolls their
+	// lists, and at either end, or with nothing to scroll, it goes nowhere.
+	// It never scrolls the transcript, nor counts as the reader scrolling it
+	// (chatFollow.ts).
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDownIcon';
 	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThreeIcon';
 	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n';
 	import IconButton from '$lib/ui/IconButton.svelte';
+	import { keepWheel } from '$lib/ui/keepWheel';
 	import type { AgentRow, PlanSummary } from '$lib/agentProgress';
 	import type { ChatState } from '$lib/chat.svelte';
 	import type { OpenHow } from './subagentPages.svelte';
@@ -41,8 +47,7 @@
 		onOpen,
 		onStop,
 		onStopAgent,
-		onOpenTeam,
-		onWheel
+		onOpenTeam
 	}: {
 		chat: ChatState;
 		/** Keys what the reader chose (collapsed cards). */
@@ -62,8 +67,6 @@
 		onStopAgent?: (row: AgentRow) => void;
 		/** Opens the agent team's panel (task board, messages). */
 		onOpenTeam?: () => void;
-		/** A wheel over the cards that they cannot scroll: the transcript's. */
-		onWheel?: (e: WheelEvent) => void;
 	} = $props();
 
 	const uid = `pc-${Math.random().toString(36).slice(2, 8)}`;
@@ -158,15 +161,6 @@
 		close(false);
 	}
 
-	// Beside: a wheel the cards cannot take scrolls the transcript.
-	const canScroll = (el: HTMLElement, dy: number) =>
-		el.scrollHeight > el.clientHeight + 1 && (dy < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1);
-	function onColumnWheel(e: WheelEvent) {
-		if (!onWheel || e.ctrlKey) return;
-		for (let el = e.target as HTMLElement | null; el && el !== e.currentTarget; el = el.parentElement) if (canScroll(el, e.deltaY)) return;
-		if (canScroll(e.currentTarget as HTMLElement, e.deltaY)) return;
-		onWheel(e);
-	}
 	const cardW = $derived(Math.max(248, Math.min(320, lane - 32)));
 </script>
 
@@ -187,7 +181,7 @@
 {#if shown.plan || shown.agents}
 	{@const kinds = (['plan', 'agents'] as const).filter((k) => shown[k])}
 	{#if beside}
-		<div class="column" role="region" aria-label={t('chat.progress.region')} style:width="{cardW}px" onwheel={onColumnWheel}>
+		<div class="column" role="region" aria-label={t('chat.progress.region')} style:width="{cardW}px" use:keepWheel>
 			{#each kinds as kind (kind)}
 				{@const team = kind === 'agents' && !!onOpenTeam}
 				<section class="card {kind}" class:open={st[kind]} class:team>
@@ -234,6 +228,7 @@
 						bind:this={popEl}
 						style:right="{popRight}px"
 						data-card-scroll
+						use:keepWheel
 					>
 						{@render body(kind)}
 					</div>

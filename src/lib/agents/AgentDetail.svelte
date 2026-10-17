@@ -14,8 +14,8 @@
 	import { roleLabel } from './teamText';
 	import type { AgentRun, ChatState, WorkflowRun } from '$lib/chat.svelte';
 	import type { Op } from '$lib/protocol';
-	import { elapsed, formatCount, formatDuration, runState, shortModel } from '$lib/agentTrace';
-	import { agentRows, shortPath, type AgentRow } from '$lib/agentProgress';
+	import { elapsed, formatCount, formatDuration, shortModel } from '$lib/agentTrace';
+	import { agentOutcome, agentRows, shortPath, type AgentRow } from '$lib/agentProgress';
 
 	let {
 		chat,
@@ -42,14 +42,18 @@
 	});
 	// Known from its lifecycle only (an engine without the trace).
 	const life = $derived(chat.subagents[agentId]);
-	const status = $derived(runState(focused?.agent.state ?? life?.status ?? ''));
+	// A run that failed stays failed past a merge or discard of its worktree.
+	const outcome = $derived(agentOutcome(focused?.agent.state ?? life?.status ?? '', focused?.agent.error ?? '', chat.failedAgents[agentId]));
+	const status = $derived(outcome.state);
 	const running = $derived(status === 'running');
 
 	// LynShen's agent team: the subagent shown can be stopped while at work
 	// (agent team v2).
 	const stopRow = $derived(
 		chat.backendId === 'lynshen' && teamSwitch.on
-			? agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, stopping: chat.stopRequested }).find((r) => r.id === agentId)
+			? agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, stopping: chat.stopRequested, failed: chat.failedAgents }).find(
+					(r) => r.id === agentId
+				)
 			: undefined
 	);
 	async function stopAgent(row: AgentRow) {
@@ -87,7 +91,7 @@
 			{#if a.tokens}<span class="num">{t('dock.agents.tokens', { n: formatCount(a.tokens) })}</span>{/if}
 			{#if a.toolCalls}<span class="num">{t('dock.agents.toolCalls', { n: a.toolCalls })}</span>{/if}
 		</div>
-		{#if a.error}<p class="err">{a.error}</p>{/if}
+		{#if outcome.error}<p class="err">{outcome.error}</p>{/if}
 		{#if a.result && status !== 'running'}<p class="res"><span>{t('dock.agents.result')}</span>{a.result}</p>{/if}
 	</div>
 {:else if life}
@@ -103,6 +107,7 @@
 			{#if life.model}<span class="mono">{shortModel(life.model)}</span>{/if}
 			<span>{t(`dock.agents.state.${status}`)}</span>
 		</div>
+		{#if outcome.error}<p class="err">{outcome.error}</p>{/if}
 	</div>
 {/if}
 {#if mail.length}

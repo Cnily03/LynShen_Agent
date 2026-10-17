@@ -578,7 +578,7 @@
 			data-agent={a.id}
 			onclick={() => (onOpenSubagent(s.id, a), endPeek())}
 			aria-label={t('shell.subagents.open', { name: a.label, state, parent: shownTitle(s.chat.title) })}
-			title={[a.label, a.activity].filter(Boolean).join('\n')}
+			title={[a.label, a.state === 'failed' ? a.error || state : a.activity].filter(Boolean).join('\n')}
 		>
 			<span class="st">{#if a.state === 'failed'}<SessionMark status={{ kind: 'failed', message: a.error }} />{/if}</span>
 			<span class="sess-title sub-title" class:running={a.state === 'running'}>{a.label}{#if a.state === 'running'}{@render veil()}{/if}</span>

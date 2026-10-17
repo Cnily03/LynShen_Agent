@@ -28,6 +28,7 @@ import {
 	type SandboxState
 } from './sandbox/request';
 import { t } from './i18n';
+import { AFTER_RUN, runState } from './agentTrace';
 import { costUsd } from './pricing';
 import { pendingCost, sumCosts, type BillingCost } from './sessionCost';
 import { CacheWatch } from './cacheMiss';
@@ -937,6 +938,13 @@ export class ChatState {
 	/** Agents a close_agent op was sent for, by path (ms), until their
 	 *  lifecycle says they stopped. */
 	stopRequested = $state<Record<string, number>>({});
+	/** Agents whose last run failed, by path, with the error it ended in (''
+	 *  when the engine gave none), until they run again. Kept past the turn,
+	 *  as `team` is: the engine's next word for one can be what became of its
+	 *  worktree (merged, discarded, a conflict) in place of the failure, and
+	 *  an engine that reopens the session restores its agents without their
+	 *  errors (agentOutcome). */
+	failedAgents = $state<Record<string, string>>({});
 	/** Best-of-N: the attempt picked in each group (pick_attempt sent). */
 	attemptPicks = $state<Record<string, string>>({});
 	/** Messages between this conversation and others (`session_message`),
@@ -1735,6 +1743,15 @@ export class ChatState {
 		}
 	}
 
+	/** Records how an agent's run ended (failedAgents): a failure with its
+	 *  error (an error already known stays when this one has none), and any
+	 *  other state but the team's words for its worktree drops it. */
+	#noteOutcome(path: string, status: string, error: string) {
+		if (AFTER_RUN.has(status)) return;
+		if (runState(status) === 'failed') this.failedAgents[path] = error || this.failedAgents[path] || '';
+		else if (path in this.failedAgents) delete this.failedAgents[path];
+	}
+
 	/** Records what an event says of a team agent: `role`, `plan_step`,
 	 *  `workdir`, `isolation`, `files_changed`, `background`, `attempt_group`
 	 *  and `attempt` (each only when present). */
@@ -2445,6 +2462,7 @@ export class ChatState {
 				if (ended) delete this.stopRequested[path];
 				if (ended && !prev?.endedAt && this.#turnStart === null) this.#endedIdle.add(path);
 				this.#noteTeam(path, ev);
+				this.#noteOutcome(path, status, str(ev.message));
 				break;
 			}
 			// The team's task board: a whole snapshot each time (and again on
@@ -2595,6 +2613,7 @@ export class ChatState {
 					if (!id) continue;
 					this.#noteTeam(id, a);
 					if (this.stopRequested[id] && FINAL_AGENT.includes(str(a.state) || str(a.status))) delete this.stopRequested[id];
+					this.#noteOutcome(id, str(a.state) || str(a.status), str(a.error));
 				}
 				break;
 			}

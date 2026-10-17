@@ -78,7 +78,13 @@
 	const merge = $derived<MergeView | null>(agent ? mergeView(agent) : null);
 	// A conflict shows under the card with its files, not in the activity line.
 	const note = $derived(agent && merge?.state !== 'conflict' ? teamNote(agent) : '');
-	const activity = $derived(isError ? errorLine(output) : running && !agent ? t('chat.subagentCard.starting') : note || agent?.activity || '');
+	const activity = $derived(
+		isError
+			? errorLine(output)
+			: running && !agent
+				? t('chat.subagentCard.starting')
+				: note || agent?.activity || (state === 'failed' ? t('dock.agents.state.failed') : '')
+	);
 	// A stop button takes the place of the open arrow while it works.
 	const stoppable = $derived(!!agent && !!onStop && (!!agent.stopping || canStop(agent)));
 	const fileCount = $derived(merge && merge.state !== 'none' ? merge.files.length : (agent?.team?.files.length ?? 0));
@@ -171,7 +177,7 @@
 						<StateIcon state={state} size={14} label={state === 'unknown' ? '' : t(`dock.agents.state.${state}`)} />
 					</span>
 					{#if task}<span class="task">{task}</span>{/if}
-					{#if activity}<span class="act" class:err={state === 'failed'} class:warn={!!note}>{activity}</span>{/if}
+					{#if activity}<span class="act" class:err={state === 'failed'} class:warn={!!note} title={state === 'failed' && agent?.error ? agent.error : undefined}>{activity}</span>{/if}
 				</span>
 				{#if onOpen && agent && !stoppable}<span class="go"><CaretRightIcon size={13} /></span>{/if}
 			</button>

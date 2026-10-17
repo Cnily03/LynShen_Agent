@@ -141,8 +141,8 @@
 	import { dropPreviewTabs, previewOf, previewPanel } from '$lib/preview/kinds';
 	import { fileName } from '$lib/attachments';
 	import StateIcon from '$lib/agents/StateIcon.svelte';
-	import { runState } from '$lib/agentTrace';
-	import { shortPath, type AgentRow } from '$lib/agentProgress';
+	import type { RunState } from '$lib/agentTrace';
+	import { agentOutcome, shortPath, type AgentRow } from '$lib/agentProgress';
 	import type { ApprovalMode } from '$lib/approval';
 	import GoalPanel from '$lib/GoalPanel.svelte';
 	import ChangesPanel from '$lib/ChangesPanel.svelte';
@@ -826,7 +826,7 @@
 	});
 
 	/** A subagent of a session, for its tab: its name and state. */
-	function subagentInfo(sessionId: string, agentId: string): { label: string; state: ReturnType<typeof runState> | 'unknown' } {
+	function subagentInfo(sessionId: string, agentId: string): { label: string; state: RunState | 'unknown' } {
 		const chat = sessionMap.get(sessionId)?.chat;
 		const run =
 			chat?.agentRuns.agents.find((a) => a.id === agentId) ??
@@ -835,7 +835,7 @@
 		const status = run?.state || life?.status;
 		return {
 			label: run?.label || shortPath(life?.label || agentId),
-			state: status ? runState(status) : 'unknown'
+			state: status ? agentOutcome(status, run?.error ?? '', chat?.failedAgents[agentId]).state : 'unknown'
 		};
 	}
 	/** A subagent's page: shown again if open; else beside the chat (one

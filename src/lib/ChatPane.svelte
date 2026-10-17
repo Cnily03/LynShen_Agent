@@ -684,7 +684,9 @@
 		const m = chat.subagentLastTool[label];
 		return m ? `${toolVerb(m.name)} ${toolTarget(m.name, parseToolOutput(m.output))}`.trim() : '';
 	};
-	const allAgents = $derived(agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, team: chat.team, stopping: chat.stopRequested }));
+	const allAgents = $derived(
+		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, team: chat.team, stopping: chat.stopRequested, failed: chat.failedAgents })
+	);
 	const turnAgents = $derived(
 		agentRows({
 			runs: chat.agentRuns,
@@ -692,6 +694,7 @@
 			lastTool,
 			team: chat.team,
 			stopping: chat.stopRequested,
+			failed: chat.failedAgents,
 			since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER
 		})
 	);
@@ -1416,12 +1419,6 @@
 		if ((e.target as Element | null)?.closest?.('.pop')) return;
 		atBottom = false;
 	}
-	/** A wheel over the cards beside the column that they cannot take. */
-	function wheelFromCards(e: WheelEvent) {
-		if (!scroller) return;
-		onWheel(e);
-		scroller.scrollTop += e.deltaMode === 1 ? e.deltaY * 18 : e.deltaY;
-	}
 	function pin() {
 		if (!scroller) return;
 		scroller.scrollTop = scroller.scrollHeight;
@@ -1704,7 +1701,6 @@
 		onStop={(id) => send({ op: 'stop_task', task_id: id })}
 		onStopAgent={teamOps ? stopAgent : undefined}
 		onOpenTeam={teamPanel ? openTeam : undefined}
-		onWheel={wheelFromCards}
 	/>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel} onpointerdown={reader.down}>
 		<div bind:this={contentEl}>

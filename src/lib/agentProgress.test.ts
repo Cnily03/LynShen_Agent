@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	agentOfCall,
+	agentOutcome,
 	agentRows,
 	compactTokens,
 	mergeView,
@@ -107,6 +108,42 @@ describe('subagent rows', () => {
 			['done', 'Found 2 issues'],
 			['failed', 'timeout']
 		]);
+	});
+
+	it('keeps a failed run failed once its worktree is discarded, merged or conflicts', () => {
+		expect(agentOutcome('errored', 'LLM API returned HTTP 403')).toEqual({ state: 'failed', error: 'LLM API returned HTTP 403' });
+		// The engine still sends the error with the later word…
+		expect(agentOutcome('discarded', 'LLM API returned HTTP 403')).toEqual({ state: 'failed', error: 'LLM API returned HTTP 403' });
+		// …or, having reopened the session, none: the one ChatState kept.
+		expect(agentOutcome('discarded', '', 'LLM API returned HTTP 403')).toEqual({ state: 'failed', error: 'LLM API returned HTTP 403' });
+		expect(agentOutcome('merged', '', '')).toEqual({ state: 'failed', error: '' });
+		expect(agentOutcome('conflict', '', 'boom').state).toBe('failed');
+		// A run that did not fail: as the engine says.
+		expect(agentOutcome('discarded', '')).toEqual({ state: 'done', error: '' });
+		expect(agentOutcome('merged', '')).toEqual({ state: 'done', error: '' });
+		expect(agentOutcome('completed', '', 'old')).toEqual({ state: 'done', error: '' });
+		expect(agentOutcome('running', '', 'old').state).toBe('running');
+	});
+
+	it('shows an errored agent whose worktree was discarded as failed, with its error', () => {
+		// The owner's case: four agents failed at once (HTTP 403); the engine
+		// reopened the session (restored: no error, "Done") and the model
+		// discarded their worktrees.
+		const failed = { '/root/cards_ironclad': 'LLM API returned HTTP 403 Forbidden: model not in plan\nrequest id 7f3c' };
+		const runs = {
+			workflows: [],
+			agents: [run({ id: '/root/cards_ironclad', label: '临川', state: 'discarded', durationMs: 430, activity: 'Done' })]
+		};
+		const [row] = agentRows({ runs, subagents: { '/root/cards_ironclad': { status: 'discarded', message: 'worktree discarded' } }, failed });
+		expect(row).toMatchObject({ state: 'failed', status: 'discarded', error: failed['/root/cards_ironclad'], activity: 'LLM API returned HTTP 403 Forbidden: model not in plan' });
+		// Restored before the discard: errored, but no error and "Done".
+		const [restored] = agentRows({ runs: { workflows: [], agents: [run({ id: 'a', state: 'errored', activity: 'Done' })] }, subagents: {} });
+		expect(restored).toMatchObject({ state: 'failed', error: '', activity: '' });
+		// Known from its lifecycle only.
+		const [life] = agentRows({ runs: { workflows: [], agents: [] }, subagents: { '/root/w': { status: 'discarded', message: 'worktree discarded' } }, failed: { '/root/w': 'boom' } });
+		expect(life).toMatchObject({ state: 'failed', error: 'boom', activity: 'boom' });
+		// Not counted as running; counted as failed.
+		expect(teamSummary(planSummary([]), [row!, restored!, life!], null, false)).toMatchObject({ agents: 3, running: 0 });
 	});
 
 	it('lists a workflow as one row with its progress', () => {

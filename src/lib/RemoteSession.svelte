@@ -607,9 +607,9 @@
 		const m = chat.subagentLastTool[label];
 		return m ? `${toolVerb(m.name)} ${toolTarget(m.name, parseToolOutput(m.output))}`.trim() : '';
 	};
-	const allAgents = $derived(agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool }));
+	const allAgents = $derived(agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, failed: chat.failedAgents }));
 	const turnAgents = $derived(
-		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER })
+		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, lastTool, failed: chat.failedAgents, since: chat.turnStartedAt || Number.MAX_SAFE_INTEGER })
 	);
 	// A subagent opens in the trace sheet on its own conversation (one place
 	// on a phone, whatever Desktop's setting); a Workflow on the run list.

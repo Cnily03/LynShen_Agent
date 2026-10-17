@@ -61,11 +61,17 @@
 		]
 			.filter(Boolean)
 			.join(' · ');
-	/** The team's word for its state wins over its latest action. */
-	const activity = (r: AgentRow) => teamNote(r) || r.activity || (r.state === 'queued' ? t('chat.progress.waiting') : t('chat.progress.noActivity'));
-	/** The tooltip: its task, then model, tokens and tool calls. */
+	/** The team's word for its state wins over its latest action; a failed
+	 *  one with no error says it failed. */
+	const activity = (r: AgentRow) =>
+		teamNote(r) ||
+		r.activity ||
+		(r.state === 'queued' ? t('chat.progress.waiting') : r.state === 'failed' ? t('dock.agents.state.failed') : t('chat.progress.noActivity'));
+	/** The tooltip: a failed one's whole error, its task, then model, tokens
+	 *  and tool calls. */
 	const tip = (r: AgentRow) =>
 		[
+			r.state === 'failed' ? r.error : '',
 			r.prompt || r.label,
 			[
 				r.model ? shortModel(r.model) : '',
