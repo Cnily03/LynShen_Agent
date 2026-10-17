@@ -118,3 +118,20 @@ export function rowIn(_node: Element, { x = -6, duration = 180 } = {}): () => Tr
 		};
 	};
 }
+
+/** A card that goes once the reader chose (the recap card): it fades and
+ *  closes its height over --t-base on --ease-base, so what is below moves
+ *  up with it. Nothing is kept afterwards; instant under reduced motion and
+ *  while the window is resized. */
+export function collapse(node: Element, { duration = T_BASE } = {}): TransitionConfig {
+	const resizing = typeof document !== 'undefined' && document.documentElement.classList.contains('win-resizing');
+	const style = getComputedStyle(node);
+	const h = (node as HTMLElement).offsetHeight;
+	const pt = parseFloat(style.paddingTop);
+	const pb = parseFloat(style.paddingBottom);
+	return {
+		duration: resizing ? 0 : motionMs(duration),
+		easing: EASE_BASE,
+		css: (t) => `overflow: hidden; opacity: ${t}; height: ${t * h}px; padding-top: ${t * pt}px; padding-bottom: ${t * pb}px`
+	};
+}

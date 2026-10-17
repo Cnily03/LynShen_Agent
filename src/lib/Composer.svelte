@@ -100,12 +100,16 @@
 		onRespond,
 		foot,
 		onContextBreakdown,
-		styleMenu
+		styleMenu,
+		suggest = true
 	}: {
 		/** The reply styles in the "+" menu (LynShen): every style, the one
 		 *  this conversation uses (marked), and what picking one does.
 		 *  Undefined hides the section. */
 		styleMenu?: StyleMenu;
+		/** Offers the engine's suggested next prompt (the placeholder, Tab);
+		 *  off while the recap card above offers it as a button. */
+		suggest?: boolean;
 		/** Extra controls on the strip under the card (right side). */
 		foot?: Snippet;
 		/** Asks the engine what its context holds, by category (engines that can say). */
@@ -784,7 +788,7 @@
 			}
 		}
 		// Tab in an empty editor takes the engine's suggested next prompt.
-		if (e.key === 'Tab' && !e.shiftKey && input === '' && chat.suggestion && !trayMode) {
+		if (e.key === 'Tab' && !e.shiftKey && input === '' && chat.suggestion && suggest && !trayMode) {
 			e.preventDefault();
 			input = chat.suggestion;
 			chat.suggestion = '';
@@ -981,7 +985,7 @@
 				role="combobox"
 				tabindex="0"
 				aria-label={t(currentQ ? 'chat.questionPlaceholder' : chat.isChatMode ? 'chat.chatPlaceholder' : 'chat.composerPlaceholder')}
-				data-placeholder={chat.suggestion && !currentQ
+				data-placeholder={chat.suggestion && suggest && !currentQ
 					? t('chat.suggestionPlaceholder', { text: chat.suggestion })
 					: t(currentQ ? 'chat.questionPlaceholder' : chat.isChatMode ? 'chat.chatPlaceholder' : 'chat.composerPlaceholder')}
 				oninput={syncFromDom}

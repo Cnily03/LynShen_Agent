@@ -94,6 +94,9 @@ export type Msg =
 			/** Cut off for a steered message (`response_interrupted`): the
 			 *  engine keeps none of it, so a reloaded transcript lacks it. */
 			interrupted?: boolean;
+			/** The turn's recap card, once the reader chose (recap.ts): its
+			 *  receipt shows under this reply. In memory only. */
+			recap?: { choice: 'picked' | 'skipped' | 'closed'; what: string; at: number };
 	  }
 	| {
 			kind: 'reasoning';

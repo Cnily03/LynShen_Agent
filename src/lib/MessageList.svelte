@@ -17,6 +17,7 @@
 	import EscalationLine from '$lib/sandbox/EscalationLine.svelte';
 	import PlanCard, { type PlanAction } from '$lib/PlanCard.svelte';
 	import CompactionCard from '$lib/CompactionCard.svelte';
+	import RecapReceipt from '$lib/RecapReceipt.svelte';
 	import type { ApprovalMode } from '$lib/approval';
 	import { attemptGroups, SPAWN_TOOLS, spawnAgentRow, WAIT_TOOLS, type AgentRow } from '$lib/agentProgress';
 	import type { OpenHow } from '$lib/agents/subagentPages.svelte';
@@ -654,6 +655,7 @@
 							{/if}
 						</div>
 					{/if}
+					{#if m.recap && m.recap.choice !== 'closed'}<RecapReceipt outcome={m.recap} />{/if}
 				{/if}
 			</div>
 		{:else if m.kind === 'reasoning'}

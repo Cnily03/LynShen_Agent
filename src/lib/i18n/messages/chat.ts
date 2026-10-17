@@ -107,6 +107,19 @@ const chat = {
 		thinkingLabel: '显示思考摘要',
 		thinkingDesc: '在回复前展示模型思考过程的摘要',
 		suggestionPlaceholder: '{text}',
+		// The card at the end of a turn (RecapCard): the next step as a button.
+		recap: {
+			title: '本轮完成',
+			changed: '改了 {n} 个文件，{lines}。',
+			changedOne: '改了 1 个文件，{lines}。',
+			askContinue: '要继续吗？',
+			askReview: '要看看改动吗？',
+			review: '查看改动',
+			notNow: '暂不',
+			close: '关闭',
+			picked: '已选择：{what}',
+			skipped: '未采用：{what}'
+		},
 		bySubagent: '由子智能体「{name}」调用',
 		yes: '是',
 		no: '否',
@@ -596,6 +609,18 @@ const chat = {
 		thinkingLabel: 'Show thinking summaries',
 		thinkingDesc: 'Show a summary of the model’s thinking before its reply',
 		suggestionPlaceholder: '{text}',
+		recap: {
+			title: 'Turn complete',
+			changed: 'Changed {n} files, {lines}.',
+			changedOne: 'Changed 1 file, {lines}.',
+			askContinue: 'Continue?',
+			askReview: 'Review the changes?',
+			review: 'Review changes',
+			notNow: 'Not now',
+			close: 'Close',
+			picked: 'Chose: {what}',
+			skipped: 'Skipped: {what}'
+		},
 		bySubagent: 'Called by subagent “{name}”',
 		yes: 'Yes',
 		no: 'No',
