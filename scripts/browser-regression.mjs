@@ -1354,24 +1354,24 @@ try {
   const subSettled = () => subs.waitForFunction(() => [...document.querySelectorAll('aside .item')].every((it) => !it.getAnimations().length));
   const subKept = () => subs.evaluate(() => [...document.querySelectorAll('aside .item')].filter((it) => getComputedStyle(it).transform !== 'none' || it.getAnimations().length).length);
   // A token's computed colour, to compare with an element's.
-  const tokenColor = (name) => subs.evaluate((name) => { const i = document.createElement('i'); i.style.color = `var(${name})`; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c; }, name);
+  const subToken = (name) => subs.evaluate((name) => { const i = document.createElement('i'); i.style.color = `var(${name})`; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c; }, name);
   assert.deepEqual(subsOf(await subList()), []);
   // (Svelte waits out a transition's delay in an animation of its own, as long as the delay.)
-  const spawned = await subs.evaluate(() => new Promise((done) => {
+  const subSpawned = await subs.evaluate(() => new Promise((done) => {
     for (let i = 1; i <= 3; i++) window.__subagent(i);
     requestAnimationFrame(() => requestAnimationFrame(() => done({
       delays: [...document.querySelectorAll('aside .item.under')].map((it) => it.getAnimations()[0]?.effect.getTiming().duration),
       making: [...document.querySelectorAll('aside .item:not(.under)')].filter((it) => it.getAnimations().length).length
     })));
   }));
-  assert.deepEqual(spawned.delays, [80, 200, 320]);
-  assert.ok(spawned.making >= 6, `${spawned.making} rows make room`);
-  const fade = await subs.evaluate(() => new Promise((done) => setTimeout(() => {
+  assert.deepEqual(subSpawned.delays, [80, 200, 320]);
+  assert.ok(subSpawned.making >= 6, `${subSpawned.making} rows make room`);
+  const subFade = await subs.evaluate(() => new Promise((done) => setTimeout(() => {
     const a = document.querySelector('aside .item.under').getAnimations()[0];
     const k = a.effect.getKeyframes();
     done([a.effect.getTiming().duration, k[0].opacity, k[0].transform, k.at(-1).opacity, k.at(-1).transform]);
   }, 140)));
-  assert.deepEqual(fade, [240, '0', 'translateY(-4px)', '1', 'translateY(0px)']);
+  assert.deepEqual(subFade, [240, '0', 'translateY(-4px)', '1', 'translateY(0px)']);
   await subSettled();
   assert.equal(await subKept(), 0);
   assert.deepEqual(subsOf(await subList()), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试']);
@@ -1388,8 +1388,8 @@ try {
       veils: veils.length
     };
   });
-  const strong = await subs.evaluate(() => { const i = document.createElement('i'); i.style.background = 'var(--border-strong)'; document.body.append(i); const c = getComputedStyle(i).backgroundColor; i.remove(); return c; });
-  assert.deepEqual(subLook, {heights: [26, 26, 26], indent: 14, line: ['1px', strong, '11px'], clocks: [0], veils: 3});
+  const subLine = await subs.evaluate(() => { const i = document.createElement('i'); i.style.background = 'var(--border-strong)'; document.body.append(i); const c = getComputedStyle(i).backgroundColor; i.remove(); return c; });
+  assert.deepEqual(subLook, {heights: [26, 26, 26], indent: 14, line: ['1px', subLine, '11px'], clocks: [0], veils: 3});
   // The pointer in the list: a new one waits (it would move the rows below),
   // and comes in once the pointer leaves.
   await subs.mouse.move(100, 300);
@@ -1402,29 +1402,29 @@ try {
   await expect.poll(async () => subsOf(await subList())).toEqual(['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '还有 2 个']);
   await subSettled();
   // Done: --text at 500, at once and in place.
-  const doneAt = await subs.evaluate(() => document.querySelector('aside .sub[data-agent="/root/agent-1"]').getBoundingClientRect().top);
+  const subDoneAt = await subs.evaluate(() => document.querySelector('aside .sub[data-agent="/root/agent-1"]').getBoundingClientRect().top);
   await subs.evaluate(() => window.__subagent(1, 'completed'));
-  const doneLook = await subs.evaluate(() => {
+  const subDone = await subs.evaluate(() => {
     const b = document.querySelector('aside .sub[data-agent="/root/agent-1"]');
     const t = b.querySelector('.sub-title');
     // (A transition of the text colour: `color` or `all`, for a time.)
     const fades = (el) => { const cs = getComputedStyle(el); const times = cs.transitionDuration.split(', '); return cs.transitionProperty.split(', ').some((p, i) => (p === 'color' || p === 'all') && parseFloat(times[i % times.length]) > 0); };
     return {weight: getComputedStyle(t).fontWeight, color: getComputedStyle(t).color, veil: !!t.querySelector('.veil'), top: b.getBoundingClientRect().top, moves: b.closest('.item').getAnimations().length, colorTransition: fades(b) || fades(t)};
   });
-  assert.deepEqual(doneLook, {weight: '500', color: await tokenColor('--text'), veil: false, top: doneAt, moves: 0, colorTransition: false});
+  assert.deepEqual(subDone, {weight: '500', color: await subToken('--text'), veil: false, top: subDoneAt, moves: 0, colorTransition: false});
   await expect(subs.getByRole('button', {name: '「窗口磨砂默认关闭」的子智能体 读缓存层的代码，已完成。打开它的会话'})).toHaveCount(1);
   // A click opens its page; Enter on a focused one too; 还有 N 个 opens the conversation.
   await subs.getByRole('button', {name: '「窗口磨砂默认关闭」的子智能体 跑单元测试，运行中。打开它的会话'}).click();
   await subs.getByRole('button', {name: /的子智能体 改 SessionCache 和调用方/}).focus();
   await subs.keyboard.press('Enter');
   await subs.getByRole('button', {name: '「窗口磨砂默认关闭」还有 2 个子智能体，打开对话查看'}).click();
-  const parentId = await subs.evaluate(() => window.__shellSession);
-  assert.deepEqual((await subs.evaluate(() => window.__opened)).slice(-3), ['agent:/root/agent-3:side', 'agent:/root/agent-2:side', `select:${parentId}`]);
+  const subParentId = await subs.evaluate(() => window.__shellSession);
+  assert.deepEqual((await subs.evaluate(() => window.__opened)).slice(-3), ['agent:/root/agent-3:side', 'agent:/root/agent-2:side', `select:${subParentId}`]);
   await subs.mouse.move(900, 400);
   await subSettled();
   // The turn ends: the conversation moves to 已完成 with its sub-agents (all
   // above the rows they pass), then they fold and the rows below move up.
-  const carried = subs.evaluate(() => new Promise((done) => {
+  const subCarry = subs.evaluate(() => new Promise((done) => {
     const seen = new Map();
     const t0 = performance.now();
     const tick = () => {
@@ -1443,13 +1443,13 @@ try {
     tick();
   }));
   await subs.evaluate(() => { for (let i = 2; i <= 6; i++) window.__subagent(i, 'completed'); window.__shellChat.handle({type: 'status', message: 'ready'}); });
-  const carriedSeen = await carried;
-  assert.deepEqual([carriedSeen.parent, carriedSeen.under], [{moved: true, lifted: true, faded: false}, {moved: true, lifted: true, faded: false}]);
-  const ended = await subList();
-  assert.equal(ended.indexOf(subParent), ended.findIndex((x) => x.startsWith('已完成')) + 1);
-  assert.deepEqual(subsOf(ended), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '还有 2 个']);
+  const subCarried = await subCarry;
+  assert.deepEqual([subCarried.parent, subCarried.under], [{moved: true, lifted: true, faded: false}, {moved: true, lifted: true, faded: false}]);
+  const subEnded = await subList();
+  assert.equal(subEnded.indexOf(subParent), subEnded.findIndex((x) => x.startsWith('已完成')) + 1);
+  assert.deepEqual(subsOf(subEnded), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '还有 2 个']);
   await subSettled();
-  const folding = await subs.evaluate(() => new Promise((done) => {
+  const subFolding = await subs.evaluate(() => new Promise((done) => {
     const below = [...document.querySelectorAll('aside .item')].findLast((it) => it.classList.contains('under')).nextElementSibling;
     const seen = {faded: false, rowsUp: false};
     const t0 = performance.now();
@@ -1462,7 +1462,7 @@ try {
     };
     tick();
   }));
-  assert.deepEqual(folding, {faded: true, rowsUp: true});
+  assert.deepEqual(subFolding, {faded: true, rowsUp: true});
   await subSettled();
   assert.equal(await subKept(), 0);
   assert.deepEqual(subsOf(await subList()), []);
@@ -1475,11 +1475,11 @@ try {
   await subSettled();
   // Reduced motion: they come and go at once, and nothing moves.
   await subs.emulateMedia({reducedMotion: 'reduce'});
-  const still = await subs.evaluate(() => new Promise((done) => {
+  const subStill = await subs.evaluate(() => new Promise((done) => {
     window.__subagent(9);
     requestAnimationFrame(() => requestAnimationFrame(() => done([document.querySelectorAll('aside .item.under').length, [...document.querySelectorAll('aside .item')].filter((it) => it.getAnimations().length).length])));
   }));
-  assert.deepEqual(still, [3, 0]);
+  assert.deepEqual(subStill, [3, 0]);
   await subs.evaluate(() => { for (let i = 7; i <= 9; i++) window.__subagent(i, 'completed'); window.__shellChat.handle({type: 'status', message: 'ready'}); });
   await expect(subs.locator('aside .item.under')).toHaveCount(0, {timeout: 4000});
   assert.equal(await subKept(), 0);
