@@ -510,12 +510,14 @@
 <style>
 	/* Every prompt (an action to allow, a question, a plan) is the same raised
 	   card as the composer it sits on: it stands out by elevation, not tint.
-	   It rises in with fill backwards only: a fill that held the end left the
-	   card transformed (by an identity matrix) for good, the containing block
-	   of its scope menu's fixed click-away backdrop, which then covered only
-	   the card. The end values are the card's own. Positioned, so it still
-	   paints over the composer below (its shadow on the composer's edge), as
-	   it does with glass. */
+	   It waits for the reader, so it only fades in (--t-wait, 180ms): the
+	   decision is there at once and nothing moves under the pointer. Fill
+	   backwards only: a fill that held the end of the old rise left the card
+	   transformed (by an identity matrix) for good, the containing block of
+	   its scope menu's fixed click-away backdrop, which then covered only the
+	   card. The end values are the card's own. Positioned, so it still paints
+	   over the composer below (its shadow on the composer's edge), as it does
+	   with glass. */
 	.approval {
 		position: relative;
 		padding: 12px 14px;
@@ -525,7 +527,7 @@
 		box-shadow: var(--shadow-float);
 		font-size: var(--fs-sm);
 		line-height: 18px;
-		animation: rise var(--t-slow) var(--ease-out) backwards;
+		animation: fade var(--t-wait) var(--ease-enter) backwards;
 	}
 	/* Blocks inside the raised card: a --surface fill, no second border or
 	   shadow. */

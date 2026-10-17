@@ -1897,6 +1897,11 @@
 		margin: 0 auto;
 		padding: 0 var(--chat-pad) 10px;
 	}
+	/* Waiting for the reader, like the approval card: a fade only. */
+	.gate,
+	.revising {
+		animation: fade var(--t-wait) var(--ease-enter) backwards;
+	}
 	.gate {
 		display: flex;
 		align-items: center;

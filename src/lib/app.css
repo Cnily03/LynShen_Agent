@@ -114,6 +114,9 @@
 	--t-exit: calc(0.1s * var(--time-scale));
 	/* A new message or card. */
 	--t-enter: calc(0.4s * var(--time-scale));
+	/* A card that waits for the reader (an approval, the requirement gate):
+	   it only fades in, so the decision is there at once and nothing moves. */
+	--t-wait: calc(0.18s * var(--time-scale));
 
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
 	/* The composer and the approval card: their 1px --border and, in the
@@ -399,6 +402,8 @@ body {
      drop-in    menus that open downward from an anchor  --t-pop  --ease-enter
      pane-in    a session, panel or page coming into view --t-med --ease-enter
      msg-in     a new message or card                    --t-enter --ease-enter
+     fade       a card that waits for the reader          --t-wait  --ease-enter
+                (approval, requirement gate): opacity only, fill backwards
      rise/fade  small in-flow reveals (tray, labels)     --t-fast/med --ease-out
      spin       loading icons (class .spin)              0.8s linear, infinite
      pulse      live / recording indicators (class .pulse) 1.2s, infinite
