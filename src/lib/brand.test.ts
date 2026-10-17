@@ -95,7 +95,7 @@ describe('the launch screen in app.html', () => {
 	});
 
 	it('animates transform and opacity only, with no filter', () => {
-		const keyframes = [...html.matchAll(/@keyframes l-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
+		const keyframes = [...html.matchAll(/@keyframes l-[\w-]+ \{([^\r\n]*)\}\r?\n/g)].map((m) => m[1]);
 		expect(keyframes).toHaveLength(4);
 		for (const k of keyframes) for (const [, name] of k.matchAll(/([\w-]+):/g)) expect(['transform', 'opacity']).toContain(name);
 		expect(style).not.toMatch(/filter|blur|will-change/);
