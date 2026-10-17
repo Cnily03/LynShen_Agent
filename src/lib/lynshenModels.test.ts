@@ -9,7 +9,7 @@ vi.mock('./protocol', () => ({
 	writeConfig: (patch: Record<string, unknown>) => writeConfig(patch)
 }));
 
-import { gatewayEfforts, refreshLynShenModels, savedModel } from './lynshenModels';
+import { gatewayEfforts, modelSetupPatch, refreshLynShenModels, savedModel } from './lynshenModels';
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -136,5 +136,32 @@ describe('gatewayEfforts', () => {
 		expect(await refreshLynShenModels()).toBe(true);
 		const patch = writeConfig.mock.calls[0][0] as { models: { reasoning_efforts: string[] }[] };
 		expect(patch.models[0].reasoning_efforts).toEqual(['low', 'high', 'max']);
+	});
+});
+
+describe('modelSetupPatch', () => {
+	const chosen = [savedModel({ id: 'gpt-6-sol', context_window: 922_000 }), savedModel({ id: 'deepseek-v4.1-flash', context_window: 1_000_000 })];
+	const seen = ['gpt-6-sol', 'deepseek-v4.1-flash', 'kimi-k3'];
+
+	it('makes the picks the model list while the gateway is the provider', () => {
+		for (const provider of ['monoize', 'lynshen']) {
+			expect(modelSetupPatch({ provider, model: 'deepseek-v4.1-flash' }, chosen, {}, seen)).toEqual({
+				lynshen_models: chosen,
+				context_window_overrides: {},
+				lynshen_models_seen: seen,
+				models: chosen
+			});
+		}
+		// The current model was unchecked: the first pick takes over.
+		expect(modelSetupPatch({ provider: 'monoize', model: 'kimi-k3' }, chosen, {}, seen)).toMatchObject({ models: chosen, model: 'gpt-6-sol' });
+		// Nothing picked: the list stays.
+		expect(modelSetupPatch({ provider: 'monoize', model: 'kimi-k3' }, [], {}, seen)).not.toHaveProperty('models');
+	});
+
+	it('keeps the list and model of any other provider (ticket #34)', () => {
+		for (const provider of ['lynshen-relay', 'deepseek', '']) {
+			const patch = modelSetupPatch({ provider, model: 'deepseek-v4.1-flash' }, chosen, { 'kimi-k3': 262_144 }, seen);
+			expect(patch).toEqual({ lynshen_models: chosen, context_window_overrides: { 'kimi-k3': 262_144 }, lynshen_models_seen: seen });
+		}
 	});
 });

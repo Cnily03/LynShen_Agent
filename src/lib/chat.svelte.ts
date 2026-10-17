@@ -1669,6 +1669,20 @@ export class ChatState {
 		this.commands = p.commands ?? [];
 	}
 
+	/** A model picked for a draft. No engine reports it yet, so the context
+	 *  gauge takes its window from the list it was picked from (`window`, else
+	 *  the draft's model list; 0 when unknown, which hides the gauge) and has
+	 *  no compaction limit until the engine starts and reports both. Without
+	 *  this the gauge kept the window of the model the backend ran last
+	 *  (ticket #34: a GPT model's 922K beside DeepSeek V4.1 Flash, whose
+	 *  provider was set to 400K). */
+	pickDraftModel(model: string, label = '', window?: number) {
+		this.model = model;
+		this.modelLabel = label;
+		this.contextWindow = window ?? this.modelCatalog.find((m) => m.model === model)?.context_window ?? 0;
+		this.contextLimit = 0;
+	}
+
 	/** A spawn_agent call finished: an engine that reports its subagents
 	 *  only there (LynShen before the agent trace) names the agent in the
 	 *  output (`path`, `task_name`, `status`). */

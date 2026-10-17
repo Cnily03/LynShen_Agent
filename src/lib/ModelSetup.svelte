@@ -17,7 +17,7 @@
 	import { toast } from '$lib/ui/toast.svelte';
 	import { fetchLynShenModels, readConfig, writeConfig, type LynShenModel } from '$lib/protocol';
 	import { fmtContext } from '$lib/composer/modelRows';
-	import { savedModel } from '$lib/lynshenModels';
+	import { modelSetupPatch, savedModel } from '$lib/lynshenModels';
 	import { DEFAULT_MODELS } from '$lib/defaultModels';
 	import { t } from '$lib/i18n';
 
@@ -134,20 +134,9 @@
 			const n = parseWindow(windows[m.id]);
 			if (n > 0) overrides[m.id] = n;
 		}
-		const patch: Record<string, unknown> = {
-			lynshen_models: chosen,
-			context_window_overrides: overrides,
-			// Everything listed here has been seen: unchecked ones stay hidden.
-			lynshen_models_seen: models.map((m) => m.id)
-		};
-		if (cfg.provider) {
-			// The checked list becomes the active provider's model list — the
-			// composer menu reads it whatever the provider (lynshen or a keyed
-			// one like monoize); only when nothing was picked does the previous
-			// list stay.
-			if (chosen.length) patch.models = chosen;
-			if (chosen.length && !chosen.some((m) => m.name === cfg.model)) patch.model = chosen[0].name;
-		}
+		// Everything listed here has been seen: unchecked ones stay hidden. The
+		// checked list becomes the engine's model list only on the gateway.
+		const patch = modelSetupPatch(cfg, chosen, overrides, models.map((m) => m.id));
 		try {
 			await writeConfig(patch);
 			toast.success(t('shell.modelSetup.saved'));

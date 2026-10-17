@@ -284,7 +284,8 @@ Object.assign(window, {
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
         case 'diagnostic_logs': return [];
-        // No ACP agent registered (the app's command answers a list).
+        // No ACP agent registered (the app's command answers a list; the
+        // model menu lists the agents to switch to).
         case 'acp_agents_list': return [];
         // ?avatar: the account's avatar as the app kept it (account_avatar.rs);
         // an upload answers the gateway's user and the picture it sent.

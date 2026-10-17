@@ -1606,3 +1606,41 @@ describe('ChatState: the LynShen sandbox', () => {
 		expect(c.lastError).toBeNull();
 	});
 });
+
+describe('ChatState.pickDraftModel', () => {
+	// What the backend reported last: a GPT model with a 922K window.
+	const profile = {
+		lynshen: {
+			provider: 'lynshen-relay',
+			model: 'gpt-6-sol',
+			contextWindow: 922_000,
+			catalog: [
+				{ model: 'gpt-6-sol', active: true, context_window: 922_000, max_output_tokens: 128_000, reasoning_efforts: ['low'] },
+				{ model: 'deepseek-v4.1-flash', active: false, context_window: 400_000, max_output_tokens: 8192, reasoning_efforts: ['low'] }
+			]
+		}
+	};
+
+	it("gauges a draft's pick by the picked model's window, not the last one the backend ran (ticket #34)", () => {
+		vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(profile), setItem: () => {} });
+		try {
+			const c = new ChatState();
+			c.seedFromProfile();
+			expect(c.contextWindow).toBe(922_000);
+			c.contextLimit = 691_500;
+			c.pickDraftModel('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash');
+			expect([c.model, c.modelLabel, c.contextWindow, c.contextLimit]).toEqual(['deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 400_000, 0]);
+			// The list it was picked from says (another provider's model).
+			c.pickDraftModel('glm-5.3', '', 500_000);
+			expect(c.contextWindow).toBe(500_000);
+			// Unknown: no window, so the gauge hides rather than shows another model's.
+			c.pickDraftModel('kimi-k3');
+			expect([c.model, c.contextWindow]).toEqual(['kimi-k3', 0]);
+			// The engine's report wins once it runs.
+			c.handle({ type: 'model_status', provider: 'lynshen-relay', model: 'kimi-k3', context_window: 500_000, context_limit: 375_000 } as AgentEvent);
+			expect([c.contextWindow, c.contextLimit]).toEqual([500_000, 375_000]);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+});

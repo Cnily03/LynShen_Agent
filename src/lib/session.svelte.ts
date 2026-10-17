@@ -434,8 +434,7 @@ export class SessionStore {
 		this.#makeDraft(s);
 		if (model && backendId === 'lynshen') {
 			s.draftPick = { model };
-			s.chat.model = model;
-			s.chat.modelLabel = '';
+			s.chat.pickDraftModel(model);
 		}
 		// At the start: the sidebar lists a project's first sessions only.
 		project.sessions.unshift(s);
@@ -1100,14 +1099,20 @@ export class SessionStore {
 	 */
 	async switchProvider(
 		id: string,
-		provider: { id: string; base_url: string; format: string; models: { name: string; reasoning?: boolean; reasoning_efforts?: string[] }[] },
+		provider: {
+			id: string;
+			base_url: string;
+			format: string;
+			models: { name: string; context_window?: number; reasoning?: boolean; reasoning_efforts?: string[] }[];
+		},
 		model: string,
 		/** Explicit effort pick (popover chip); must be one of the model's efforts. */
 		effort?: string
 	) {
 		const s = this.allSessions.find((x) => x.id === id);
 		if (!s) return;
-		const efforts = modelEfforts(provider.models.find((m) => m.name === model));
+		const picked = provider.models.find((m) => m.name === model);
+		const efforts = modelEfforts(picked);
 		const patch: Record<string, unknown> = {
 			provider: provider.id,
 			base_url: provider.base_url,
@@ -1127,8 +1132,7 @@ export class SessionStore {
 		// A draft reads the new config when it starts.
 		if (s.draft) {
 			s.chat.provider = provider.id;
-			s.chat.model = model;
-			s.chat.modelLabel = '';
+			s.chat.pickDraftModel(model, '', picked?.context_window ?? 0);
 			s.chat.efforts = efforts;
 			s.chat.effort = String(patch.reasoning_effort ?? '');
 			s.draftPick = undefined;

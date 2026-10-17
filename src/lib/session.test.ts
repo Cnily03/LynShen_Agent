@@ -172,6 +172,27 @@ describe('SessionStore lifecycle', () => {
 		expect(store.serialize()[0].tabs![0].gateway).toBeUndefined();
 	});
 
+	it("a draft's model pick sets the context gauge to that model's window (ticket #34)", async () => {
+		const store = new SessionStore();
+		const p = proj();
+		store.projects.push(p);
+		const id = store.addSession(p);
+		const s = p.sessions[0];
+		// What the backend ran last: a GPT model at 922K.
+		s.chat.model = 'gpt-6-sol';
+		s.chat.contextWindow = 922_000;
+		const relay = {
+			id: 'lynshen-relay',
+			base_url: 'https://www.lynshen.org/v1',
+			format: 'chat',
+			models: [{ name: 'deepseek-v4.1-flash', context_window: 400_000, reasoning_efforts: ['low'] }]
+		};
+		await store.switchProvider(id, relay, 'deepseek-v4.1-flash');
+		expect(s.draft).toBe(true);
+		expect([s.chat.provider, s.chat.model, s.chat.contextWindow, s.chat.contextLimit]).toEqual(['lynshen-relay', 'deepseek-v4.1-flash', 400_000, 0]);
+		expect(hostSession).not.toHaveBeenCalled();
+	});
+
 	it('a draft switched to the gateway starts on it', async () => {
 		const store = new SessionStore();
 		const p = proj();

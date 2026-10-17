@@ -6,6 +6,7 @@
 import { fetchLynShenModels, readConfig, writeConfig, type LynShenModel } from './protocol';
 import { DEFAULT_MODELS } from './defaultModels';
 import { gatewayCatalogModel } from './providers/catalog';
+import { isGatewayProvider } from './configModels';
 
 /** Models the account is offered that it was not offered before: shown at
  *  once (put on sale since the last look). `lynshen_models_seen` remembers
@@ -91,4 +92,29 @@ export async function refreshLynShenModels(): Promise<boolean> {
 	if (!Object.keys(patch).length) return false;
 	await writeConfig(patch);
 	return true;
+}
+
+/** What "models to show" (ModelSetup) saves: the picks, the windows typed
+ *  for them and every id the account was offered. While the gateway is the
+ *  engine's provider the picks are its model list too (the composer menu
+ *  reads it), and a current model that is no longer picked gives way to the
+ *  first pick. Any other provider keeps its own list and windows: the picks
+ *  replaced them, so a provider the user limited to 400K ran on the
+ *  gateway's 1M windows (ticket #34). */
+export function modelSetupPatch(
+	cfg: Record<string, unknown>,
+	chosen: Record<string, unknown>[],
+	overrides: Record<string, number>,
+	seen: string[]
+): Record<string, unknown> {
+	const patch: Record<string, unknown> = {
+		lynshen_models: chosen,
+		context_window_overrides: overrides,
+		lynshen_models_seen: seen
+	};
+	if (isGatewayProvider(cfg.provider) && chosen.length) {
+		patch.models = chosen;
+		if (!chosen.some((m) => m.name === cfg.model)) patch.model = chosen[0].name;
+	}
+	return patch;
 }
