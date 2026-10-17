@@ -52,6 +52,7 @@
 	import { caps } from '$lib/backends';
 	import { defaultBackendFor, loadBackendSettings } from '$lib/backends/settings';
 	import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+	import { authLinkOpened } from '$lib/signInPoll';
 	import { updater } from '$lib/updater.svelte';
 	import { teamSwitch } from '$lib/agents/teamSwitch.svelte';
 	import { checkDaemonVersion } from '$lib/daemonVersion';
@@ -1233,6 +1234,8 @@
 	 * 深链路由：
 	 *   lynshen://open?project=<绝对路径(urlencoded)>          打开/聚焦该项目（目录存在则创建）
 	 *   lynshen://session/<会话id>?project=<绝对路径>          打开项目并恢复该会话
+	 *   lynshen://auth/approved                               官网授权页批准后打开：进行中的浏览器登录立即查询一次；
+	 *                                                         没有进行中的登录则什么也不做（窗口已由原生侧带到前台）
 	 */
 	async function handleDeepLink(raw: string) {
 		let url: URL;
@@ -1244,7 +1247,9 @@
 		if (url.protocol !== 'lynshen:') return;
 		const route = url.host || url.pathname.replace(/^\/+/, '').split('/')[0];
 		const projectPath = url.searchParams.get('project') ?? '';
-		if (route === 'open') {
+		if (route === 'auth') {
+			authLinkOpened();
+		} else if (route === 'open') {
 			if (projectPath) await openProjectPath(projectPath);
 		} else if (route === 'session') {
 			const sid = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
