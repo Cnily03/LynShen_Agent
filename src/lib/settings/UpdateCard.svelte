@@ -12,6 +12,7 @@
 	import { t } from '$lib/i18n';
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsRow from './SettingsRow.svelte';
+	import lockup from '$lib/aogiri-lockup.svg?raw';
 
 	let about = $state<AboutApp | null>(null);
 	const current = $derived(about?.version ?? '');
@@ -23,6 +24,8 @@
 	}
 </script>
 
+<!-- About: the logo lockup above the version. -->
+<div class="about" role="img" aria-label={t('common.appName')}>{@html lockup}</div>
 <SettingsSection>
 	<SettingsRow id="app-version" title={t('settings.update.currentVersion')} description={current ? `v${current}` : '…'}>
 		{#snippet detail()}
@@ -61,6 +64,15 @@
 </SettingsSection>
 
 <style>
+	.about {
+		margin: 4px 0 20px;
+		line-height: 0;
+		color: var(--text);
+	}
+	.about :global(svg) {
+		height: 32px;
+		width: auto;
+	}
 	.status {
 		display: flex;
 		align-items: center;

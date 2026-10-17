@@ -27,6 +27,7 @@
 	import ArrowsOutLineVerticalIcon from 'phosphor-svelte/lib/ArrowsOutLineVerticalIcon';
 	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
 	import mark from '$lib/aogiri-mark.svg?raw';
+	import wordmark from '$lib/aogiri-wordmark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import { rowIn } from '$lib/ui/motion';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -452,7 +453,7 @@
 			<span class="logo" aria-hidden="true"><span class="mark">{@html mark}</span></span>
 		{/if}
 		<div class="brand-rest" inert={folded}>
-			<span class="word">Aogiri</span>
+			<span class="word" role="img" aria-label={t('common.appName')}>{@html wordmark}</span>
 		</div>
 	</div>
 
@@ -1067,15 +1068,23 @@
 		font-size: var(--fs-sm);
 		outline: none;
 	}
+	/* The drawn wordmark (aogiri-wordmark.svg): 18px high, its cap height
+	   13px; nudged down by half its descender so the capitals centre on the
+	   logo tile. */
 	.word {
 		flex: 1;
 		min-width: 0;
-		font-family: var(--font-sans);
-		font-size: var(--fs-lg);
-		font-weight: 700;
-		line-height: 24px;
+		display: flex;
+		align-items: center;
+		height: 24px;
 		color: var(--text);
-		white-space: nowrap;
+	}
+	.word :global(svg) {
+		position: relative;
+		top: 2px;
+		height: 18px;
+		width: auto;
+		flex: none;
 	}
 	.primary {
 		display: flex;

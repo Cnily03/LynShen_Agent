@@ -5,7 +5,8 @@
 
 	// Brand mark for a model (by name) or a provider (by id), from brandIcons.
 	// A model with no known brand shows a sparkle; a provider shows its initial,
-	// and the LynShen gateway its own M monogram (currentColor + beam colors).
+	// and the LynShen gateway its own mark (lynshen-mark.svg: trunks in
+	// currentColor, the light --lynshen-light).
 	let { model, provider, size = 14 }: { model?: string; provider?: string; size?: number } = $props();
 
 	const svg = $derived(provider ? providerBrand(provider) : model ? modelBrand(model) : undefined);

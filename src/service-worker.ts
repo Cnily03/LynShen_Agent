@@ -14,7 +14,7 @@ import { build, files, version } from '$service-worker';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `lynshen-shell-${version}`;
 const SHELL = '/remote';
-const PRECACHE = [SHELL, ...files.filter((f) => /^\/(manifest\.webmanifest|icon-\d+\.png|apple-touch-icon\.png|favicon\.png)$/.test(f))];
+const PRECACHE = [SHELL, ...files.filter((f) => /^\/(manifest\.webmanifest|icon-(maskable-)?\d+\.png|apple-touch-icon\.png|favicon\.png)$/.test(f))];
 const BUILD = new Set(build);
 
 sw.addEventListener('install', (event) => {

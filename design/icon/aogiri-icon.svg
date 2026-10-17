@@ -1,20 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-<!-- Aogiri app icon, full bleed: a warm near-black ground, the ember Lumen and
-     its halo. The same drawing as the phone app's icon. Used for the web app
-     icons in static/, which the phone masks itself. -->
-<defs>
-  <radialGradient id="bg" cx="50%" cy="56%" r="72%"><stop offset="0" stop-color="#2B1D12"/><stop offset="0.55" stop-color="#15110D"/><stop offset="1" stop-color="#0B0A09"/></radialGradient>
-  <radialGradient id="halo" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#F0A465" stop-opacity="0.34"/><stop offset="0.74" stop-color="#F0A465" stop-opacity="0.26"/><stop offset="0.87" stop-color="#F0A465" stop-opacity="0.09"/><stop offset="1" stop-color="#F0A465" stop-opacity="0"/></radialGradient>
-  <radialGradient id="body" cx="50%" cy="42%" r="62%" fx="44%" fy="34%"><stop offset="0" stop-color="#F0A465"/><stop offset="0.6" stop-color="#F0A465"/><stop offset="1" stop-color="#D46E3E"/></radialGradient>
-  <radialGradient id="core" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFE3BC" stop-opacity="0.95"/><stop offset="0.45" stop-color="#FFE3BC" stop-opacity="0.55"/><stop offset="1" stop-color="#FFE3BC" stop-opacity="0"/></radialGradient>
-  <clipPath id="ember"><path d="M55 1C59 10 67 17 77 27C88 38 94 51 93 66C92 86 73 100 50 100C27 100 7 86 7 66C7 53 13 43 21 35C23 43 28 49 35 51C32 37 38 17 55 1Z"/></clipPath>
-</defs>
-<rect width="1024" height="1024" fill="url(#bg)"/>
-<circle cx="512" cy="561.6" r="351" fill="url(#halo)"/>
-<g transform="translate(252,257.4) scale(5.2)">
-  <path d="M55 1C59 10 67 17 77 27C88 38 94 51 93 66C92 86 73 100 50 100C27 100 7 86 7 66C7 53 13 43 21 35C23 43 28 49 35 51C32 37 38 17 55 1Z" fill="url(#body)"/>
-  <circle cx="41" cy="40" r="26" fill="url(#core)" clip-path="url(#ember)"/>
-  <rect x="36" y="60" width="7" height="14" rx="3.5" fill="#FFFBF4"/>
-  <rect x="57" y="60" width="7" height="14" rx="3.5" fill="#FFFBF4"/>
-</g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<!-- Aogiri app icon, full bleed: the warm near-black ground, the light's glow, two trunks and the light. The same drawing as the phone app's icon. Used for the web app icons in static/ (icon-192, icon-512, apple-touch-icon), which the phone masks itself. -->
+<defs><radialGradient id="bg" cx="50%" cy="56%" r="72%"><stop offset="0" stop-color="#2B1D12"/><stop offset="0.55" stop-color="#15110D"/><stop offset="1" stop-color="#0B0A09"/></radialGradient><radialGradient id="glow" cx="486.98" cy="465.06" r="325.2" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#F0A465" stop-opacity="0.24"/><stop offset="0.45" stop-color="#F0A465" stop-opacity="0.108"/><stop offset="1" stop-color="#F0A465" stop-opacity="0"/></radialGradient><linearGradient id="light" gradientUnits="userSpaceOnUse" x1="433.35" y1="317.72" x2="540.61" y2="612.41"><stop offset="0" stop-color="#FFE3BC"/><stop offset="1" stop-color="#F0A465"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#bg)"/><circle cx="486.98" cy="465.06" r="325.2" fill="url(#glow)"/><path d="M288.39 456.52L288.39 746.68A45.3179 45.3179 0 0 0 379.02 746.68L379.02 456.52A45.3179 45.3179 0 0 0 288.39 456.52Z" fill="#F6EEE3"/><path d="M625.55 277.32L625.55 746.68A45.3179 45.3179 0 0 0 716.19 746.68L716.19 277.32A45.3179 45.3179 0 0 0 625.55 277.32Z" fill="#F6EEE3"/><path d="M414.39 358.38L499.95 593.45A31.7225 31.7225 0 0 0 559.57 571.75L474.01 336.68A31.7225 31.7225 0 0 0 414.39 358.38Z" fill="url(#light)"/></svg>
