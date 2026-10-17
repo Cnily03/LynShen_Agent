@@ -27,7 +27,9 @@
 	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
 	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
-	import { rowIn } from '$lib/ui/motion';
+	import { listIn, moveRow, rowIn } from '$lib/ui/motion';
+	import { GroupPlaces, heldList, orderedList, readListOrder, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
+	import StackSimpleIcon from 'phosphor-svelte/lib/StackSimpleIcon';
 	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -223,6 +225,34 @@
 	const sessionMatches = (p: Project, s: Project['sessions'][number]) =>
 		!query || s.chat.title.toLowerCase().includes(query) || p.name.toLowerCase().includes(query);
 	const shownRecent = $derived(recent.filter((x) => sessionMatches(x.p, x.s)));
+
+	// 对话 by state (等你处理 / 进行中 / 已完成) or by time (sidebarGroups.ts).
+	// A row's look changes at once; its place changes only while the pointer
+	// is out of the list and no row menu is open, and then it moves there
+	// (animate:moveRow) while the others make room.
+	let listOrder = $state<ListOrder>(readListOrder(localStorage));
+	function toggleListOrder() {
+		listOrder = listOrder === 'state' ? 'time' : 'state';
+		writeListOrder(localStorage, listOrder);
+	}
+	const places = new GroupPlaces();
+	type Recent = (typeof recent)[number];
+	const nextChats = $derived(
+		orderedList(
+			shownRecent.map((x) => ({ id: x.s.id, status: sessionStatus(x.s.chat), at: x.at, item: x })),
+			listOrder,
+			places,
+			{ limit: showAllRecent || query ? Infinity : RECENT_LIMIT, active: activeId }
+		)
+	);
+	let pointerIn = $state(false);
+	const orderHeld = $derived(pointerIn || holdOpen);
+	let chatItems = $state<ListItem<Recent>[]>(untrack(() => nextChats.items));
+	$effect.pre(() => {
+		const next = nextChats.items;
+		const hold = orderHeld;
+		untrack(() => (chatItems = hold && chatItems.length ? heldList(chatItems, next) : next));
+	});
 	// The archived conversations per place (对话 first, then each project) the
 	// filter matches, and how many there are in all (blank ones are not
 	// conversations yet: see isBlank).
@@ -615,6 +645,14 @@
 			<span class="grow"></span>
 			<button
 				class="tool"
+				class:on={listOrder === 'state'}
+				aria-pressed={listOrder === 'state'}
+				onclick={toggleListOrder}
+				aria-label={t('shell.groupByState')}
+				title={t('shell.groupByState')}><StackSimpleIcon size={16} /></button
+			>
+			<button
+				class="tool"
 				disabled={!codeProjects.length && !recent.length}
 				onclick={() => saveFold(foldAll(fold, codeProjects.map((p) => p.id), !everyFolded))}
 				aria-label={everyFolded ? t('shell.unfoldAll') : t('shell.foldAll')}
@@ -643,7 +681,8 @@
 		</div>
 	{/if}
 
-	<div class="list" class:dragging={drag?.live} bind:this={listEl} inert={folded}>
+	<!-- svelte-ignore a11y_no_static_element_interactions (the pointer only holds the order) -->
+	<div class="list" class:dragging={drag?.live} bind:this={listEl} inert={folded} onpointerenter={() => (pointerIn = true)} onpointerleave={() => (pointerIn = false)}>
 		{#if archiveOpen}
 			<!-- 已归档: every archived conversation, by place, with bulk restore. -->
 			<section class="archive">
@@ -726,12 +765,19 @@
 					<button class="head-act" onclick={() => onNewChat()} aria-label={t('shell.newChat')} title={t('shell.newChat')}><PlusIcon size={16} /></button>
 				</div>
 				<Collapse open={chatsOpen}>
-					{#each showAllRecent || query ? shownRecent : shownRecent.slice(0, RECENT_LIMIT) as x (x.s.id)}
-						{@render sessRow(x.s, false, false, x.p.home ? x.p : undefined, x.p.home ? undefined : x.p.name)}
+					<!-- One flat keyed list, headings included, so every item can move. -->
+					{#each chatItems as it (it.key)}
+						<div class="item" animate:moveRow in:listIn={{ head: it.kind === 'head' }}>
+							{#if it.kind === 'head'}
+								<div class="ghead">{t(`shell.group.${it.group}`)}<span class="gcount">{it.n}</span></div>
+							{:else}
+								{@render sessRow(it.item.s, false, false, it.item.p.home ? it.item.p : undefined, it.item.p.home ? undefined : it.item.p.name)}
+							{/if}
+						</div>
 					{:else}
 						<div class="note">{t('shell.home.noChats')}</div>
 					{/each}
-					{#if shownRecent.length > RECENT_LIMIT && !query}
+					{#if (nextChats.hidden > 0 || showAllRecent) && !query}
 						<button class="more" onclick={() => (showAllRecent = !showAllRecent)}>{showAllRecent ? t('shell.showLess') : t('shell.showMore')}</button>
 					{/if}
 				</Collapse>
@@ -1638,6 +1684,28 @@
 		padding: 6px 10px;
 		color: var(--dim2);
 		font-size: var(--fs-xs);
+	}
+	/* An item of the 对话 list: positioned, so a row that passes over others
+	   while it moves (moveRow) stays above them. */
+	.item {
+		position: relative;
+	}
+	/* A group of 对话 (by state): a plain heading with its count. */
+	.ghead {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		height: 28px;
+		padding: 6px 8px 0;
+		color: var(--dim2);
+		font-size: var(--fs-xs);
+		font-weight: 600;
+		line-height: 16px;
+	}
+	.gcount {
+		font-family: var(--font-mono);
+		font-weight: 400;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.folder {

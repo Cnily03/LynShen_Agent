@@ -95,6 +95,8 @@
 		const busy = named('/Users/me/code/aogiri-web', titles.slice(0, n));
 		for (const s of busy.sessions) s.chat.handle({ type: 'status', message: 'streaming' } as never);
 	}
+	// The sessions, to change their state from a test (the navigator's groups).
+	Object.assign(window, { __shellStore: store });
 	const session = store.allSessions.find((s) => s.id === first.sessions[0].id)!;
 	store.activeId = session.id;
 

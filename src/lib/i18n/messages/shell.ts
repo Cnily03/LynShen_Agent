@@ -163,6 +163,9 @@ const shell = {
 		awaitShort: '待确认',
 		unread: '有新回复',
 		status: { approve: '待确认', answer: '待回答', running: '运行中', failed: '运行失败', approveWhat: '等你批准：{what}', answerWhat: '等你回答：{what}' },
+		// 对话 by state (sidebarGroups.ts).
+		group: { waiting: '等你处理', working: '进行中', done: '已完成' },
+		groupByState: '对话按状态分组',
 		updateShort: '可更新',
 		newChat: '新对话',
 		home: {
@@ -1181,6 +1184,8 @@ const shell = {
 		awaitShort: 'Needs you',
 		unread: 'New reply',
 		status: { approve: 'Approve', answer: 'Answer', running: 'Running', failed: 'Failed', approveWhat: 'Waiting for your approval: {what}', answerWhat: 'Waiting for your answer: {what}' },
+		group: { waiting: 'Needs you', working: 'Working', done: 'Done' },
+		groupByState: 'Group conversations by state',
 		updateShort: 'Update',
 		newChat: 'New chat',
 		home: {
