@@ -6,6 +6,7 @@
 // few pixels; menus and dialogs may also scale a little and unblur. Reduced
 // motion makes every one instant.
 import type { TransitionConfig } from 'svelte/transition';
+import type { AnimationConfig } from 'svelte/animate';
 
 /** A CSS cubic-bezier(x1, y1, x2, y2) as an easing function. */
 export function bezier(x1: number, y1: number, x2: number, y2: number): (t: number) => number {
@@ -31,10 +32,15 @@ export const EASE_BASE = bezier(0.24, 0.42, 0.42, 0.92);
 export const EASE_ENTER = bezier(0, 0, 0.2, 1);
 /** --ease-exit: things going away. */
 export const EASE_EXIT = bezier(0.4, 0, 1, 1);
+/** --ease-in-out: a row moving to its new place (slow start, so the change
+ *  of look is seen before the move). */
+export const EASE_IN_OUT = bezier(0.65, 0, 0.35, 1);
 
 export const T_FAST = 120;
 export const T_MED = 220;
 export const T_BASE = 240;
+/** --t-enter. */
+export const T_ENTER = 400;
 
 const reduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** --time-scale on the root (1 unless a debug session slows everything down). */
@@ -117,4 +123,44 @@ export function rowIn(_node: Element, { x = -6, duration = 180 } = {}): () => Tr
 			css: (t, u) => `opacity: ${t}; transform: translateX(${u * x}px)`
 		};
 	};
+}
+
+/** A heading arriving in a list (a group of the navigator that was empty):
+ *  fade and settle 4px down, after the rows start to make room. Arriving
+ *  with a list that fills in, it appears at once (see rowIn). */
+export function groupIn(_node: Element, { y = -4, duration = T_BASE, delay = 80 } = {}): () => TransitionConfig {
+	arriving++;
+	return () => {
+		const together = arriving;
+		queueMicrotask(() => (arriving = 0));
+		if (together > 2) return { duration: 0 };
+		return {
+			delay: motionMs(delay),
+			duration: motionMs(duration),
+			easing: EASE_ENTER,
+			css: (t, u) => `opacity: ${t}; transform: translateY(${u * y}px)`
+		};
+	};
+}
+
+/** A row moving to its new place in a keyed list (`animate:moveRow`): its
+ *  look changed at once; now it moves, 400ms on --ease-in-out, while the
+ *  others make room. The row that changed group (`over`) passes over the
+ *  others, on `fill` (the list's own fill, so the rows it passes do not
+ *  show through it). Nothing is kept once it lands. */
+export function moveRow(_node: Element, { from, to }: { from: DOMRect; to: DOMRect }, { over = false, fill = 'transparent' } = {}): AnimationConfig {
+	const dy = from.top - to.top;
+	if (!dy) return { duration: 0 };
+	const lift = over ? `; z-index: 2; background-color: ${fill}` : '';
+	return {
+		duration: motionMs(T_ENTER),
+		easing: EASE_IN_OUT,
+		css: (_t, u) => `transform: translateY(${u * dy}px)${lift}`
+	};
+}
+
+/** An item arriving in the navigator's flat list: a row slides in (rowIn),
+ *  a group's heading fades in (groupIn). */
+export function listIn(node: Element, { head = false } = {}): () => TransitionConfig {
+	return head ? groupIn(node) : rowIn(node);
 }

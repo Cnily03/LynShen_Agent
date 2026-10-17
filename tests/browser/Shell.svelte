@@ -61,6 +61,7 @@
 	import { chatPanel, chatTab, openElsewhere } from '../../src/lib/workbench/canvas';
 	import ChatPane from '../../src/lib/ChatPane.svelte';
 	import Sidebar from '../../src/lib/Sidebar.svelte';
+	import TabChromePopover from '../../src/lib/workbench/TabChromePopover.svelte';
 	import TitleBar from '../../src/lib/shell/TitleBar.svelte';
 	import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
 	import Toaster from '../../src/lib/ui/Toaster.svelte';
@@ -108,6 +109,12 @@
 		const busy = named('/Users/me/code/aogiri-web', titles.slice(0, n));
 		for (const s of busy.sessions) s.chat.handle({ type: 'status', message: 'streaming' } as never);
 	}
+	// The sessions, to change their state from a test (the navigator's groups).
+	Object.assign(window, { __shellStore: store });
+	// A row's right-click menu, as the page opens it (the navigator holds its
+	// order while it shows).
+	let rowMenu = $state<{ sid: string; x: number; y: number } | null>(null);
+	const menuSession = $derived(rowMenu ? (store.allSessions.find((s) => s.id === rowMenu!.sid) ?? null) : null);
 	const session = store.allSessions.find((s) => s.id === first.sessions[0].id)!;
 	store.activeId = session.id;
 	// As the page does: the count of conversations that wait for the user in
@@ -415,7 +422,11 @@
 				onMoveSession={() => {}}
 				onMoveProject={() => {}}
 				onRenameSession={() => {}}
-				onSessionMenu={() => {}}
+				onSessionMenu={(sid, ev) => {
+					ev.preventDefault();
+					rowMenu = { sid, x: ev.clientX, y: ev.clientY };
+				}}
+				holdOpen={!!rowMenu}
 				onProjectMenu={() => {}}
 				onHistory={() => {}}
 				footer={{ loggedIn: true, onManageAccount: () => {}, onPurchase: () => ((window as unknown as { __purchaseOpened?: number }).__purchaseOpened = ((window as unknown as { __purchaseOpened?: number }).__purchaseOpened ?? 0) + 1), onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}
@@ -459,6 +470,22 @@
 		</div>
 	</div>
 </div>
+<!-- Each, so the menu keeps its session while it fades out. -->
+{#each rowMenu && menuSession ? [{ ...rowMenu, s: menuSession }] : [] as m (m.sid)}
+	<TabChromePopover
+		x={m.x}
+		y={m.y}
+		name={m.s.chat.title}
+		color={m.s.color ?? null}
+		icon={m.s.icon ?? null}
+		onRename={(n) => store.renameSession(m.s.id, n)}
+		onColor={(c) => store.setSessionChrome(m.s.id, { color: c })}
+		onIcon={(i) => store.setSessionChrome(m.s.id, { icon: i })}
+		pinned={!!m.s.pinned}
+		onPin={(v) => store.setPinned(m.s.id, v)}
+		onClose={() => (rowMenu = null)}
+	/>
+{/each}
 
 <style>
 	/* The frame, as in src/routes/+page.svelte. */
