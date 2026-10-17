@@ -81,6 +81,9 @@
 	import TurnRail from '$lib/TurnRail.svelte';
 	import StatusStrip from '$lib/composer/StatusStrip.svelte';
 	import ApprovalCard from '$lib/ApprovalCard.svelte';
+	import RecapCard from '$lib/RecapCard.svelte';
+	import { markStopped, recapOf, type Recap } from '$lib/recap';
+	import { collapse } from '$lib/ui/motion';
 	import RateLimitBanner from '$lib/RateLimitBanner.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import TaskStrip from '$lib/TaskStrip.svelte';
@@ -739,6 +742,55 @@
 		store.activeId = session.id;
 		onOpenChanges?.();
 	}
+	// The end of a turn hands control back (recap.ts): a card above the
+	// composer with the next step as its button, while nothing else waits
+	// for the reader there (an approval, the requirement gate, a plan being
+	// revised, the engine down) and no turn is about to start.
+	const recap = $derived(
+		recapOf(chat.messages, {
+			busy:
+				chat.busy ||
+				!!chat.pendingApproval ||
+				chat.pendingMessages.length > 0 ||
+				!!chat.autoRetry ||
+				chat.restarting ||
+				chat.engineState === 'exited' ||
+				!!gate ||
+				!!chat.planRevising,
+			failed: !!chat.lastError,
+			suggestion: chat.suggestion,
+			review: !!onOpenChanges
+		})
+	);
+	let recapEl = $state<HTMLElement | null>(null);
+	/** The reader chose: the outcome stays with the turn (its receipt), and
+	 *  focus that was on the card goes back to the composer. Nothing once
+	 *  the card is going (a second click while it collapses). */
+	function settleRecap(choice: 'picked' | 'skipped' | 'closed'): Recap | null {
+		const r = recap;
+		if (!r) return null;
+		const refocus = !!recapEl?.contains(document.activeElement);
+		r.reply.recap = { choice, what: choice === 'closed' ? '' : r.suggestion, at: Date.now() };
+		if (refocus) composerEl?.focus();
+		return r;
+	}
+	/** The primary: send the suggestion as the next message, as the composer
+	 *  would (its draft stays), or open the changes. */
+	function pickRecap() {
+		const r = settleRecap('picked');
+		if (!r) return;
+		if (!r.suggestion) return openChanges();
+		chat.suggestion = '';
+		if (r.suggestion.startsWith('/')) send({ op: 'command', input: r.suggestion });
+		else {
+			if (!chat.busy || chat.restarting) {
+				captureCheckpoint();
+				chat.optimisticUser(r.suggestion);
+			}
+			send({ op: 'user_message', content: r.suggestion });
+		}
+		if (prefs.scrollOnSend) jumpToBottom();
+	}
 	// A finished attempt's worktree: the lines it adds and removes, read once
 	// (git diff there; files it created are not counted).
 	const measuredWorktrees = new Set<string>();
@@ -1111,6 +1163,7 @@
 		});
 	});
 	function stop() {
+		if (chat.busy) markStopped(chat.messages);
 		autoRetry.cancel(chat);
 		planWaits.cancel(session.id);
 		send({ op: 'interrupt' });
@@ -1716,6 +1769,21 @@
 			</div>
 		{/if}
 
+		{#if recap}
+			<div class="approval-wrap" bind:this={recapEl} out:collapse>
+				{#key recap.reply}
+					<RecapCard
+						{recap}
+						keys={isActive && !input.trim() && !attachments.length && !videos.length && !images.length && !chat.picker && !chat.trustPrompt && !chat.pendingRewind && !showFind}
+						composer={composerEl}
+						onPick={pickRecap}
+						onSkip={() => settleRecap('skipped')}
+						onClose={() => settleRecap('closed')}
+					/>
+				{/key}
+			</div>
+		{/if}
+
 		<Composer
 			{chat}
 			foot={statusBell}
@@ -1765,6 +1833,7 @@
 			effortDisabled={!!pendingModel || chat.switching}
 			onApproval={setApprovalMode}
 			{styleMenu}
+			suggest={!recap}
 			onRespond={respondApproval}
 		/>
 	</div>

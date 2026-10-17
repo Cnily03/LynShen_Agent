@@ -21,6 +21,13 @@
 	//   &chats[=empty|error|old|all] with &settings=chat: the chat connectors' sample
 	//   &approval               the conversation waits for an approval (a
 	//                           sandbox request: the card above the composer)
+	//   &recap[=changes|suggestion|long]
+	//                           a third turn that changed three files and ended,
+	//                           then the engine's suggested next prompt: the
+	//                           recap card above the composer (=changes: no
+	//                           suggestion; =suggestion: no changes; =long: a
+	//                           long suggestion). `window.__sent` the ops,
+	//                           `window.__opened` "changes" for the Changes panel
 	//   &states                 the other conversations in the navigator wait
 	//                           for an answer, run, or failed
 	//   &busy[=<n>]             n more conversations (8 by default), in a third
@@ -253,6 +260,28 @@
 		byTitle('daemon 技能开关').handle({ type: 'error', message: 'cargo test 没有通过' } as never);
 	}
 
+	// ?shell&recap: a third turn that ends with changes and a suggestion.
+	const recapMode = mode.get('recap');
+	if (recapMode !== null && !mode.has('empty')) {
+		const edit = (id: string, path: string, added: number, removed: number) => {
+			const diff = [`--- a/${path}`, `+++ b/${path}`, '@@ -1 +1 @@', ...Array.from({ length: removed }, (_, i) => `-old ${i}`), ...Array.from({ length: added }, (_, i) => `+new ${i}`)].join('\n');
+			feed({ type: 'tool_start', call_id: id, name: 'edit' });
+			feed({ type: 'tool_output', call_id: id, name: 'edit', output: JSON.stringify({ path: `/Users/me/code/lynshen-desktop/${path}`, diff }) });
+		};
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'connecting' });
+		feed({ type: 'status', message: 'streaming' });
+		if (recapMode !== 'suggestion') {
+			edit('r1', 'src/lib/cache.ts', 30, 5);
+			edit('r2', 'src/lib/session.svelte.ts', 10, 2);
+			edit('r3', 'src/lib/cache.test.ts', 2, 0);
+		}
+		feed({ type: 'assistant_delta', delta: '先看了读缓存的三处调用。\n\n缓存已按会话分片：每个会话一份键空间，旧缓存在启动时迁移。**12 个单元测试**全部通过。' });
+		feed({ type: 'status', message: 'ready' });
+		if (recapMode !== 'changes')
+			feed({ type: 'prompt_suggestion', text: recapMode === 'long' ? '提交并推送，然后在 PR 描述里写清楚缓存键的新格式、旧缓存的迁移方式和回滚办法，再请两位同事评审' : '提交并推送' });
+	}
+
 	// ?shell&cards: a third turn at work. The plan is 3/7 with the fourth
 	// step running; four subagents of the agent team (roles, an attempt, one
 	// done, one queued), the team's tokens against its budget and its board.
@@ -325,7 +354,7 @@
 	// ?shell&styles: the engine says which reply style the conversation
 	// uses, so the "+" menu lists the styles (fakeDaemon.ts answers styles_list).
 	if (mode.has('styles')) feed({ type: 'reply_style', style: 'default', name: '默认', source: 'builtin', chosen: false, missing: false });
-	if (mode.has('cards') || mode.has('styles')) {
+	if (mode.has('cards') || mode.has('styles') || mode.has('recap')) {
 		clearDraft(session.id);
 		const adapter = adapterFor(session.id);
 		if (adapter) adapter.encodeOp = (op: Op) => (sent.push(op), []);
@@ -382,6 +411,7 @@
 		{providersList}
 		onOpenTrace={mode.has('cards') ? () => opened.push('trace') : undefined}
 		onOpenTeam={mode.has('cards') ? () => opened.push('team') : undefined}
+		onOpenChanges={mode.has('recap') ? () => opened.push('changes') : undefined}
 	/>
 {/snippet}
 
