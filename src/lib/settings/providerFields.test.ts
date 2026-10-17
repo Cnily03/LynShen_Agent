@@ -83,7 +83,7 @@ describe('model drafts', () => {
 			context_window: 1_000_000,
 			max_output_tokens: 64_000,
 			reasoning: true,
-			reasoning_efforts: ['low', 'ultra', 'minimal'],
+			reasoning_efforts: ['minimal', 'low', 'ultra'],
 			input_modalities: ['text', 'image']
 		});
 		const off = modelFromDraft({ ...draft, reasoning: false, modalities: ['text'], display_name: '' }, previous);
@@ -96,7 +96,8 @@ describe('model drafts', () => {
 	});
 
 	it('orders known tiers and keeps unknown ones', () => {
-		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'low', 'max', 'ultra', 'minimal']);
+		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'minimal', 'low', 'max', 'ultra']);
+		expect(orderTiers(['turbo', 'high', 'none'])).toEqual(['none', 'high', 'turbo']);
 	});
 
 	it('validates names, token counts, tiers and modalities', () => {
@@ -129,6 +130,12 @@ describe('validateProvider', () => {
 		expect(validateProvider({ ...form, base_url: 'llm.example.com' }, { taken: [], keyRequired: false }).base_url).toBe('url');
 		expect(validateProvider(form, { taken: [], keyRequired: true }).key).toBe('keyRequired');
 		expect(validateProvider({ ...form, models: [] }, { taken: [], keyRequired: false }).models).toBe('modelRequired');
+	});
+	it('a built-in provider may keep its base URL and has its id and models', () => {
+		const builtin = { taken: ['anthropic'], keyRequired: false, builtin: true };
+		expect(validateProvider({ id: 'anthropic', base_url: '', key: '', models: [] }, builtin)).toEqual({});
+		expect(validateProvider({ id: 'anthropic', base_url: 'www.lynshen.org', key: '', models: [] }, builtin).base_url).toBe('url');
+		expect(validateProvider({ id: 'anthropic', base_url: '', key: '', models: [] }, { ...builtin, keyRequired: true }).key).toBe('keyRequired');
 	});
 });
 

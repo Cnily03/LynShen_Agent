@@ -13,6 +13,7 @@
 	import { sessionStatus } from '$lib/sessionStatus';
 	import { joinPath, parseFileHref, pathExt } from '$lib/fileRefs';
 	import { PROVIDER_CATALOG } from '$lib/providers/catalog';
+	import { applyOverride, readOverrides } from '$lib/providers/overrides';
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
 	import ListChecksIcon from 'phosphor-svelte/lib/ListChecksIcon';
 	import TargetIcon from 'phosphor-svelte/lib/TargetIcon';
@@ -444,14 +445,22 @@
 					console.error('failed to restore lynshen-custom-providers', e);
 					custom = [];
 				}
+				// A built-in provider with the user's settings (Settings → 提供商 →
+				// 编辑): @switch writes these to config.json for the engine.
+				const overrides = readOverrides(localStorage);
 				providersList = [
-					...bs.map((b) => ({
-						id: b.id,
-						name: PROVIDER_CATALOG.providers.find((p) => p.id === b.id)?.name ?? b.id,
-						base_url: b.base_url,
-						format: b.protocol,
-						models: b.models
-					})),
+					...bs.map((b) =>
+						applyOverride(
+							{
+								id: b.id,
+								name: PROVIDER_CATALOG.providers.find((p) => p.id === b.id)?.name ?? b.id,
+								base_url: b.base_url,
+								format: b.protocol,
+								models: b.models
+							},
+							overrides[b.id]
+						)
+					),
 					...custom
 				];
 			})

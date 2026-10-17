@@ -1,13 +1,17 @@
 <script lang="ts">
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimpleIcon';
+	import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwiseIcon';
 	import { t } from '$lib/i18n';
 	import Button from '$lib/ui/Button.svelte';
 	import Checkbox from '$lib/ui/Checkbox.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import TextField from '$lib/ui/TextField.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import Notice from '$lib/ui/Notice.svelte';
 	import { effortLabel } from '$lib/composer/effort';
+	import { anthropicV1Suggestion, requestUrl } from '$lib/providers/endpoint';
+	import { diffModel } from '$lib/providers/overrides';
 	import {
 		EFFORT_TIERS,
 		MODALITIES,
@@ -16,6 +20,7 @@
 		modelEfforts,
 		modelFromDraft,
 		newModelDraft,
+		validBaseUrl,
 		validateModel,
 		validateProvider,
 		type ModelDraft,
@@ -28,6 +33,11 @@
 	// format, base URL and key, and its models with their window, output cap,
 	// thinking, effort tiers and input kinds (providerFields.ts holds the
 	// rules). The dialog's footer calls `submit()`.
+	// mode 'builtin' sets up a built-in provider (Anthropic, OpenAI…): its id
+	// and format are the engine's, an empty base URL or token field keeps the
+	// built-in value, its own models cannot be removed (each can go back to
+	// its built-in values), and models can be added. The page stores what
+	// differs (providers/overrides.ts).
 	interface FormState {
 		id: string;
 		base_url: string;
@@ -43,38 +53,63 @@
 		taken = [],
 		keyRequired = false,
 		keyed = false,
+		builtinDefaults,
+		showKey = true,
 		onSubmit
 	}: {
 		form: FormState;
 		formats: { value: string; label: string }[];
-		/** 'edit': the id is fixed and an empty key keeps the saved one. */
-		mode?: 'create' | 'edit';
+		/** 'edit' and 'builtin': the id is fixed and an empty key keeps the saved one. */
+		mode?: 'create' | 'edit' | 'builtin';
 		/** Ids of the other providers. */
 		taken?: string[];
 		keyRequired?: boolean;
 		/** Edit: a key is saved for this provider. */
 		keyed?: boolean;
+		/** 'builtin': the provider's built-in base URL and models. */
+		builtinDefaults?: { base_url: string; models: ProviderModel[] };
+		/** False when the key field is elsewhere (the add dialog's key step). */
+		showKey?: boolean;
 		onSubmit: (form: FormState) => void;
 	} = $props();
+
+	const builtin = $derived(mode === 'builtin');
+	/** The built-in version of a model; none for a model the user added. */
+	const builtinModel = (name: string) => (builtin ? builtinDefaults?.models.find((m) => m.name === name) : undefined);
+	/** A built-in model whose fields the user changed. */
+	const changed = (m: ProviderModel) => {
+		const original = builtinModel(m.name);
+		return !!original && Object.keys(diffModel(original, m)).length > 0;
+	};
+	const checks = () => ({ taken: mode === 'create' ? taken : [], keyRequired, builtin });
 
 	// The model editor under the list: a new model, or the row at `editAt`.
 	let draft = $state<ModelDraft>(newModelDraft());
 	let editAt = $state<number | null>(null);
 	let modelErrors = $state<ModelErrors>({});
 	let tried = $state(false);
-	const providerErrors = $derived<ProviderErrors>(
-		tried ? validateProvider(form, { taken: mode === 'edit' ? [] : taken, keyRequired }) : {}
-	);
+	const providerErrors = $derived<ProviderErrors>(tried ? validateProvider(form, checks()) : {});
 	const otherNames = $derived(form.models.filter((_, i) => i !== editAt).map((m) => m.name));
+	/** The model in the editor is one of the provider's built-in models. */
+	const editingBuiltin = $derived(editAt !== null && !!builtinModel(form.models[editAt]?.name ?? ''));
+
+	// Where the engine sends requests for this base URL and format, and the
+	// /v1 base to offer when an Anthropic-format URL is only a host. A
+	// built-in provider's empty field is its built-in URL.
+	const baseUrl = $derived(form.base_url.trim() || (builtin ? (builtinDefaults?.base_url ?? '') : ''));
+	const shownUrl = $derived(validBaseUrl(baseUrl) ? requestUrl(form.format, baseUrl) : '');
+	const v1Url = $derived(shownUrl ? anthropicV1Suggestion(form.format, baseUrl) : null);
 
 	const err = (key?: string) => (key ? t(`settings.custom.error.${key}`) : '');
 	const tierLabel = (tier: string) => (tier === 'none' ? t('settings.custom.effortNone') : effortLabel(tier));
 
-	/** The quiet second line of a model row: window · output · thinking · input. */
+	/** The quiet second line of a model row: window · output · thinking · input,
+	 *  after 已修改 / 自己添加 on a built-in provider. */
 	function summary(m: ProviderModel): string {
 		const efforts = modelEfforts(m);
 		const kinds = m.input_modalities?.length ? m.input_modalities : [...MODALITIES];
 		return [
+			builtin ? (builtinModel(m.name) ? (changed(m) ? t('settings.builtin.changed') : '') : t('settings.builtin.added')) : '',
 			m.context_window ? t('settings.custom.summary.window', { n: formatTokens(m.context_window) }) : '',
 			m.max_output_tokens ? t('settings.custom.summary.output', { n: formatTokens(m.max_output_tokens) }) : '',
 			m.reasoning === false
@@ -100,6 +135,20 @@
 		draft = newModelDraft();
 		modelErrors = {};
 	}
+	/** A built-in model back to its built-in values. */
+	function resetModel(i: number) {
+		const original = builtinModel(form.models[i].name);
+		if (!original) return;
+		form.models = form.models.map((m, j) => (j === i ? { ...original } : m));
+		if (editAt === i) resetEditor();
+	}
+	/** The built-in base URL and models (the dialog's 恢复默认). */
+	export function resetDefaults() {
+		if (!builtinDefaults) return;
+		form.base_url = builtinDefaults.base_url;
+		form.models = builtinDefaults.models.map((m) => ({ ...m }));
+		resetEditor();
+	}
 	function removeModel(i: number) {
 		form.models = form.models.filter((_, j) => j !== i);
 		if (editAt === i) resetEditor();
@@ -107,9 +156,11 @@
 	}
 	/** Puts the editor's model into the list; false when it is not valid. */
 	function commitModel(): boolean {
-		modelErrors = validateModel(draft, otherNames);
+		// An empty token field of a built-in model keeps its built-in value.
+		const fallback = builtinModel(draft.name.trim());
+		modelErrors = validateModel(draft, otherNames, fallback);
 		if (Object.keys(modelErrors).length) return false;
-		const model = modelFromDraft(draft, editAt === null ? undefined : form.models[editAt]);
+		const model = modelFromDraft(draft, editAt === null ? undefined : form.models[editAt], fallback);
 		form.models = editAt === null ? [...form.models, model] : form.models.map((m, j) => (j === editAt ? model : m));
 		resetEditor();
 		return true;
@@ -120,12 +171,13 @@
 		tried = true;
 		const pending = draft.name.trim() !== '' || editAt !== null;
 		if (pending && !commitModel()) return;
-		if (Object.keys(validateProvider(form, { taken: mode === 'edit' ? [] : taken, keyRequired })).length) return;
+		if (Object.keys(validateProvider(form, checks())).length) return;
 		onSubmit(form);
 	}
 </script>
 
 <div class="newprov">
+	{#if !builtin}
 	<div class="np-grid">
 		<div class="np-f">
 			<label class="np-f">
@@ -139,20 +191,35 @@
 			<Segmented bind:value={form.format} options={formats} />
 		</div>
 	</div>
+	{/if}
 	<div class="np-f">
 		<label class="np-f">
 			<span class="cap">{t('settings.custom.baseUrl')}</span>
-			<TextField bind:value={form.base_url} mono placeholder="https://api.example.com/v1" />
+			<TextField bind:value={form.base_url} mono placeholder={builtin ? builtinDefaults?.base_url : 'https://api.example.com/v1'} />
 		</label>
 		{#if providerErrors.base_url}<span class="np-err" role="alert">{err(providerErrors.base_url)}</span>{/if}
+		{#if shownUrl}<span class="np-hint" data-testid="request-url">{t('settings.custom.requestUrl')} <span class="url">{shownUrl}</span></span>{/if}
+		{#if builtin && builtinDefaults && baseUrl !== builtinDefaults.base_url}
+			<span class="np-hint">{t('settings.builtin.defaultUrl')} <span class="url">{builtinDefaults.base_url}</span></span>
+		{/if}
+		{#if v1Url}
+			<Notice tone="warn">
+				<span class="v1">
+					<span>{t('settings.custom.bareHost')}</span>
+					<Button variant="secondary" size="sm" onclick={() => v1Url && (form.base_url = v1Url)}>{t('settings.custom.useV1', { url: v1Url })}</Button>
+				</span>
+			</Notice>
+		{/if}
 	</div>
+	{#if showKey}
 	<div class="np-f">
 		<label class="np-f">
 			<span class="cap">{t('settings.custom.apiKey')}</span>
-			<TextField bind:value={form.key} type="password" mono placeholder={mode === 'edit' && keyed ? t('settings.custom.apiKeyKeep') : 'sk-…'} />
+			<TextField bind:value={form.key} type="password" mono placeholder={mode !== 'create' && keyed ? t('settings.custom.apiKeyKeep') : 'sk-…'} />
 		</label>
 		{#if providerErrors.key}<span class="np-err" role="alert">{err(providerErrors.key)}</span>{/if}
 	</div>
+	{/if}
 
 	<div class="np-models">
 		<span class="np-label">{t('settings.custom.models')}</span>
@@ -167,9 +234,17 @@
 						<IconButton size="sm" label={t('settings.custom.editModel', { model: m.name })} title={t('settings.custom.editModel', { model: m.name })} onclick={() => editModel(i)}>
 							<PencilSimpleIcon size={14} />
 						</IconButton>
-						<IconButton size="sm" label={t('settings.custom.removeModel', { model: m.name })} title={t('settings.custom.removeModel', { model: m.name })} onclick={() => removeModel(i)}>
-							<XIcon size={14} />
-						</IconButton>
+						{#if builtinModel(m.name)}
+							{#if changed(m)}
+								<IconButton size="sm" label={t('settings.builtin.resetModel', { model: m.name })} title={t('settings.builtin.resetModel', { model: m.name })} onclick={() => resetModel(i)}>
+									<ArrowCounterClockwiseIcon size={14} />
+								</IconButton>
+							{/if}
+						{:else}
+							<IconButton size="sm" label={t('settings.custom.removeModel', { model: m.name })} title={t('settings.custom.removeModel', { model: m.name })} onclick={() => removeModel(i)}>
+								<XIcon size={14} />
+							</IconButton>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -185,7 +260,7 @@
 			<div class="np-f">
 				<label class="np-f">
 					<span class="cap">{t('settings.custom.modelName')}</span>
-					<TextField bind:value={draft.name} mono placeholder="my-model" />
+					<TextField bind:value={draft.name} mono placeholder="my-model" disabled={editingBuiltin} />
 				</label>
 				{#if modelErrors.name}<span class="np-err" role="alert">{err(modelErrors.name)}</span>{/if}
 			</div>
@@ -210,7 +285,7 @@
 				{#if modelErrors.maxOutput}<span class="np-err" role="alert">{err(modelErrors.maxOutput)}</span>{/if}
 			</div>
 		</div>
-		<span class="np-hint">{t('settings.custom.tokensHint')}</span>
+		<span class="np-hint">{editingBuiltin ? t('settings.builtin.tokensHint') : t('settings.custom.tokensHint')}</span>
 
 		<div class="np-f" role="group" aria-label={t('settings.custom.input')}>
 			<span class="cap">{t('settings.custom.input')}</span>
@@ -281,6 +356,17 @@
 		font-size: var(--fs-xs);
 		color: var(--dim2);
 		line-height: 16px;
+	}
+	.url {
+		font-family: var(--font-mono);
+		color: var(--dim);
+		overflow-wrap: anywhere;
+	}
+	.v1 {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
 	}
 	.np-err {
 		font-size: var(--fs-xs);

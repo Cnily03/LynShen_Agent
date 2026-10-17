@@ -45,6 +45,7 @@
 	import ImageIcon from 'phosphor-svelte/lib/ImageIcon';
 	import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwiseIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import {
 		readConfig,
 		writeConfig,
@@ -124,6 +125,7 @@
 	import ProviderAccountCard from './ProviderAccountCard.svelte';
 	import ProviderCatalogPicker from './ProviderCatalogPicker.svelte';
 	import CustomProviderForm from './CustomProviderForm.svelte';
+	import { applyOverride, isCustomized, overrideFromEdit, readOverrides, setOverride, writeOverrides, type ProviderOverrides } from '$lib/providers/overrides';
 	import Modal from '$lib/ui/Modal.svelte';
 	import { GROUPS, resolveSection, searchRows, type SearchRow, type SectionKey } from './nav';
 
@@ -273,6 +275,8 @@
 		models: ModelCfg[];
 		builtin: boolean;
 		source?: 'catalog' | 'custom';
+		/** A built-in provider with the user's own settings. */
+		customized?: boolean;
 	}
 	const CUSTOM_KEY = 'lynshen-custom-providers';
 	const FORMATS = [
@@ -285,20 +289,26 @@
 	let keyed = $state<string[]>([]);
 	let builtin = $state<{ id: string; base_url: string; protocol: string; models: ModelCfg[] }[]>([]);
 	let custom = $state<Provider[]>([]);
+	// The user's settings for built-in providers (base URL, model fields),
+	// merged into `allProviders` and so into what config.json gets.
+	let overrides = $state<ProviderOverrides>(readOverrides(localStorage));
 	let asr = $state<AsrSettings>(resolveAsrSettings(null));
 	let asrKey = $state('');
 
 	// inline editor state
 	// A provider id (its card open), or a step of the add dialog: '__catalog__'
 	// (pick), '__key__' (key for a built-in, `keyTarget`), '__new__' (form),
-	// or '__edit__' (the form for `editTarget`, a provider the user added).
+	// or '__edit__' (the form for `editTarget`: a provider the user added, or
+	// the custom settings of a built-in one).
 	let editing = $state<string | null>(null);
 	let keyTarget = $state<Provider | null>(null);
+	/** The key step's 自定义设置 is open (the form under the key). */
+	let keyCustomize = $state(false);
 	let keyInput = $state('');
 	let form = $state<{ id: string; base_url: string; format: string; key: string; models: ModelCfg[] }>({ id: '', base_url: '', format: 'responses', key: '', models: [] });
 	let selectedCatalog = $state<CatalogProvider | null>(null);
 	let editTarget = $state<Provider | null>(null);
-	let providerForm = $state<{ submit: () => void } | undefined>();
+	let providerForm = $state<{ submit: () => void; resetDefaults?: () => void } | undefined>();
 
 	const models = $derived<ModelCfg[]>(Array.isArray(cfg.models) ? cfg.models : []);
 	const efforts = $derived(modelEfforts(models.find((m) => m.name === cfg.model)));
@@ -311,9 +321,17 @@
 			// (api.lynshen.org); with no login there it is pure noise next
 			// to the monoize entry that serves the same models.
 			.filter((b) => b.id !== 'lynshen' || keyed.includes('lynshen'))
-			.map((b) => ({ id: b.id, base_url: b.base_url, models: b.models, format: b.protocol, builtin: true })),
+			.map((b) => ({
+				...applyOverride({ id: b.id, base_url: b.base_url, models: b.models, format: b.protocol, builtin: true }, overrides[b.id]),
+				customized: isCustomized(overrides[b.id])
+			})),
 		...custom
 	]);
+	/** A built-in provider as the engine lists it, without the user's settings. */
+	function builtinDefaults(id: string): { base_url: string; models: ModelCfg[] } | undefined {
+		const b = builtin.find((x) => x.id === id);
+		return b && { base_url: b.base_url, models: b.models };
+	}
 	// Usable: has a key / login, or is a custom endpoint (which may need none).
 	const usable = (p: Provider) => keyed.includes(p.id) || !p.builtin;
 	// The page lists what the user has added (plus the login entry and
@@ -541,19 +559,24 @@
 		selectedCatalog = null;
 		form = { id: '', base_url: '', format: 'responses', key: '', models: [] };
 	}
-	/** The form for a provider the user added (custom or from the catalog). */
+	const providerFormOf = (p: Provider) => ({ id: p.id, base_url: p.base_url, format: p.format, key: '', models: p.models.map((m) => ({ ...m })) });
+	/** The form for a provider the user added (custom or from the catalog),
+	 *  or the custom settings of a built-in provider. */
 	function openEdit(p: Provider) {
 		editTarget = p;
 		selectedCatalog = null;
-		form = { id: p.id, base_url: p.base_url, format: p.format, key: '', models: p.models.map((m) => ({ ...m })) };
+		form = providerFormOf(p);
 		editing = '__edit__';
 	}
 	function selectCatalogProvider(provider: CatalogProvider) {
-		// A built-in provider only needs its key.
+		// A built-in provider only needs its key; its 自定义设置 open the
+		// same form as 编辑 under it.
 		const known = allProviders.find((p) => p.id === provider.id);
 		if (known) {
 			keyTarget = known;
 			keyInput = '';
+			keyCustomize = false;
+			form = providerFormOf(known);
 			editing = '__key__';
 			return;
 		}
@@ -580,9 +603,38 @@
 		loadBalances();
 		onAuthChange?.();
 	}
+	/** Keeps what the form changed on a built-in provider (an override by its
+	 *  id) and, for the default provider, writes the merged copy the engine
+	 *  runs to config.json. */
+	function saveBuiltinSettings(id: string, f: typeof form) {
+		const defaults = builtinDefaults(id);
+		if (!defaults) return;
+		overrides = setOverride(overrides, id, overrideFromEdit(defaults, { base_url: f.base_url, models: f.models }));
+		writeOverrides(localStorage, overrides);
+		const entry = allProviders.find((p) => p.id === id);
+		if (entry && cfg.provider === id) {
+			cfg.base_url = entry.base_url;
+			cfg.protocol = entry.format;
+			cfg.models = entry.models;
+			if (!entry.models.some((m) => m.name === cfg.model)) cfg.model = entry.models[0]?.name ?? '';
+			normalizeEffort();
+		}
+	}
 	// The form has checked the fields (providerFields.validateProvider).
 	async function saveProvider(f: typeof form) {
 		const id = f.id.trim();
+		if (editTarget?.builtin) {
+			saveBuiltinSettings(id, f);
+			if (f.key.trim()) {
+				await setAuthKey(id, f.key.trim());
+				keyed = await readAuthProviders();
+				loadBalances();
+			}
+			onAuthChange?.();
+			editing = null;
+			editTarget = null;
+			return;
+		}
 		const previous = editTarget && editTarget.id === id ? editTarget : null;
 		const entry: Provider = {
 			id,
@@ -1171,6 +1223,9 @@
 						<button class="addrow" id="set-provider-add" onclick={openCreate}><PlusIcon size={16} /> {t('settings.custom.add')}</button>
 					</SettingsSection>
 					{#snippet formFooter()}
+						{#if editing === '__edit__' && editTarget?.builtin}
+							<span class="foot-start"><Button variant="ghost" size="sm" onclick={() => providerForm?.resetDefaults?.()}>{t('settings.builtin.reset')}</Button></span>
+						{/if}
 						<Button
 							variant="ghost"
 							size="sm"
@@ -1198,7 +1253,7 @@
 										? t('settings.catalog.connect', { provider: selectedCatalog.name })
 										: t('settings.custom.title')
 									: t('settings.custom.add')}
-							width={editing === '__new__' || editing === '__edit__' ? 600 : 540}
+							width={editing === '__new__' || editing === '__edit__' || (editing === '__key__' && keyCustomize) ? 600 : 540}
 							padded={false}
 							footer={editing === '__new__' || editing === '__edit__' ? formFooter : undefined}
 							onClose={() => {
@@ -1223,9 +1278,38 @@
 										<ProviderSignIn provider={keyTarget.id === 'openai' ? 'openai-codex' : keyTarget.id} onSuccess={async () => { keyed = await readAuthProviders(); editing = null; onAuthChange?.(); }} />
 									{/if}
 									<TextField bind:value={keyInput} type="password" mono placeholder={t('settings.account.keyPlaceholder', { id: keyTarget.id })} />
+									<button class="advhead" aria-expanded={keyCustomize} onclick={() => (keyCustomize = !keyCustomize)}>
+										<span class="chev" class:open={keyCustomize}><CaretRightIcon size={12} /></span>
+										{t('settings.builtin.expander')}
+									</button>
+									{#if keyCustomize}
+										<div class="keyform">
+											<CustomProviderForm
+												bind:this={providerForm}
+												bind:form
+												formats={FORMATS}
+												mode="builtin"
+												builtinDefaults={builtinDefaults(keyTarget.id)}
+												showKey={false}
+												onSubmit={(f) => {
+													if (!keyTarget) return;
+													saveBuiltinSettings(keyTarget.id, f);
+													void saveKey(keyTarget.id);
+												}}
+											/>
+										</div>
+									{/if}
 									<div class="keyfoot">
 										<Button variant="ghost" size="sm" onclick={() => (editing = '__catalog__')}>{t('settings.page.back')}</Button>
-										<Button variant="primary" size="sm" disabled={!keyInput.trim()} onclick={() => keyTarget && saveKey(keyTarget.id)}>{t('settings.catalog.addProvider')}</Button>
+										<Button
+											variant="primary"
+											size="sm"
+											disabled={!keyInput.trim()}
+											onclick={() => {
+												if (keyCustomize) providerForm?.submit();
+												else if (keyTarget) void saveKey(keyTarget.id);
+											}}>{t('settings.catalog.addProvider')}</Button
+										>
 									</div>
 								</div>
 							{:else if editing === '__new__' || editing === '__edit__'}
@@ -1233,7 +1317,8 @@
 									bind:this={providerForm}
 									bind:form
 									formats={FORMATS}
-									mode={editing === '__edit__' ? 'edit' : 'create'}
+									mode={editing === '__edit__' ? (editTarget?.builtin ? 'builtin' : 'edit') : 'create'}
+									builtinDefaults={editTarget?.builtin ? builtinDefaults(editTarget.id) : undefined}
 									taken={allProviders.map((p) => p.id)}
 									keyRequired={editing === '__new__' && !!selectedCatalog}
 									keyed={!!editTarget && keyed.includes(editTarget.id)}
@@ -1832,6 +1917,35 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 8px;
+	}
+	/* 自定义设置 under the key: the provider form without its own padding. */
+	.keyform :global(.newprov) {
+		padding: 0;
+	}
+	.keystep .advhead {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		align-self: flex-start;
+		background: none;
+		border: none;
+		padding: 2px 0;
+		font-size: var(--fs-xs);
+		color: var(--dim);
+		cursor: pointer;
+	}
+	.keystep .advhead:hover {
+		color: var(--text);
+	}
+	.keystep .chev {
+		display: inline-flex;
+		transition: transform var(--t-med) var(--ease-spring);
+	}
+	.keystep .chev.open {
+		transform: rotate(90deg);
+	}
+	.foot-start {
+		margin-right: auto;
 	}
 
 	/* Monoize 登录 / 模型广场 */

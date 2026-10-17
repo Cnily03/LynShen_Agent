@@ -19,10 +19,12 @@ export interface ProviderModel {
 	input_modalities?: string[];
 }
 
-/** Effort tiers the form offers, lowest first. "none" lets the composer turn
- *  thinking off; "ultra" is GPT's name for the top tier (the engine sends
- *  the model's highest other tier). */
-export const EFFORT_TIERS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+/** Effort tiers the form offers, lowest first, as the engine ranks them
+ *  (agent-core `EFFORT_ORDER`). "none" lets the composer turn thinking off;
+ *  "minimal" is the lowest tier that still thinks (GPT-5's Responses value);
+ *  "ultra" is GPT's name for the top tier (the engine sends the model's
+ *  highest other tier). */
+export const EFFORT_TIERS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 export const MODALITIES = ['text', 'image'] as const;
 /** What a model without a stated list gets: the engine's default tiers. */
 export const DEFAULT_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'];
@@ -126,8 +128,13 @@ export type ModelField = 'name' | 'context' | 'maxOutput' | 'efforts' | 'modalit
 /** Problems per field, as i18n keys under `settings.custom.error`. */
 export type ModelErrors = Partial<Record<ModelField, string>>;
 
+/** What an empty window or output field stands for: the model's built-in
+ *  value (a built-in provider's model, which may have none), or, without
+ *  this, DEFAULT_CONTEXT and DEFAULT_MAX_OUTPUT. */
+export type TokenFallback = Pick<ProviderModel, 'context_window' | 'max_output_tokens'>;
+
 /** `taken`: the other models' names in the provider. */
-export function validateModel(draft: ModelDraft, taken: string[]): ModelErrors {
+export function validateModel(draft: ModelDraft, taken: string[], fallback?: TokenFallback): ModelErrors {
 	const errors: ModelErrors = {};
 	const name = draft.name.trim();
 	if (!name) errors.name = 'nameRequired';
@@ -137,9 +144,10 @@ export function validateModel(draft: ModelDraft, taken: string[]): ModelErrors {
 	const maxOutput = parseTokens(draft.maxOutput);
 	if (context === 'invalid') errors.context = 'tokens';
 	if (maxOutput === 'invalid') errors.maxOutput = 'tokens';
-	const window = typeof context === 'number' ? context : DEFAULT_CONTEXT;
-	const cap = typeof maxOutput === 'number' ? maxOutput : DEFAULT_MAX_OUTPUT;
-	if (!errors.context && !errors.maxOutput && cap > window) errors.maxOutput = 'outputOverWindow';
+	const window = typeof context === 'number' ? context : fallback ? fallback.context_window || 0 : DEFAULT_CONTEXT;
+	const cap = typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || 0 : DEFAULT_MAX_OUTPUT;
+	// An unknown window (0) or cap (0) is not compared.
+	if (!errors.context && !errors.maxOutput && window && cap > window) errors.maxOutput = 'outputOverWindow';
 	if (draft.reasoning && !draft.efforts.length) errors.efforts = 'effortRequired';
 	if (!draft.modalities.length) errors.modalities = 'modalityRequired';
 	return errors;
@@ -147,22 +155,25 @@ export function validateModel(draft: ModelDraft, taken: string[]): ModelErrors {
 
 /** The stored entry for a valid draft. `previous` keeps what the form does
  *  not edit (prices, gateway windows). A model that does not think is also
- *  written with `["none"]`, which older engines read as "no thinking". */
-export function modelFromDraft(draft: ModelDraft, previous?: ProviderModel): ProviderModel {
+ *  written with `["none"]`, which older engines read as "no thinking".
+ *  `fallback`: see TokenFallback (a field it has no value for is left out). */
+export function modelFromDraft(draft: ModelDraft, previous?: ProviderModel, fallback?: TokenFallback): ProviderModel {
 	const context = parseTokens(draft.context);
 	const maxOutput = parseTokens(draft.maxOutput);
 	const display = draft.display_name.trim();
 	const model: ProviderModel = {
 		...previous,
 		name: draft.name.trim(),
-		context_window: typeof context === 'number' ? context : DEFAULT_CONTEXT,
-		max_output_tokens: typeof maxOutput === 'number' ? maxOutput : DEFAULT_MAX_OUTPUT,
+		context_window: typeof context === 'number' ? context : fallback ? fallback.context_window || undefined : DEFAULT_CONTEXT,
+		max_output_tokens: typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || undefined : DEFAULT_MAX_OUTPUT,
 		reasoning: draft.reasoning,
 		reasoning_efforts: draft.reasoning ? orderTiers(draft.efforts) : ['none'],
 		input_modalities: MODALITIES.filter((kind) => draft.modalities.includes(kind))
 	};
 	if (display && display !== model.name) model.display_name = display;
 	else delete model.display_name;
+	if (model.context_window === undefined) delete model.context_window;
+	if (model.max_output_tokens === undefined) delete model.max_output_tokens;
 	return model;
 }
 
@@ -170,12 +181,19 @@ export type ProviderField = 'id' | 'base_url' | 'key' | 'models';
 export type ProviderErrors = Partial<Record<ProviderField, string>>;
 
 /** The provider part of the form. `taken`: ids of the other providers
- *  (empty when editing: the id is fixed then). */
+ *  (empty when editing: the id is fixed then). `builtin`: the settings of a
+ *  built-in provider, whose id and models are given and whose base URL may
+ *  stay empty (the built-in one). */
 export function validateProvider(
 	form: { id: string; base_url: string; key: string; models: ProviderModel[] },
-	opts: { taken: string[]; keyRequired: boolean }
+	opts: { taken: string[]; keyRequired: boolean; builtin?: boolean }
 ): ProviderErrors {
 	const errors: ProviderErrors = {};
+	if (opts.builtin) {
+		if (form.base_url.trim() && !validBaseUrl(form.base_url)) errors.base_url = 'url';
+		if (opts.keyRequired && !form.key.trim()) errors.key = 'keyRequired';
+		return errors;
+	}
 	const id = form.id.trim();
 	if (!id) errors.id = 'idRequired';
 	else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) errors.id = 'idChars';

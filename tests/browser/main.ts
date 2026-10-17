@@ -2,8 +2,10 @@ import { mount } from 'svelte';
 import '../../src/lib/app.css';
 import { imageSrc, previewFacts } from './previewFiles';
 import { SAMPLE_CATALOG, SAMPLE_PLAIN_IDS } from '../../src/lib/models/catalogSample';
+import { builtinProviderFixture } from './providerFixtures';
 
 const calls: { command: string; args: any }[] = [];
+const builtinProviders = builtinProviderFixture(new URL(location.href).searchParams);
 // The picture the app keeps for an account with an avatar (?avatar).
 const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='teal'/></svg>")}`;
 // The window frost choice in storage as the page loads (see set_window_frost).
@@ -47,6 +49,9 @@ Object.assign(window, {
     convertFileSrc: (path: string) => (path.endsWith('.png') ? imageSrc() : `asset://localhost/${encodeURIComponent(path)}`),
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      // ?anthropic[=keyed]: a built-in provider and its key (providerFixtures.ts).
+      const builtinAnswer = builtinProviders?.(command, args);
+      if (builtinAnswer !== undefined) return builtinAnswer;
       // `window.__avatarUrl`: the avatar /api/desktop/oauth/me names (?avatar);
       // unset, the user has none (a gateway without DA-12).
       const avatarUrl = (window as unknown as { __avatarUrl?: string }).__avatarUrl;

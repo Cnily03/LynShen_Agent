@@ -27,6 +27,8 @@
 		models: ModelCfg[];
 		builtin: boolean;
 		source?: 'catalog' | 'custom';
+		/** A built-in provider with the user's own settings (providers/overrides.ts). */
+		customized?: boolean;
 	}
 
 	let {
@@ -77,7 +79,8 @@
 		onLogout: (id: string) => void;
 		onSaveKey: (id: string) => void;
 		onSetDefault: (p: Provider) => void;
-		/** Opens the provider's form (base URL, models); providers the user added. */
+		/** Opens the provider's form (base URL, models): for a provider the
+		 *  user added, or the custom settings of a built-in one. */
 		onEdit?: (p: Provider) => void;
 		onDelete: (id: string) => void;
 		onRefreshModels: () => void;
@@ -95,7 +98,8 @@
 		<span class="pcard-txt">
 			<span class="pcard-id">{provider.name ?? cap(provider.id)}
 				{#if isDefault}<span class="defbadge"><CheckCircleIcon size={11} /> {t('settings.account.default')}</span>{/if}
-				{#if !provider.builtin}<span class="tagx">{provider.source === 'catalog' ? t('settings.account.byok') : t('settings.account.custom')}</span>{/if}
+				{#if !provider.builtin}<span class="tagx">{provider.source === 'catalog' ? t('settings.account.byok') : t('settings.account.custom')}</span>
+				{:else if provider.customized}<span class="tagx">{t('settings.account.customized')}</span>{/if}
 			</span>
 		</span>
 		<span class="pcard-right">
@@ -175,10 +179,10 @@
 					<TextField bind:value={keyInput} type="password" placeholder={t('settings.account.keyPlaceholder', { id: provider.id })} mono />
 					<Button variant="primary" size="sm" onclick={() => onSaveKey(provider.id)}>{authed ? t('settings.account.updateKey') : t('settings.account.saveKey')}</Button>
 				</div>
-				{#if authed || !provider.builtin}
+				{#if authed || !provider.builtin || onEdit}
 				<div class="erow end">
 					{#if authed && !isDefault}<Button variant="secondary" size="sm" onclick={() => onSetDefault(provider)}>{t('settings.account.setDefault')}</Button>{/if}
-					{#if !provider.builtin && onEdit}<Button variant="secondary" size="sm" onclick={() => onEdit(provider)}><PencilSimpleIcon size={13} /> {t('settings.account.editProvider')}</Button>{/if}
+					{#if onEdit}<Button variant="secondary" size="sm" onclick={() => onEdit(provider)}><PencilSimpleIcon size={13} /> {t('settings.account.editProvider')}</Button>{/if}
 					{#if authed}<Button variant="ghost" size="sm" onclick={() => onLogout(provider.id)}><SignOutIcon size={13} /> {t('settings.account.clearKey')}</Button>{/if}
 					{#if !provider.builtin}<Button variant="danger" size="sm" onclick={() => onDelete(provider.id)}><TrashIcon size={13} /> {t('common.delete')}</Button>{/if}
 				</div>

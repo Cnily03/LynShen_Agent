@@ -130,6 +130,129 @@ try {
   await providerForm.getByRole('button',{name:'保存',exact:true}).click();
   await expect(providerForm).toHaveCount(0);
   assert.deepEqual((await storedModels())[0], ['my-model', 1000000, 32000, true, 'low medium high xhigh ultra', 'text image']);
+  // Ticket #24: under the Base URL, the address requests go to, as the
+  // engine builds it for the format; an Anthropic-format host alone is
+  // offered its /v1 address. The tiers include Minimal.
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  const requestUrl = providerForm.getByTestId('request-url');
+  await expect(requestUrl).toHaveCount(0);
+  await field('Base URL').fill('https://www.lynshen.org');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/responses');
+  await expect(providerForm.getByRole('button',{name:/^改用 /})).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'Anthropic',exact:true}).click();
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/anthropic/v1/messages');
+  await expect(providerForm.getByText(/多数中转站（包括 LynShen）不支持这个路径/)).toBeVisible();
+  await providerForm.getByRole('button',{name:'改用 https://www.lynshen.org/v1',exact:true}).click();
+  await expect(field('Base URL')).toHaveValue('https://www.lynshen.org/v1');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/messages');
+  await expect(providerForm.getByRole('button',{name:/^改用 /})).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'Chat Completions',exact:true}).click();
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/chat/completions');
+  await expect(tick('Minimal')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(providerForm).toHaveCount(0);
+  // Ticket #24: a built-in provider's own settings. 编辑 on its card opens
+  // the form without id and format; its models keep their names and cannot
+  // be removed, and a model can be added. Only what differs from the
+  // built-in values is kept (by provider id); the default provider's copy in
+  // config.json (what the engine runs) gets the merged values.
+  await page.goto(base + '?anthropic=keyed');
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  const anthropicCard = page.locator('#pcard-anthropic');
+  await expect(anthropicCard.getByText('已自定义')).toHaveCount(0);
+  await anthropicCard.locator('.pcard-main').click();
+  await anthropicCard.getByRole('button',{name:'编辑',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'编辑 Anthropic'})).toBeVisible();
+  await expect(field('Provider ID')).toHaveCount(0);
+  await expect(providerForm.getByRole('button',{name:'Responses',exact:true})).toHaveCount(0);
+  await expect(field('Base URL')).toHaveValue('https://api.anthropic.com');
+  await expect(requestUrl).toHaveText('请求地址 https://api.anthropic.com/v1/messages');
+  await field('Base URL').fill('');
+  await expect(requestUrl).toHaveText('请求地址 https://api.anthropic.com/v1/messages');
+  await field('Base URL').fill('https://www.lynshen.org');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/anthropic/v1/messages');
+  await providerForm.getByRole('button',{name:'改用 https://www.lynshen.org/v1',exact:true}).click();
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/messages');
+  await expect(providerForm.getByText('默认地址 https://api.anthropic.com')).toBeVisible();
+  await expect(providerForm.getByRole('button',{name:'移除 claude-fable-5'})).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'编辑 claude-fable-5'}).click();
+  await expect(field('模型名')).toBeDisabled();
+  await expect(field('上下文窗口')).toHaveValue('200k');
+  await expect(providerForm.getByText(/留空时使用内置的值/)).toBeVisible();
+  await field('上下文窗口').fill('1M');
+  await field('最大输出').fill('128k');
+  await tick('Minimal').check({force:true});
+  await tick('Max').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await expect(providerForm.locator('.mrow').filter({hasText:'claude-fable-5'}).getByText(/^已修改 · 窗口 1M · 输出 128k/)).toBeVisible();
+  await providerForm.getByRole('button',{name:'编辑 claude-haiku-4-5'}).click();
+  await tick('图片').uncheck({force:true});
+  await tick('支持思考（推理）').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await field('模型名').fill('claude-next');
+  await field('上下文窗口').fill('400k');
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  await expect(providerForm.locator('.mrow').filter({hasText:'claude-next'}).getByText(/^自己添加 · /)).toBeVisible();
+  await expect(providerForm.getByRole('button',{name:'移除 claude-next'})).toBeVisible();
+  await providerForm.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  const storedOverrides = () => page.evaluate(() => JSON.parse(localStorage.getItem('lynshen-provider-overrides') ?? 'null'));
+  assert.deepEqual(await storedOverrides(), {anthropic: {
+    base_url: 'https://www.lynshen.org/v1',
+    models: {
+      'claude-fable-5': {context_window: 1000000, max_output_tokens: 128000, reasoning_efforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']},
+      'claude-haiku-4-5': {reasoning: false, input_modalities: ['text']}
+    },
+    added: [{name: 'claude-next', context_window: 400000, max_output_tokens: 8192, reasoning: true, reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'], input_modalities: ['text', 'image']}]
+  }});
+  await expect(anthropicCard.getByText('已自定义')).toBeVisible();
+  const lastEngineCopy = () => page.evaluate(() => {
+    const patch = window.__calls.filter((c) => c.command === 'write_config' && 'models' in c.args.patch).at(-1)?.args.patch;
+    return patch && [patch.base_url, patch.models.map((m) => [m.name, m.context_window, m.max_output_tokens, m.reasoning ?? null, m.reasoning_efforts.join(' '), (m.input_modalities ?? []).join(' ')])];
+  });
+  await expect.poll(lastEngineCopy).toEqual(['https://www.lynshen.org/v1', [
+    ['claude-fable-5', 1000000, 128000, true, 'none minimal low medium high xhigh', ''],
+    ['claude-haiku-4-5', 200000, 64000, false, 'none', 'text'],
+    ['claude-next', 400000, 8192, true, 'none low medium high xhigh', 'text image']
+  ]]);
+  // 编辑 again: the saved values; a model and then the whole provider go
+  // back to the built-in values, and nothing is kept.
+  await anthropicCard.locator('.pcard-main').click();
+  await anthropicCard.getByRole('button',{name:'编辑',exact:true}).click();
+  await expect(field('Base URL')).toHaveValue('https://www.lynshen.org/v1');
+  await providerForm.getByRole('button',{name:'恢复 claude-fable-5 的默认值'}).click();
+  await expect(providerForm.getByRole('button',{name:'恢复 claude-fable-5 的默认值'})).toHaveCount(0);
+  await expect(providerForm.locator('.mrow').filter({hasText:'claude-fable-5'}).getByText(/^窗口 200k · 输出 64k/)).toBeVisible();
+  await page.getByRole('dialog').getByRole('button',{name:'恢复默认',exact:true}).click();
+  await expect(field('Base URL')).toHaveValue('https://api.anthropic.com');
+  await expect(providerForm.getByText('claude-next')).toHaveCount(0);
+  await providerForm.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  assert.equal(await storedOverrides(), null);
+  await expect(anthropicCard.getByText('已自定义')).toHaveCount(0);
+  await expect.poll(async () => (await lastEngineCopy())?.[0]).toBe('https://api.anthropic.com');
+  // Adding a built-in provider: the key step has the same settings behind
+  // 自定义设置; 添加 Provider saves the key and them.
+  await page.goto(base + '?anthropic');
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('dialog').getByRole('button').filter({hasText:/^Anthropic/}).first().click();
+  const keyStep = page.getByRole('dialog');
+  await keyStep.getByPlaceholder('请输入 API Key').fill('sk-ant-test');
+  await expect(field('Base URL')).toHaveCount(0);
+  await keyStep.getByRole('button',{name:'自定义设置（Base URL、模型参数）'}).click();
+  await field('Base URL').fill('https://www.lynshen.org/v1');
+  await expect(requestUrl).toHaveText('请求地址 https://www.lynshen.org/v1/messages');
+  await expect(keyStep.getByRole('textbox',{name:'API key',exact:true})).toHaveCount(0);
+  await keyStep.getByRole('button',{name:'编辑 claude-haiku-4-5'}).click();
+  await tick('图片').uncheck({force:true});
+  await keyStep.getByRole('button',{name:'更新模型',exact:true}).click();
+  await keyStep.getByRole('button',{name:'添加 Provider',exact:true}).click();
+  await expect(keyStep).toHaveCount(0);
+  assert.ok(await page.evaluate(() => window.__calls.some((c) => c.command === 'set_auth_key' && c.args.provider === 'anthropic' && c.args.key === 'sk-ant-test')));
+  assert.deepEqual(await storedOverrides(), {anthropic: {base_url: 'https://www.lynshen.org/v1', models: {'claude-haiku-4-5': {input_modalities: ['text']}}}});
+  await expect(anthropicCard.getByText('已自定义')).toBeVisible();
   // A model that takes no images and does not think: the composer refuses
   // an image and shows no effort; one that takes images attaches it.
   await page.goto(base + '?shell&textOnly');
