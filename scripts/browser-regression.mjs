@@ -1241,6 +1241,37 @@ try {
   const fill = (sel) => light.evaluate((sel) => getComputedStyle(document.querySelector(sel)).backgroundColor, sel);
   assert.deepEqual([await fill('body'), await fill('.sidebar'), await fill('.composer')], ['rgb(246, 245, 242)', 'rgb(240, 239, 235)', 'rgb(251, 250, 248)']);
   await light.close();
+  // The work status line: one sign, the step in words (a verb and what it
+  // acts on), how long it has taken, and › to the running call. A command
+  // keeps its name after lynshen's updates replace "started: <command>"; a
+  // run of calls opens, and a card the reader folded opens again.
+  const work = await browser.newPage();
+  work.on('pageerror', e => errors.push(e.message));
+  const statusLine = () => work.evaluate(() => {
+    const el = document.querySelector('.ind');
+    return el && {text: el.textContent.replace(/\s+/g, ' ').trim(), signs: el.querySelectorAll('.sign').length, spin: getComputedStyle(el.querySelector('.sign')).animationName, more: !!el.querySelector('.more')};
+  });
+  await work.goto(base + '?shell&work=group');
+  await expect(work.locator('.ind')).toBeVisible({timeout:30000});
+  const workLine = await statusLine();
+  assert.match(workLine.text, /^正在运行 pnpm vitest run src\/lib\/cache\.test\.ts · \d+s$/);
+  assert.deepEqual([workLine.signs, workLine.spin, workLine.more], [1, 'spin', true]);
+  await expect(work.locator('.tgroup.open')).toHaveCount(0);
+  await work.locator('.ind .more').click();
+  await expect(work.locator('.tgroup.open')).toHaveCount(1);
+  const runningCard = work.locator('.tool').last();
+  await expect(runningCard.locator('.collapse.open')).toHaveCount(1);
+  await runningCard.locator('.head').click();
+  await expect(runningCard.locator('.collapse')).toHaveCount(0);
+  await work.locator('.ind .more').click();
+  await expect(runningCard.locator('.collapse.open')).toHaveCount(1);
+  for (const [step, text] of [['read', /^正在读取 cache\.ts · \d+s$/], ['think', /^正在思考 · \d+s$/], ['write', /^正在写回复 · \d+s$/], ['mcp', /^正在调用 create_issue · \d+s$/]]) {
+    await work.goto(base + '?shell&work=' + step);
+    await expect(work.locator('.ind')).toBeVisible({timeout:30000});
+    assert.match((await statusLine()).text, text, step);
+    assert.equal((await statusLine()).more, step === 'read' || step === 'mcp', step);
+  }
+  await work.close();
   // A message sent with a file shows what was typed and the file as a chip,
   // never the list the engine reads after the text; history from the
   // engine shows the same. (The bubble showed "Attached files (read
