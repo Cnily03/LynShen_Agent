@@ -1530,9 +1530,16 @@ try {
   await expect(page.locator('.approval')).toHaveCount(0);
   await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 's2', name: 'bash', summary: 'git push', kind: 'rule', must_ask: true, command: 'git push', prefix: 'git push', scopes: ['once'] }));
   await expect(page.locator('.approval .approval-actions button')).toHaveText([/允许一次/, /拒绝并告诉它怎么做/]);
+  await expect(page.locator('.approval .place')).toHaveCount(0);
   // A write outside the workspace is allowed once only, or for the
-  // directory the engine suggests.
+  // directory the engine suggests. Asked while git push waits, it waits
+  // behind it (it used to replace it, and git push was never answered):
+  // the card says 第 1/2 个, then 第 2/2 个 once git push is answered.
   await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 's3', name: 'write', summary: '/Users/me/Desktop/a.txt', kind: 'outside_write', command: null, paths: ['/Users/me/Desktop/a.txt'], dir_suggestion: '/Users/me/Desktop', prefix: null, scopes: ['once'] }));
+  await expect(page.locator('.approval .place')).toHaveText('第 1/2 个');
+  await expect(page.locator('.approval .approval-actions button')).toHaveText([/允许一次/, /拒绝并告诉它怎么做/]);
+  await page.locator('.approval .approval-actions button').first().click();
+  await expect(page.locator('.approval .place')).toHaveText('第 2/2 个');
   await expect(page.locator('.approval .approval-actions button')).toHaveText([/允许一次/, /本会话可写「Desktop」/, /加入可写目录「Desktop」/, /拒绝并告诉它怎么做/]);
   await page.goto(base);
   await page.getByRole('button',{name:'权限与沙箱'}).first().click();
