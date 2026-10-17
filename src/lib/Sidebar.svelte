@@ -1817,10 +1817,11 @@
 	.more-subs {
 		font-size: var(--fs-xs);
 	}
+	/* (1px up: over the edge of the item above, when they move together.) */
 	.item.under::before {
 		content: '';
 		position: absolute;
-		top: 0;
+		top: -1px;
 		bottom: 0;
 		left: 11px;
 		width: 1px;

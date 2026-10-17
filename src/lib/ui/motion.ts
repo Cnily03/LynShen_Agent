@@ -147,11 +147,13 @@ export function groupIn(_node: Element, { y = -4, duration = T_BASE, delay = 80 
  *  look changed at once; now it moves, 400ms on --ease-in-out, while the
  *  others make room. The row that changed group (`over`) passes over the
  *  others, on `fill` (the list's own fill, so the rows it passes do not
- *  show through it). Nothing is kept once it lands. */
+ *  show through it), and 1px of it around: rows that move together (a
+ *  conversation and its sub-agents) leave no seam between them at a
+ *  fraction of a pixel. Nothing is kept once it lands. */
 export function moveRow(_node: Element, { from, to }: { from: DOMRect; to: DOMRect }, { over = false, fill = 'transparent' } = {}): AnimationConfig {
 	const dy = from.top - to.top;
 	if (!dy) return { duration: 0 };
-	const lift = over ? `; z-index: 2; background-color: ${fill}` : '';
+	const lift = over ? `; z-index: 2; background-color: ${fill}; box-shadow: 0 0 0 1px ${fill}` : '';
 	return {
 		duration: motionMs(T_ENTER),
 		easing: EASE_IN_OUT,
