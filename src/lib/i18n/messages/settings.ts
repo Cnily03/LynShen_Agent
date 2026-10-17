@@ -688,6 +688,7 @@ const settings = {
 			configured: '已按模型目录更新 {n} 个模型。',
 			nothingKnown: '模型目录里没有列表中的模型。',
 			upToDate: '列表中的模型已和模型目录一致。',
+			keptThinking: '模型目录说 {n} 个模型不支持思考，它们的思考设置没有改；确认不支持时请在模型里取消“支持思考”。',
 			failed: '获取失败：{msg}'
 		},
 		catalog: {
@@ -1804,6 +1805,7 @@ const settings = {
 			configured: '{n} models updated from the model catalog.',
 			nothingKnown: 'The model catalog has none of the listed models.',
 			upToDate: 'The listed models already match the model catalog.',
+			keptThinking: 'The model catalog says {n} models do not think; their thinking setting was not changed. If they really do not, clear "Supports thinking" on them.',
 			failed: 'Could not fetch the models: {msg}'
 		},
 		catalog: {

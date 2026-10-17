@@ -67,11 +67,16 @@ export function validBaseUrl(text: string): boolean {
 	}
 }
 
-/** The tiers the composer offers for a model: none when it does not reason. */
+/** The tiers the engine offers for a model: none when it does not reason,
+ *  its list, or the default tiers when it lists none (the engine's
+ *  `read_model_configs`). */
 export function modelEfforts(model?: Pick<ProviderModel, 'reasoning' | 'reasoning_efforts'> | null): string[] {
 	if (!model || model.reasoning === false) return [];
-	return model.reasoning_efforts ?? [];
+	return model.reasoning_efforts?.length ? model.reasoning_efforts : DEFAULT_EFFORTS;
 }
+
+/** A tier list that offers thinking: a tier other than "none". */
+export const offersThinking = (tiers?: string[] | null): tiers is string[] => !!tiers?.some((tier) => tier !== 'none');
 
 /** Image attachments may go to the model (unset modalities: yes). */
 export function acceptsImages(model?: Pick<ProviderModel, 'input_modalities'> | null): boolean {
@@ -109,17 +114,20 @@ export function newModelDraft(): ModelDraft {
 	};
 }
 
-/** The form's view of a stored model; unset fields show what applies today. */
+/** The form's view of a stored model; unset fields show what applies today.
+ *  A model that does not think keeps the default tiers in the draft, so
+ *  turning 支持思考 on offers them. */
 export function draftFromModel(model: ProviderModel): ModelDraft {
 	const reasoning = model.reasoning !== false;
 	const kinds = (model.input_modalities ?? []).filter((kind) => (MODALITIES as readonly string[]).includes(kind));
+	const tiers = model.reasoning_efforts ?? [];
 	return {
 		name: model.name,
 		display_name: model.display_name ?? '',
 		context: formatTokens(model.context_window),
 		maxOutput: formatTokens(model.max_output_tokens),
 		reasoning,
-		efforts: reasoning ? orderTiers(model.reasoning_efforts?.length ? model.reasoning_efforts : DEFAULT_EFFORTS) : [],
+		efforts: orderTiers(reasoning ? (tiers.length ? tiers : DEFAULT_EFFORTS) : offersThinking(tiers) ? tiers : DEFAULT_EFFORTS),
 		modalities: kinds.length ? kinds : [...MODALITIES]
 	};
 }

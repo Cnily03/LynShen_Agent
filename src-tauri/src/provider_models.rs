@@ -7,7 +7,8 @@
 //! formats, and the Messages URL with `/models` for `/messages` for the
 //! Anthropic format (so `https://relay/v1` lists `https://relay/v1/models`).
 //! The answer is cut down to ids and the few fields gateways commonly add
-//! (window, output cap, input kinds).
+//! (window, output cap, input kinds, whether the model reasons and its
+//! effort tiers).
 use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Duration;
@@ -52,7 +53,7 @@ pub(crate) fn models_url(format: &str, base_url: &str) -> Result<String, String>
 /// (`a.b` reads a nested field).
 fn first_count(model: &Value, keys: &[&str]) -> Option<u64> {
     keys.iter().find_map(|key| {
-        let value = key.split('.').try_fold(model, |at, part| at.get(part))?;
+        let value = at(model, key)?;
         value
             .as_u64()
             .or_else(|| value.as_f64().filter(|n| n.fract() == 0.0 && *n > 0.0).map(|n| n as u64))
@@ -61,17 +62,95 @@ fn first_count(model: &Value, keys: &[&str]) -> Option<u64> {
     })
 }
 
-/// "text" and "image" from the first list of input kinds the model states.
+/// The value at `path` (`a.b` reads a nested field).
+fn at<'a>(model: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.').try_fold(model, |at, part| at.get(part))
+}
+
+/// A yes or no at `path`: a boolean, or `{"supported": bool}` (the
+/// capabilities of Anthropic's model list).
+fn flag(model: &Value, path: &str) -> Option<bool> {
+    let value = at(model, path)?;
+    value.as_bool().or_else(|| value.get("supported").and_then(Value::as_bool))
+}
+
+/// "text" and "image" from the first list of input kinds the model states,
+/// else from an image flag (Anthropic `capabilities.image_input`, Mistral
+/// `capabilities.vision`).
 fn input_kinds(model: &Value) -> Option<Vec<&'static str>> {
     let list = ["architecture.input_modalities", "input_modalities", "modalities.input"]
         .iter()
-        .find_map(|key| key.split('.').try_fold(model, |at, part| at.get(part))?.as_array())?;
+        .find_map(|key| at(model, key)?.as_array());
+    let Some(list) = list else {
+        let image = ["capabilities.image_input", "capabilities.vision", "supports_vision"]
+            .iter()
+            .find_map(|key| flag(model, key))?;
+        return Some(if image { vec!["text", "image"] } else { vec!["text"] });
+    };
     let has = |kind: &str| list.iter().any(|v| v.as_str() == Some(kind));
     let kinds: Vec<&'static str> = [("text", has("text")), ("image", has("image"))]
         .into_iter()
         .filter_map(|(kind, on)| on.then_some(kind))
         .collect();
     (!kinds.is_empty()).then_some(kinds)
+}
+
+/// Whether the model reasons, when the answer says so:
+/// - a flag `reasoning`, `supports_reasoning`, `thinking` (Gemini) or
+///   `supports_thinking`, at the top or in `capabilities` (Anthropic:
+///   `capabilities.thinking.supported`);
+/// - OpenRouter's `supported_parameters`: "reasoning" or "include_reasoning"
+///   (a list without them: no);
+/// - a `capabilities`, `features` or `tags` list that names "reasoning" or
+///   "thinking" (a list without them says nothing).
+fn reasoning_hint(model: &Value) -> Option<bool> {
+    const FLAGS: [&str; 4] = ["reasoning", "supports_reasoning", "thinking", "supports_thinking"];
+    let stated = ["", "capabilities."]
+        .iter()
+        .flat_map(|prefix| FLAGS.iter().map(move |key| format!("{prefix}{key}")))
+        .find_map(|path| flag(model, &path));
+    if let Some(stated) = stated {
+        return Some(stated);
+    }
+    if let Some(params) = model.get("supported_parameters").and_then(Value::as_array) {
+        return Some(params.iter().any(|p| matches!(p.as_str(), Some("reasoning" | "include_reasoning" | "reasoning_effort"))));
+    }
+    let names = |v: &Value| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case("reasoning") || s.eq_ignore_ascii_case("thinking"));
+    ["capabilities", "features", "tags"]
+        .iter()
+        .filter_map(|key| model.get(*key).and_then(Value::as_array))
+        .any(|list| list.iter().any(names))
+        .then_some(true)
+}
+
+/// The effort tiers the answer states: Anthropic's `capabilities.effort`
+/// levels (with "none" first when thinking can be turned off), or a list in
+/// `reasoning_efforts`, `supported_reasoning_efforts` or
+/// `capabilities.effort_levels`.
+fn effort_hint(model: &Value) -> Option<Vec<String>> {
+    if let Some(effort) = at(model, "capabilities.effort").filter(|e| flag(e, "supported") == Some(true)) {
+        let off = flag(model, "capabilities.thinking.types.disabled") != Some(false);
+        let tiers: Vec<String> = ["none", "low", "medium", "high", "xhigh", "max"]
+            .into_iter()
+            .filter(|tier| if *tier == "none" { off } else { flag(effort, tier) == Some(true) })
+            .map(str::to_string)
+            .collect();
+        if tiers.iter().any(|tier| tier != "none") {
+            return Some(tiers);
+        }
+    }
+    ["reasoning_efforts", "supported_reasoning_efforts", "capabilities.effort_levels"]
+        .iter()
+        .find_map(|key| {
+            let tiers: Vec<String> = at(model, key)?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|tier| tier.trim().to_ascii_lowercase())
+                .filter(|tier| !tier.is_empty())
+                .collect();
+            (!tiers.is_empty()).then_some(tiers)
+        })
 }
 
 /// The models of a list answer: `{data: [...]}` (OpenAI, Anthropic and most
@@ -124,6 +203,12 @@ pub(crate) fn parse_models(body: &Value) -> Vec<Value> {
         }
         if let Some(kinds) = input_kinds(model) {
             entry["input_modalities"] = json!(kinds);
+        }
+        if let Some(reasoning) = reasoning_hint(model) {
+            entry["reasoning"] = json!(reasoning);
+        }
+        if let Some(tiers) = effort_hint(model) {
+            entry["reasoning_efforts"] = json!(tiers);
         }
         out.push(entry);
         if out.len() == MAX_MODELS {
@@ -248,6 +333,68 @@ mod tests {
         assert_eq!(parse_models(&odd), vec![json!({"id": "gemini-3-pro", "context_window": 1048576})]);
         assert_eq!(parse_models(&json!(["m1", "m2"])), vec![json!({"id": "m1"}), json!({"id": "m2"})]);
         assert!(parse_models(&json!({"error": "nope"})).is_empty());
+    }
+
+    #[test]
+    fn reads_what_the_list_says_about_reasoning() {
+        let models = |body: Value| parse_models(&body);
+        // Anthropic: thinking, effort levels (none: thinking can be turned
+        // off) and image input from `capabilities`.
+        let anthropic = json!({"data": [
+            {"id": "claude-opus-5-5", "max_input_tokens": 1000000, "max_tokens": 128000, "capabilities": {
+                "effort": {"supported": true, "low": {"supported": true}, "medium": {"supported": true}, "high": {"supported": true}, "xhigh": {"supported": true}, "max": {"supported": true}},
+                "image_input": {"supported": true},
+                "thinking": {"supported": true, "types": {"adaptive": {"supported": true}, "disabled": {"supported": true}, "enabled": {"supported": false}}}
+            }},
+            {"id": "claude-sonnet-4", "capabilities": {"effort": {"supported": false}, "image_input": {"supported": true}, "thinking": {"supported": true, "types": {"disabled": {"supported": true}}}}},
+            {"id": "claude-always-thinks", "capabilities": {"effort": {"supported": true, "high": {"supported": true}, "max": {"supported": true}, "low": {"supported": false}}, "thinking": {"supported": true, "types": {"disabled": {"supported": false}}}}},
+            {"id": "claude-3-haiku", "capabilities": {"effort": {"supported": false}, "image_input": {"supported": false}, "thinking": {"supported": false}}}
+        ]});
+        assert_eq!(
+            models(anthropic),
+            vec![
+                json!({"id": "claude-opus-5-5", "context_window": 1000000, "max_output_tokens": 128000, "input_modalities": ["text", "image"], "reasoning": true, "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"]}),
+                json!({"id": "claude-sonnet-4", "input_modalities": ["text", "image"], "reasoning": true}),
+                json!({"id": "claude-always-thinks", "reasoning": true, "reasoning_efforts": ["high", "max"]}),
+                json!({"id": "claude-3-haiku", "input_modalities": ["text"], "reasoning": false})
+            ]
+        );
+        // OpenRouter: `supported_parameters` (a list without "reasoning": no).
+        let openrouter = json!({"data": [
+            {"id": "deepseek/deepseek-v4-pro", "supported_parameters": ["max_tokens", "reasoning", "include_reasoning", "tools"]},
+            {"id": "z-ai/glm-5.3", "supported_parameters": ["include_reasoning", "tools"]},
+            {"id": "meta-llama/llama-4", "supported_parameters": ["max_tokens", "tools"]}
+        ]});
+        assert_eq!(
+            models(openrouter),
+            vec![
+                json!({"id": "deepseek/deepseek-v4-pro", "reasoning": true}),
+                json!({"id": "z-ai/glm-5.3", "reasoning": true}),
+                json!({"id": "meta-llama/llama-4", "reasoning": false})
+            ]
+        );
+        // Gateways and models.dev-like lists: flags, capability lists, tiers.
+        let gateway = json!({"data": [
+            {"id": "kimi-k3", "reasoning": true},
+            {"id": "qwen3.8-max", "capabilities": {"supports_reasoning": true, "vision": false}, "reasoning_efforts": ["Low", "High"]},
+            {"id": "mimo-v2.5-pro", "capabilities": ["tools", "Thinking"]},
+            {"id": "gemini-3-pro", "thinking": true},
+            {"id": "relay-mini", "supports_reasoning": false},
+            {"id": "lynshen-model", "capabilities": {"reasoning": true, "effort_levels": ["low", "medium", "high"]}},
+            {"id": "plain", "features": ["tools"]}
+        ]});
+        assert_eq!(
+            models(gateway),
+            vec![
+                json!({"id": "kimi-k3", "reasoning": true}),
+                json!({"id": "qwen3.8-max", "input_modalities": ["text"], "reasoning": true, "reasoning_efforts": ["low", "high"]}),
+                json!({"id": "mimo-v2.5-pro", "reasoning": true}),
+                json!({"id": "gemini-3-pro", "reasoning": true}),
+                json!({"id": "relay-mini", "reasoning": false}),
+                json!({"id": "lynshen-model", "reasoning": true, "reasoning_efforts": ["low", "medium", "high"]}),
+                json!({"id": "plain"})
+            ]
+        );
     }
 
     #[test]

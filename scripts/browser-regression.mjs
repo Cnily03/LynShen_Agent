@@ -299,6 +299,72 @@ try {
   await expect(foundList.getByRole('button',{name:'添加所选（1）',exact:true})).toBeVisible();
   assert.deepEqual(await page.evaluate(() => window.__calls.filter((c) => c.command === 'provider_models').at(-1).args), {provider: 'relay', baseUrl: 'https://relay.example.com/v1', format: 'responses', key: null});
   await page.keyboard.press('Escape');
+  // The owner's report on 0.9.1: models of another provider showed no
+  // thinking. What the endpoint's list says comes first; a model LynShen
+  // CLI 0.7.0 lists with only "none" is not "does not think" (it is added
+  // thinking, with the default tiers); a model typed by hand thinks by
+  // default; 自动配置 never turns thinking off. The models reach config.json
+  // with `reasoning` and their tiers.
+  await page.goto(base + '?engine070');
+  await page.getByRole('button',{name:'提供商',exact:true}).click();
+  await page.locator('#set-provider-add').click();
+  await page.getByRole('button',{name:'手动配置'}).click();
+  await field('Provider ID').fill('thinker');
+  await field('Base URL').fill('https://thinking.example.com/v1');
+  await field('API key').fill('sk-think');
+  await providerForm.getByRole('button',{name:'获取可用模型',exact:true}).click();
+  await expect(foundList.getByText('找到 4 个模型，其中 1 个在模型目录里有参数。')).toBeVisible();
+  const foundRow = (id) => foundList.locator('.frow').filter({has: page.getByText(id, {exact:true})}).locator('.mdesc');
+  await expect(foundRow('claude-relay-5')).toHaveText(/^窗口 1M · 输出 128k · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh \/ Max · 文本、图片$/);
+  await expect(foundRow('vendor/thinker-x')).toHaveText(/^窗口 256k · 输出 8192 · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh/);
+  await expect(foundRow('kimi-k2-thinking')).toHaveText(/^窗口 262144 · 输出 262144 · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh/);
+  await expect(foundRow('plain-chat')).toHaveText(/不思考/);
+  await foundList.getByRole('button',{name:'添加所选（4）',exact:true}).click();
+  await expect(providerForm.getByText('已添加 4 个模型。')).toBeVisible();
+  await field('模型名').fill('moonshot-v1-8k');
+  await providerForm.getByRole('button',{name:'添加模型',exact:true}).click();
+  // The user turns thinking off on one; 自动配置 keeps it off, and keeps
+  // thinking on for the model typed by hand that the engine's table says
+  // does not think (the note says so).
+  await providerForm.getByRole('button',{name:'编辑 kimi-k2-thinking'}).click();
+  await tick('支持思考（推理）').uncheck({force:true});
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'自动配置',exact:true}).click();
+  await expect(providerForm.getByText('已按模型目录更新 1 个模型。')).toBeVisible();
+  await expect(providerForm.getByText('模型目录说 1 个模型不支持思考，它们的思考设置没有改；确认不支持时请在模型里取消“支持思考”。')).toBeVisible();
+  // Turned back on, the default tiers are offered.
+  await providerForm.getByRole('button',{name:'编辑 kimi-k2-thinking'}).click();
+  await tick('支持思考（推理）').check({force:true});
+  await expect(tick('High')).toBeChecked();
+  await providerForm.getByRole('button',{name:'更新模型',exact:true}).click();
+  await providerForm.getByRole('button',{name:'创建',exact:true}).click();
+  await expect(providerForm).toHaveCount(0);
+  const thinkerModels = () => page.evaluate(() => JSON.parse(localStorage.getItem('lynshen-custom-providers')).find((p) => p.id === 'thinker').models
+    .map((m) => [m.name, m.context_window, m.max_output_tokens, m.reasoning, m.reasoning_efforts.join(' '), m.input_modalities.join(' ')]));
+  assert.deepEqual(await thinkerModels(), [
+    ['claude-relay-5', 1000000, 128000, true, 'none low medium high xhigh max', 'text image'],
+    ['vendor/thinker-x', 256000, 8192, true, 'none low medium high xhigh', 'text image'],
+    ['kimi-k2-thinking', 262144, 262144, true, 'none low medium high xhigh', 'text image'],
+    ['plain-chat', 128000, 8192, false, 'none', 'text image'],
+    ['moonshot-v1-8k', 8192, 4096, true, 'none low medium high xhigh', 'text image']
+  ]);
+  // As the default provider: config.json gets the models with `reasoning`
+  // and their tiers, and the effort choice shows for a thinking model.
+  await page.locator('#set-default-provider .trigger').click();
+  await page.locator('#set-default-provider .opt').filter({hasText:'Thinker'}).click();
+  const thinkerCopy = () => page.evaluate(() => {
+    const patch = window.__calls.filter((c) => c.command === 'write_config' && 'models' in c.args.patch).at(-1)?.args.patch;
+    return patch && [patch.provider, patch.model, patch.reasoning_effort, patch.models.map((m) => [m.name, m.reasoning, m.reasoning_efforts.join(' ')])];
+  });
+  await expect.poll(thinkerCopy).toEqual(['thinker', 'claude-relay-5', 'high', [
+    ['claude-relay-5', true, 'none low medium high xhigh max'],
+    ['vendor/thinker-x', true, 'none low medium high xhigh'],
+    ['kimi-k2-thinking', true, 'none low medium high xhigh'],
+    ['plain-chat', false, 'none'],
+    ['moonshot-v1-8k', true, 'none low medium high xhigh']
+  ]]);
+  await page.getByRole('button',{name:'模型与推理',exact:true}).click();
+  await expect(page.locator('#set-reasoning-effort .opt')).toHaveText(['None', 'Low', 'Medium', 'High', 'Xhigh', 'Max']);
   // A model that takes no images and does not think: the composer refuses
   // an image and shows no effort; one that takes images attaches it.
   await page.goto(base + '?shell&textOnly');

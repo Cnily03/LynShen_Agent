@@ -18,6 +18,9 @@ export interface CatalogModel extends ModelInfo {
 	maxOutput?: number;
 	/** The admin has not described it: name, vendor and family come from the id. */
 	cataloged: boolean;
+	/** The row states whether the model thinks (`reasoning` is not a guess
+	 *  from the id). */
+	reasoningStated?: boolean;
 }
 
 export interface CatalogPlan {
@@ -111,7 +114,8 @@ function modelOf(raw: unknown, recommendedAt: number | undefined): CatalogModel 
 		efforts,
 		...(num(caps.context_total) ? { contextTotal: num(caps.context_total) } : {}),
 		...(num(caps.max_output_tokens) ? { maxOutput: num(caps.max_output_tokens) } : {}),
-		cataloged
+		cataloged,
+		...(typeof caps.reasoning === 'boolean' ? { reasoningStated: true } : {})
 	};
 }
 

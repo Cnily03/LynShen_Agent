@@ -375,7 +375,7 @@
 	// title and image pickers (src/lib/models: the same pickers as the composer).
 	const providerItems = $derived(
 		itemsFromOptions(
-			models.map((m) => ({ provider: cfg.provider ?? '', name: m.name, display_name: m.display_name, context_window: m.context_window, reasoning_efforts: m.reasoning_efforts, input_modalities: (m as { input_modalities?: string[] }).input_modalities })),
+			models.map((m) => ({ provider: cfg.provider ?? '', name: m.name, display_name: m.display_name, context_window: m.context_window, reasoning_efforts: modelEfforts(m), input_modalities: (m as { input_modalities?: string[] }).input_modalities })),
 			'',
 			gatewayCatalog.lookup
 		)
@@ -408,7 +408,7 @@
 				name: m.name,
 				display_name: m.display_name,
 				context_window: m.context_window,
-				reasoning_efforts: m.reasoning_efforts,
+				reasoning_efforts: modelEfforts(m),
 				input_modalities: (m as { input_modalities?: string[] }).input_modalities
 			}))
 		)

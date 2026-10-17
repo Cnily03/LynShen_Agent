@@ -98,7 +98,7 @@
 	import Modal from '$lib/ui/Modal.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
-	import { acceptsImages } from '$lib/settings/providerFields';
+	import { acceptsImages, DEFAULT_EFFORTS } from '$lib/settings/providerFields';
 	import { planPages } from '$lib/planPages.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import Picker from '$lib/shell/Picker.svelte';
@@ -490,13 +490,14 @@
 					active: name === current,
 					context_window: typeof m.context_window === 'number' ? m.context_window : (prev?.context_window ?? 0),
 					max_output_tokens: typeof m.max_output_tokens === 'number' ? m.max_output_tokens : (prev?.max_output_tokens ?? 0),
-					// A model configured not to think offers no tiers.
+					// A model configured not to think offers no tiers; one without
+					// a list has the engine's default tiers until it reports.
 					reasoning_efforts:
 						m.reasoning === false
 							? []
-							: Array.isArray(m.reasoning_efforts)
+							: Array.isArray(m.reasoning_efforts) && m.reasoning_efforts.length
 								? (m.reasoning_efforts as string[])
-								: (prev?.reasoning_efforts ?? []),
+								: (prev?.reasoning_efforts ?? [...DEFAULT_EFFORTS]),
 					...(m.reasoning === false ? { reasoning: false } : {}),
 					...(Array.isArray(m.input_modalities) ? { input_modalities: m.input_modalities as string[] } : {})
 				};
