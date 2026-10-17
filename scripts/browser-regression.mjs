@@ -1486,6 +1486,90 @@ try {
   await openRecap('?shell&recap');
   assert.equal(await recapCard.evaluate((el) => el.getAnimations().length), 0);
   await recapPage.close();
+  // A card under the list that closes (the recap card's button, an answered
+  // approval) leaves the view following the end: the list grows, the
+  // browser brings the position up into the new range, and that is not the
+  // reader scrolling up. The reply to the recap's suggestion comes into
+  // view; no ⌄ after either. The reader scrolling up while a reply streams
+  // still stops it there (the wheel, a scroll key), and ⌄ goes back to the
+  // end. (The ⌄ came up at once and the reply stayed below the composer.)
+  {
+    const follow = await browser.newPage({viewport: {width: 1280, height: 800}});
+    follow.on('pageerror', e => errors.push(e.message));
+    const jumpButton = follow.getByRole('button', {name: '滚动到底部'});
+    const shortOfEnd = () => follow.evaluate(() => { const m = document.querySelector('.chatpane main'); return Math.round(m.scrollHeight - m.clientHeight - m.scrollTop); });
+    // Where the view stops once a smooth scroll (the wheel, a key) has run out.
+    const settledTop = async () => {
+      let last = -1;
+      for (;;) {
+        const top = await follow.evaluate(() => document.querySelector('.chatpane main').scrollTop);
+        if (top === last) return top;
+        last = top;
+        await follow.waitForTimeout(150);
+      }
+    };
+    const reply = (lines, from = 0) => follow.evaluate(async ({lines, from}) => {
+      const c = window.__shellChat;
+      c.handle({type: 'status', message: 'streaming'});
+      for (let i = from; i < from + lines; i++) {
+        c.handle({type: 'assistant_delta', delta: `第 ${i} 行：回复接着写。\n\n`});
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    }, {lines, from});
+    await follow.goto(base + '?shell&recap');
+    await expect(follow.locator('.recap')).toBeVisible({timeout: 30000});
+    await follow.locator('.recap .go button').click();
+    await expect(follow.locator('.receipt')).toHaveText('已选择：提交并推送');
+    await expect(follow.locator('.recap')).toHaveCount(0);
+    await expect(jumpButton).toHaveCount(0);
+    await reply(3);
+    await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
+    await expect(jumpButton).toHaveCount(0);
+    // Scrolling up while it streams stops following; the reply goes on below.
+    await follow.mouse.move(700, 300);
+    await follow.mouse.wheel(0, -400);
+    await expect(jumpButton).toBeVisible();
+    await expect.poll(shortOfEnd).toBeGreaterThan(60);
+    const readerAt = await settledTop();
+    await reply(4, 3);
+    await follow.waitForTimeout(300);
+    assert.equal(await follow.evaluate(() => document.querySelector('.chatpane main').scrollTop), readerAt);
+    assert.ok((await shortOfEnd()) > 60);
+    await jumpButton.click();
+    await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
+    await expect(jumpButton).toHaveCount(0);
+    // A scroll key in the list stops it too (a click there first: the list
+    // takes the keys).
+    await follow.mouse.click(320, 300);
+    await follow.keyboard.press('PageUp');
+    await expect.poll(shortOfEnd).toBeGreaterThan(60);
+    await expect(jumpButton).toBeVisible();
+    const keyAt = await settledTop();
+    await reply(3, 7);
+    await follow.waitForTimeout(300);
+    assert.equal(await follow.evaluate(() => document.querySelector('.chatpane main').scrollTop), keyAt);
+    await jumpButton.click();
+    await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
+    // A message sent from the composer: its reply is followed. (The sent
+    // bubble loses its 发送中 line as the reply starts; the content shrinks
+    // and grows in one go, and the scroll event of that came after the
+    // growth, read as the reader's.)
+    await follow.locator('.composer [contenteditable]').first().click();
+    await follow.keyboard.type('再跑一次');
+    await follow.keyboard.press('Enter');
+    await follow.waitForTimeout(300);
+    await reply(4, 10);
+    await expect.poll(shortOfEnd).toBeLessThanOrEqual(1);
+    await expect(jumpButton).toHaveCount(0);
+    await follow.goto(base + '?shell&approval');
+    await expect(follow.locator('.approval')).toBeVisible({timeout: 30000});
+    await follow.locator('.approval .approval-actions button').first().click();
+    await expect(follow.locator('.approval')).toHaveCount(0);
+    await follow.waitForTimeout(300);
+    await expect(jumpButton).toHaveCount(0);
+    assert.ok((await shortOfEnd()) <= 1);
+    await follow.close();
+  }
   // The phone page reads the history the same way; its chips only show the
   // files, and a quoted message brings its files back to its message box.
   const phone = await browser.newPage({viewport:{width:390,height:844}});

@@ -69,7 +69,7 @@
 	import { browser } from '$lib/browser.svelte';
 	import { prefs } from '$lib/prefs.svelte';
 	import { CHAT_PAD, CHAT_PAD_RAIL, CHAT_W_STANDARD, chatColumnPad, chatColumnWidth } from '$lib/chatWidth';
-	import { followTop, shortOfEnd } from '$lib/chatFollow';
+	import { ReaderInput, followAfterScroll, followTop, shortOfEnd } from '$lib/chatFollow';
 	import { t } from '$lib/i18n';
 	import type { SessionStore } from '$lib/session.svelte';
 	import type { Session } from '$lib/types';
@@ -1328,15 +1328,21 @@
 	// The position this pane last pinned to the end, and the last one seen.
 	let pinnedTop = -1;
 	let lastTop = 0;
+	// The reader scrolling by hand (a pointer held in the list, a scroll key):
+	// only then does a move up stop following.
+	const reader = new ReaderInput();
 	function onScroll() {
 		if (!scroller) return;
 		const top = scroller.scrollTop;
-		// The scroll event of our own pin says nothing about the reader.
-		// Otherwise follow again once they scroll down near the end, never
-		// while they scroll up. Nothing left to scroll (the content shrank
-		// under it): at the end.
-		if (scroller.scrollHeight <= scroller.clientHeight) atBottom = true;
-		else if (top !== pinnedTop) atBottom = top >= lastTop && scroller.scrollHeight - top - scroller.clientHeight < 60;
+		// The scroll event of our own pin says nothing about the reader; with
+		// nothing left to scroll it is the end all the same. A move up the
+		// reader did not make leaves following as it was, and pins the end
+		// again while following (chatFollow followAfterScroll).
+		if (top !== pinnedTop || scroller.scrollHeight <= scroller.clientHeight) {
+			const follows = followAfterScroll(scroller, top, lastTop, reader.active);
+			if (follows !== null) atBottom = follows;
+			else if (atBottom) requestAnimationFrame(follow);
+		}
 		lastTop = top;
 	}
 	/** Wheel up leaves the end. Caught at the input: WebKit applies the
@@ -1364,19 +1370,29 @@
 	// frame, which a scroll-event listener can't see, so observe the content's
 	// size directly. Idle (a conversation loading): stick to the bottom.
 	// While a reply streams: reveal it only until the latest message reaches
-	// the top, then hold still, so the text being read never moves.
+	// the top, then hold still, so the text being read never moves. The view
+	// is observed too: a card under it that closes (the recap card, an
+	// answered approval) makes it taller, and following then pins the end
+	// again (onScroll does not take the move it causes for the reader's).
 	let contentEl = $state<HTMLElement | null>(null);
 	$effect(() => {
 		if (!contentEl || !scroller) return;
-		const ro = new ResizeObserver(() => {
-			if (!scroller || !contentEl || !atBottom) return;
-			const top = followTop(scroller, contentEl, chat.busy);
-			scroller.scrollTop = top;
-			pinnedTop = scroller.scrollTop;
-			if (shortOfEnd(scroller, top)) atBottom = false;
-		});
+		const ro = new ResizeObserver(follow);
 		ro.observe(contentEl);
+		ro.observe(scroller);
 		return () => ro.disconnect();
+	});
+	function follow() {
+		if (!scroller || !contentEl || !atBottom) return;
+		const top = followTop(scroller, contentEl, chat.busy);
+		scroller.scrollTop = top;
+		pinnedTop = scroller.scrollTop;
+		if (shortOfEnd(scroller, top)) atBottom = false;
+	}
+	// The app's own moves away from the end, on the reader's request (a find
+	// hit, a mark on the rail), stop following: they are no hand scroll.
+	$effect(() => {
+		if (findActive != null) untrack(() => (atBottom = false));
 	});
 	async function scrollToEnd(force = false) {
 		await tick();
@@ -1558,7 +1574,7 @@
 	});
 </script>
 
-<svelte:window onkeydown={onWindowKey} onfocus={refreshGitBranch} />
+<svelte:window onkeydown={onWindowKey} onkeydowncapture={reader.key} onpointerup={reader.up} onpointercancel={reader.up} onblur={reader.up} onfocus={refreshGitBranch} />
 
 <div
 	class="chatpane"
@@ -1629,7 +1645,7 @@
 		onOpenTeam={teamPanel ? openTeam : undefined}
 		onWheel={wheelFromCards}
 	/>
-	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
+	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel} onpointerdown={reader.down}>
 		<div bind:this={contentEl}>
 			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
 		</div>
@@ -1655,7 +1671,7 @@
 	     of the scroller instead of a hard cut. Six bands, each blurring twice
 	     the last; glass only (app.css), never on the rows themselves. -->
 	{#if marks.length > 1}
-		<TurnRail {marks} current={mark} onJump={(n) => messageList?.jumpToMark(n)} />
+		<TurnRail {marks} current={mark} onJump={(n) => { atBottom = false; messageList?.jumpToMark(n); }} />
 	{/if}
 	</div>
 	{#if !atBottom}
