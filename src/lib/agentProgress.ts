@@ -246,6 +246,11 @@ function teamOf(
 	};
 }
 
+/** A finished agent whose worktree was discarded and whose run did not
+ *  fail: its changes are gone, so it is no success, and the views show it
+ *  in grey rather than done. */
+export const discardedRun = (row: Pick<AgentRow, 'state' | 'status'>) => row.state === 'done' && row.status === 'discarded';
+
 /** Still at work: running, or queued to run. */
 export const isLive = (row: Pick<AgentRow, 'state'>) => row.state === 'running' || row.state === 'queued';
 

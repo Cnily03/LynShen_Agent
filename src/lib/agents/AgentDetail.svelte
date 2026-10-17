@@ -15,7 +15,7 @@
 	import type { AgentRun, ChatState, WorkflowRun } from '$lib/chat.svelte';
 	import type { Op } from '$lib/protocol';
 	import { elapsed, formatCount, formatDuration, shortModel } from '$lib/agentTrace';
-	import { agentOutcome, agentRows, shortPath, type AgentRow } from '$lib/agentProgress';
+	import { agentOutcome, agentRows, discardedRun, shortPath, type AgentRow } from '$lib/agentProgress';
 
 	let {
 		chat,
@@ -46,6 +46,10 @@
 	const outcome = $derived(agentOutcome(focused?.agent.state ?? life?.status ?? '', focused?.agent.error ?? '', chat.failedAgents[agentId]));
 	const status = $derived(outcome.state);
 	const running = $derived(status === 'running');
+	// Its worktree discarded: grey, not done.
+	const dropped = $derived(discardedRun({ state: status, status: focused?.agent.state ?? life?.status ?? '' }));
+	const iconState = $derived(dropped ? 'skipped' : status);
+	const stateWord = $derived(dropped ? t('chat.team.discarded') : t(`dock.agents.state.${status}`));
 
 	// LynShen's agent team: the subagent shown can be stopped while at work
 	// (agent team v2).
@@ -76,7 +80,7 @@
 	{@const a = focused.agent}
 	<div class="head">
 		<div class="title">
-			<StateIcon state={status} size={15} label={t(`dock.agents.state.${status}`)} />
+			<StateIcon state={iconState} size={15} label={stateWord} />
 			<span class="name">{a.label || a.id}</span>
 			{#if role}<span class="kind" title={t('chat.team.roleTitle', { role })}>{roleLabel(role)}</span>
 			{:else if a.type}<span class="kind">{a.type}</span>{/if}
@@ -86,7 +90,7 @@
 		<div class="meta">
 			{#if focused.run}<span>{focused.run.name || focused.run.description}</span>{/if}
 			{#if a.model}<span class="mono">{shortModel(a.model)}</span>{/if}
-			<span>{t(`dock.agents.state.${status}`)}</span>
+			<span>{stateWord}</span>
 			<span class="num">{formatDuration(elapsed(a, status, now), units)}</span>
 			{#if a.tokens}<span class="num">{t('dock.agents.tokens', { n: formatCount(a.tokens) })}</span>{/if}
 			{#if a.toolCalls}<span class="num">{t('dock.agents.toolCalls', { n: a.toolCalls })}</span>{/if}
@@ -97,7 +101,7 @@
 {:else if life}
 	<div class="head">
 		<div class="title">
-			<StateIcon state={status} size={15} label={t(`dock.agents.state.${status}`)} />
+			<StateIcon state={iconState} size={15} label={stateWord} />
 			<span class="name">{shortPath(life.label || agentId)}</span>
 			{#if role}<span class="kind" title={t('chat.team.roleTitle', { role })}>{roleLabel(role)}</span>{/if}
 			<span class="grow"></span>
@@ -105,7 +109,7 @@
 		</div>
 		<div class="meta">
 			{#if life.model}<span class="mono">{shortModel(life.model)}</span>{/if}
-			<span>{t(`dock.agents.state.${status}`)}</span>
+			<span>{stateWord}</span>
 		</div>
 		{#if outcome.error}<p class="err">{outcome.error}</p>{/if}
 	</div>
@@ -178,9 +182,13 @@
 		color: var(--dim);
 		font-size: var(--fs-xs);
 	}
+	/* The whole error: the engine sends the model, the address and the
+	   provider's answer, on several lines. */
 	.err {
 		margin: 6px 0 0;
 		font-size: var(--fs-xs);
 		color: var(--err);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 </style>

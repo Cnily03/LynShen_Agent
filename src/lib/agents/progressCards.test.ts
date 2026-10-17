@@ -252,6 +252,10 @@ describe('the subagents card', () => {
 		expect(dotTone({ state: 'failed' })).toBe('err');
 		expect(dotTone({ state: 'done', status: 'conflict' })).toBe('warn');
 		expect(dotTone({ state: 'failed', status: 'budget_exhausted' })).toBe('warn');
+		// A discarded worktree is no success: grey. A run that failed stays red.
+		expect(dotTone({ state: 'done', status: 'discarded' })).toBe('idle');
+		expect(dotTone({ state: 'failed', status: 'discarded' })).toBe('err');
+		expect(dotTone({ state: 'done', status: 'merged' })).toBe('ok');
 	});
 });
 

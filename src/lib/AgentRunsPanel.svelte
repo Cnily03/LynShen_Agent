@@ -25,7 +25,7 @@
 		timeline,
 		type RunState
 	} from '$lib/agentTrace';
-	import { agentOutcome, shortPath } from '$lib/agentProgress';
+	import { agentOutcome, discardedRun, shortPath } from '$lib/agentProgress';
 
 	// The agent trace of a Claude Code session: each Workflow as a timeline of
 	// its agents by phase (when each ran, for how long, at what cost), the
@@ -95,17 +95,20 @@
 	};
 </script>
 
-{#snippet stateIcon(s: RunState)}
+{#snippet stateIcon(s: RunState, label = t(`dock.agents.state.${s}`))}
 	{@const Icon = ICONS[s]}
-	<span class="st {s}" title={t(`dock.agents.state.${s}`)}><Icon size={13} class={s === 'running' ? 'spin' : ''} /></span>
+	<span class="st {s}" title={label}><Icon size={13} class={s === 'running' ? 'spin' : ''} /></span>
 {/snippet}
 
 {#snippet agentRow(a: AgentRun, bar: { left: number; width: number } | undefined)}
-	{@const s = agentOutcome(a.state, a.error, chat.failedAgents[a.id]).state}
+	{@const ran = agentOutcome(a.state, a.error, chat.failedAgents[a.id]).state}
+	{@const dropped = discardedRun({ state: ran, status: a.state })}
+	{@const s = dropped ? 'stopped' : ran}
 	<!-- An agent still queued has no id (and no conversation) yet. A run that
-	     failed stays failed past a merge or discard of its worktree. -->
+	     failed stays failed past a merge or discard of its worktree; one whose
+	     worktree was discarded is grey, not done. -->
 	<button class="arow" onclick={() => pick(a.id)} disabled={!a.id} title={a.prompt || a.label}>
-		{@render stateIcon(s)}
+		{@render stateIcon(s, dropped ? t('chat.team.discarded') : undefined)}
 		<span class="aname">
 			<span class="alabel">{a.label || a.id}</span>
 			<span class="asub">{[chat.team[a.id]?.role ? roleLabel(chat.team[a.id]!.role) : a.type, shortModel(a.model)].filter(Boolean).join(' · ')}</span>

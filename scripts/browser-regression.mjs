@@ -1376,13 +1376,16 @@ try {
   // reader scrolling (no ⌄). (It moved the conversation once a list was at
   // its end or did not scroll.) Nor do the navigator's sub-agent rows or the
   // 工作组 panel move it. An agent whose run failed shows as failed in the
-  // card, the navigator and 工作组, with its error on hover, also once the
-  // session reopened without the error and the model discarded its worktree
-  // (it showed as done, green, "Done"); the card's title counts it as failed.
+  // card, the navigator and 工作组, with its error on hover and its error
+  // line opening the whole error, also once the session reopened without
+  // the error and the model discarded its worktree (it showed as done,
+  // green, "Done"); the card's title counts it as failed. One that finished
+  // and whose worktree was discarded is grey, not done.
   {
     const wk = await webkit.launch();
     try {
-      const ERR = 'LLM API returned HTTP 403 Forbidden: {"error":{"code":"model_not_in_plan","message":"模型不在套餐内"}}';
+      const ERR1 = 'LLM API returned HTTP 403 Forbidden';
+      const ERR = `${ERR1}\nmodel claude-sonnet-5 at https://api.lynshen.org/v1/messages\n{"error":{"code":"model_not_in_plan","message":"模型不在套餐内"}}`;
       const NAMES = ['临川', '晚晴', '若谷', '青岚'];
       const PATHS = NAMES.map((_, i) => `/root/cards_${i + 1}`);
       // Four agents fail at once; the session reopens (its agents come back
@@ -1400,6 +1403,8 @@ try {
         c.handle({type: 'connecting'});
         PATHS.forEach((path) => c.handle({type: 'subagent_lifecycle', path, status: 'discarded', message: 'worktree discarded'}));
         c.handle(runs('discarded', '', 'Done'));
+        // One that finished, its worktree discarded.
+        for (const status of ['running', 'completed', 'discarded']) c.handle({type: 'subagent_lifecycle', path: '/root/drop', label: '霜降', status, message: ''});
       }, {ERR, NAMES, PATHS});
       const others = ['/root/worker-2', '/root/reviewer', ...Array.from({length: 10}, (_, i) => `/root/more-${i + 1}`)];
       for (const [engine, b] of [['Chromium', browser], ['WebKit', wk]]) {
@@ -1474,24 +1479,36 @@ try {
         // (The pointer off the navigator: it holds its rows while under it.)
         await p.mouse.move(700, 450);
         await failFour(p);
-        await expect(cards.locator('.card.agents .head')).toHaveText(/子智能体\s*16\s*·\s*12 个运行中/);
+        await expect(cards.locator('.card.agents .head')).toHaveText(/子智能体\s*17\s*·\s*12 个运行中/);
         const errColor = await p.evaluate(() => { const e = document.createElement('p'); e.style.color = 'var(--err)'; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; });
         const tipOf = (loc) => loc.evaluate((el) => el.getAttribute('title') ?? el.dataset.tip ?? '');
         for (const path of PATHS) {
           const row = list.locator(`.agent[data-agent="${path}"]`);
           await expect(row.locator('.sdot')).toHaveClass(/\berr\b/);
           await expect(row.locator('.sdot')).toHaveAttribute('aria-label', '失败');
-          await expect(row.locator('.act')).toHaveText(ERR);
-          assert.equal(await row.locator('.act').evaluate((el) => getComputedStyle(el).color), errColor, `${engine}: ${path}'s line is not in --err`);
+          await expect(row.locator('.etoggle')).toHaveText(ERR1);
+          assert.equal(await row.locator('.etoggle').evaluate((el) => getComputedStyle(el).color), errColor, `${engine}: ${path}'s line is not in --err`);
           assert.ok((await tipOf(row.locator('.amain'))).startsWith(ERR), `${engine}: ${path}'s error is not on hover`);
           const sub = p.locator(`.sub[data-agent="${path}"]`);
           await expect(sub.locator('.dot.failed')).toHaveCount(1);
           assert.ok((await tipOf(sub)).includes(ERR), `${engine}: ${path}'s error is not on hover in the navigator`);
         }
         await expect(list.locator('.agent', {hasText: 'Done'})).toHaveCount(0);
+        // Its error line opens the whole error, and closes it.
+        const first = list.locator(`.agent[data-agent="${PATHS[0]}"]`);
+        await first.locator('.etoggle').click();
+        await expect(first.locator('.etoggle')).toHaveAttribute('aria-expanded', 'true');
+        assert.equal(await first.locator('.efull').evaluate((el) => el.textContent), ERR, `${engine}: the whole error does not open`);
+        await first.locator('.etoggle').click();
+        await expect(first.locator('.efull')).toHaveCount(0);
+        // The discarded one: a grey dot and its word, not done.
+        const drop = list.locator('.agent[data-agent="/root/drop"]');
+        await expect(drop.locator('.sdot')).toHaveClass(/\bidle\b/);
+        await expect(drop.locator('.sdot')).toHaveAttribute('aria-label', '已丢弃改动');
+        await expect(drop.locator('.act')).toHaveText('已丢弃改动');
         // The others finish: the title counts the four as failed.
         await p.evaluate((others) => others.forEach((path) => window.__shellChat.handle({type: 'subagent_lifecycle', path, status: 'completed', message: 'finished'})), others);
-        await expect(cards.locator('.card.agents .head')).toHaveText(/子智能体\s*16\s*·\s*4 个失败/);
+        await expect(cards.locator('.card.agents .head')).toHaveText(/子智能体\s*17\s*·\s*4 个失败/);
         // A narrower leaf: the subagents popover keeps the wheel too.
         await p.setViewportSize({width: 1100, height: 760});
         await expect(p.locator('.chatpane.beside')).toHaveCount(0);
@@ -1517,11 +1534,18 @@ try {
         for (const [i, name] of NAMES.entries()) {
           const row = team.locator('.arow', {hasText: name});
           await expect(row.locator('.si.failed')).toHaveCount(1);
-          await expect(row.locator('.act')).toHaveText(ERR);
-          await expect(row.locator('.act')).toHaveClass(/\berr\b/);
+          await expect(row.locator('.etoggle')).toHaveText(ERR1);
+          assert.equal(await row.locator('.etoggle').evaluate((el) => getComputedStyle(el).color), errColor, `${engine}: ${PATHS[i]}'s line is not in --err in 工作组`);
           assert.equal(await tipOf(row.locator('button.agent')), ERR, `${engine}: ${PATHS[i]}'s error is not on hover in 工作组`);
         }
         await expect(team.locator('.arow', {hasText: 'Done'})).toHaveCount(0);
+        const firstRow = team.locator('.arow', {hasText: NAMES[0]});
+        await firstRow.locator('.etoggle').click();
+        assert.equal(await firstRow.locator('.efull').evaluate((el) => el.textContent), ERR, `${engine}: the whole error does not open in 工作组`);
+        const dropRow = team.locator('.arow', {hasText: '霜降'});
+        await expect(dropRow.locator('.si.skipped')).toHaveCount(1);
+        await expect(dropRow.locator('.si.done')).toHaveCount(0);
+        await expect(dropRow.locator('.act')).toHaveText('已丢弃改动');
         // (The conversation follows its end there.)
         const shortOfEnd = () => tp.evaluate(() => { const m = document.querySelector('.chatpane main'); return Math.round(m.scrollHeight - m.clientHeight - m.scrollTop); });
         assert.ok(await shortOfEnd() <= 1, `${engine}: the conversation beside 工作组 is not at its end`);
@@ -3237,5 +3261,5 @@ try {
     await ip.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page; in Chromium and WebKit the wheel over the cards, the navigator\'s sub-agents and 工作组 never scrolls the conversation, and an errored sub-agent shows as failed with its error after its worktree was discarded), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, the balance until it recovers and 已恢复使用套餐, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a gateway before contract v1.2, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields), Settings → 导入 (Codex prompts, opening what a run imported.');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page; in Chromium and WebKit the wheel over the cards, the navigator\'s sub-agents and 工作组 never scrolls the conversation, and an errored sub-agent shows as failed with its error (the whole error on its line) after its worktree was discarded, a discarded finished one grey), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, the balance until it recovers and 已恢复使用套餐, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a gateway before contract v1.2, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields), Settings → 导入 (Codex prompts, opening what a run imported.');
 } finally { await browser.close(); await server.close(); }

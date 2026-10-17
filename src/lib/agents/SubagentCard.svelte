@@ -16,6 +16,7 @@
 	import { t } from '$lib/i18n';
 	import {
 		canStop,
+		discardedRun,
 		mergeView,
 		shortPath,
 		spawnAgentRow,
@@ -174,7 +175,9 @@
 						<span class="grow"></span>
 						{#if fileCount}<span class="files" title={t('chat.team.filesTitle')}>{t('chat.team.filesN', { n: fileCount })}</span>{/if}
 						{#if agent}<Elapsed row={agent} />{/if}
-						<StateIcon state={state} size={14} label={state === 'unknown' ? '' : t(`dock.agents.state.${state}`)} />
+						<!-- A discarded worktree: grey, not done (the line under the card says so). -->
+						{#if agent && discardedRun(agent)}<StateIcon state="skipped" size={14} label={t('chat.team.discarded')} />
+						{:else}<StateIcon state={state} size={14} label={state === 'unknown' ? '' : t(`dock.agents.state.${state}`)} />{/if}
 					</span>
 					{#if task}<span class="task">{task}</span>{/if}
 					{#if activity}<span class="act" class:err={state === 'failed'} class:warn={!!note} title={state === 'failed' && agent?.error ? agent.error : undefined}>{activity}</span>{/if}
