@@ -122,6 +122,8 @@ Object.assign(window, {
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
         case 'diagnostic_logs': return [];
+        // No ACP agent registered (the model menu lists the agents to switch to).
+        case 'acp_agents_list': return [];
         // ?avatar: the account's avatar as the app kept it (account_avatar.rs);
         // an upload answers the gateway's user and the picture it sent.
         case 'monoize_avatar_cached': return new URL(location.href).searchParams.has('avatar') ? {url: '/api/desktop/oauth/avatars/a1', data_url: KEPT_AVATAR} : null;

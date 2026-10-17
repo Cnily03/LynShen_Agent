@@ -47,8 +47,11 @@
 		listDir,
 		gitCheckpointCapture,
 		checkBackend,
-		daemon
+		daemon,
+		readConfig,
+		writeConfig
 	} from '$lib/protocol';
+	import { customModelsRepair } from '$lib/configModels';
 	import { dispatch } from '$lib/backends/router';
 	import { caps } from '$lib/backends';
 	import { defaultBackendFor, loadBackendSettings } from '$lib/backends/settings';
@@ -463,6 +466,10 @@
 					),
 					...custom
 				];
+				// A provider the user added runs on the models saved for it: an
+				// earlier "models to show" could have put the gateway's there.
+				const repair = customModelsRepair(await readConfig(), custom);
+				if (repair) await writeConfig(repair);
 			})
 			.catch(() => {});
 	}
@@ -1957,7 +1964,7 @@
 					if (choice.backend === 'claude' || choice.backend === 'codex') {
 						await store.applyToolProfile(activeId, choice.gateway ? 'lynshen' : 'system', choice.model || undefined);
 					} else if (choice.model && active?.draft) {
-						active.chat.model = choice.model;
+						active.chat.pickDraftModel(choice.model);
 						active.chat.effort = choice.effort;
 						active.draftPick = { model: choice.model, effort: choice.effort };
 					} else if (choice.model) {

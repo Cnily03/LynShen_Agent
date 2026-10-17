@@ -1329,6 +1329,31 @@ try {
   await expect(rows.last().locator('.bubble')).toHaveCount(0);
   await expect(rows.last().locator('.ufile .uname')).toHaveText('only.txt');
   await expect(page.locator('.list')).not.toContainText('Attached files');
+  // A model picked for a new conversation sets the context gauge to that
+  // model's window. It kept the window of the model the backend ran last:
+  // GPT-6 Sol's 92.2万 beside DeepSeek V4.1 Flash, which the user's own
+  // provider limits to 400K (ticket #34).
+  await page.evaluate(() => {
+    const efforts = ['none', 'low', 'medium', 'high'];
+    const relay = [['deepseek-v4.1-flash', 400000], ['glm-5.3', 500000]];
+    localStorage.setItem('lynshen-prefs', JSON.stringify({ ...JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}'), footContext: true }));
+    localStorage.setItem('lynshen-backend-profiles', JSON.stringify({ lynshen: {
+      provider: 'lynshen-relay', model: 'gpt-6-sol', modelLabel: 'GPT-6 Sol', effort: 'low', efforts, contextWindow: 922000,
+      catalog: [
+        { model: 'gpt-6-sol', label: 'GPT-6 Sol', active: true, context_window: 922000, max_output_tokens: 128000, reasoning_efforts: efforts },
+        ...relay.map(([model, window]) => ({ model, active: false, context_window: window, max_output_tokens: 8192, reasoning_efforts: efforts }))
+      ]
+    } }));
+  });
+  await page.goto(base + '?chat');
+  await settled('.welcome');
+  const ring = page.locator('.composer-wrap .ctxwrap .ring-btn');
+  await expect(ring).toHaveAttribute('aria-label', '上下文容量 0/92.2万');
+  await page.locator('.composer-wrap .fbtn.model').click();
+  await page.locator('.pop.mm .mline').filter({ hasText: 'DeepSeek V4.1 Flash' }).first().click();
+  await expect(page.locator('.composer-wrap .fbtn.model')).toHaveText('DeepSeek V4.1 Flash');
+  await expect(ring).toHaveAttribute('aria-label', '上下文容量 0/40万');
+  await page.evaluate(() => localStorage.removeItem('lynshen-backend-profiles'));
   // A chip opens its file in a tab beside the conversation, inside the
   // project or not, and never shows it in Finder / Explorer: code in a code
   // view, JSON Lines as records, an archive as a card with the two ways to

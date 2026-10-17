@@ -1106,8 +1106,7 @@
 		if (session.draft && command.startsWith('/model ')) {
 			const [name, effort] = command.slice('/model '.length).trim().split(/\s+/);
 			const entry = chat.modelCatalog.find((m) => m.model === name);
-			chat.model = name;
-			chat.modelLabel = entry?.label ?? '';
+			chat.pickDraftModel(name, entry?.label ?? '', entry?.context_window ?? 0);
 			if (entry?.reasoning === false) chat.efforts = [];
 			else if (entry?.reasoning_efforts?.length) {
 				chat.efforts = entry.reasoning_efforts;
