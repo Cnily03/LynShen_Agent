@@ -216,6 +216,20 @@
 		scopes: ['once', 'session', 'project']
 	});
 	if (mode.has('approval')) feed(escalation('c-approve'));
+
+	// ?shell&subagents: a turn of the conversation that runs subagents.
+	const SUBAGENT_TASKS = ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '更新 design.md 的缓存一节', '检查类型', '对比基准', '整理提交说明', '清理旧缓存', '补充文档', '核对迁移', '回归测试'];
+	const subagentEvent = (i: number, status = 'running') => ({ type: 'subagent_lifecycle', path: `/root/agent-${i}`, label: SUBAGENT_TASKS[(i - 1) % SUBAGENT_TASKS.length], role: 'worker', status, message: '' });
+	if (withSubagents && !mode.has('empty')) {
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'connecting' });
+		feed({ type: 'status', message: 'streaming' });
+		feed({ type: 'assistant_delta', delta: '分给工作组：读代码、改实现、跑测试、审查。' });
+		const n = mode.get('subagents') === '' ? 3 : Math.max(0, Number(mode.get('subagents')) || 0);
+		for (let i = 1; i <= n; i++) feed(subagentEvent(i));
+	}
+	Object.assign(window, { __subagent: (i: number, status?: string) => feed(subagentEvent(i, status)) });
+
 	if (mode.has('states')) {
 		const byTitle = (title: string) => store.allSessions.find((x) => x.chat.title === title)!.chat;
 		byTitle('窗口磨砂默认关闭').handle(escalation('c-other') as never);
@@ -267,18 +281,6 @@
 			]
 		});
 	}
-	// ?shell&subagents: a turn of the conversation that runs subagents.
-	const SUBAGENT_TASKS = ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '更新 design.md 的缓存一节', '检查类型', '对比基准', '整理提交说明', '清理旧缓存', '补充文档', '核对迁移', '回归测试'];
-	const subagentEvent = (i: number, status = 'running') => ({ type: 'subagent_lifecycle', path: `/root/agent-${i}`, label: SUBAGENT_TASKS[(i - 1) % SUBAGENT_TASKS.length], role: 'worker', status, message: '' });
-	if (withSubagents && !mode.has('empty')) {
-		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
-		feed({ type: 'connecting' });
-		feed({ type: 'status', message: 'streaming' });
-		feed({ type: 'assistant_delta', delta: '分给工作组：读代码、改实现、跑测试、审查。' });
-		const n = mode.get('subagents') === '' ? 3 : Math.max(0, Number(mode.get('subagents')) || 0);
-		for (let i = 1; i <= n; i++) feed(subagentEvent(i));
-	}
-	Object.assign(window, { __subagent: (i: number, status?: string) => feed(subagentEvent(i, status)) });
 	const opened: string[] = [];
 	// What the conversation sends its engine: no engine runs here, so the
 	// session is no draft waiting for one and its adapter keeps the ops.
