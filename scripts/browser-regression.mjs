@@ -16,31 +16,30 @@ try {
   // The launch screen (src/app.html, src/lib/launch.ts; design.md, "Launch
   // screen"), served at / as the desktop window loads it, over the frame of
   // one conversation (?shell): there from the first frame in the theme's
-  // canvas colours; it leaves when the app is ready, a first run plays the
-  // whole entrance once, a slow start leaves at the cap, a click or a key
-  // skips it, reduced motion shows the still logo, and a page outside the
-  // desktop app has none.
+  // canvas colours; every cold start plays the whole entrance and holds it
+  // before it leaves, an app ready later leaves at readiness, a slow start
+  // leaves at the cap, a click or a key skips it, reduced motion shows the
+  // still logo until the app is ready, and a page outside the desktop app has
+  // none.
   {
     const appHtml = readFileSync('src/app.html', 'utf8')
       .replaceAll('%sveltekit.assets%', '')
       .replace('%sveltekit.head%', '<script type="module" src="/tests/browser/launch.ts"></script><script type="module" src="/tests/browser/main.ts"></script>')
       .replace('%sveltekit.body%', '<div id="app"></div>');
     const origin = new URL(base).origin;
-    const launchPage = async (query, {theme = 'dark', seen = true, reduced = false, tauri = true} = {}) => {
+    const launchPage = async (query, {theme = 'dark', reduced = false, tauri = true} = {}) => {
       const ctx = await browser.newContext({viewport: {width: 1320, height: 880}, reducedMotion: reduced ? 'reduce' : 'no-preference'});
       const p = await ctx.newPage();
       p.on('pageerror', (e) => errors.push(e.message));
       await p.route((u) => u.pathname === '/', (r) => r.fulfill({contentType: 'text/html', body: appHtml}));
-      await p.addInitScript(({theme, seen, tauri}) => {
+      await p.addInitScript(({theme, tauri}) => {
         if (tauri) window.__TAURI_INTERNALS__ = {metadata: {currentWindow: {label: 'main'}, currentWebview: {label: 'main'}}};
         localStorage.setItem('lynshen-theme', theme);
-        if (seen) localStorage.setItem('aogiri-launch-seen', '1');
-        else localStorage.removeItem('aogiri-launch-seen');
-      }, {theme, seen, tauri});
+      }, {theme, tauri});
       await p.goto(`${origin}/?shell&theme=${theme}&${query}`, {waitUntil: 'commit'});
       return p;
     };
-    const outcome = (p) => p.evaluate(() => window.__launch && {left: window.__launch.left, at: Math.round(window.__launch.leftAt ?? -1)});
+    const outcome = (p) => p.evaluate(() => window.__launch && {left: window.__launch.left, at: Math.round(window.__launch.leftAt ?? -1), entrance: window.__launch.entranceAt});
     const look = (p, sel, props) => p.locator(sel).evaluate((el, props) => props.map((k) => getComputedStyle(el)[k]), props);
     const launching = (p) => p.evaluate(() => document.documentElement.classList.contains('launching'));
     // The dev server compiles the fixture once, so the timings below are the screen's.
@@ -48,38 +47,40 @@ try {
     await lp.waitForFunction(() => window.__launch && document.querySelector('aside'), null, {timeout: 60000});
     await lp.context().close();
     // A slow start: the logo on the dark canvas, the entrance on its five
-    // parts, the frame drawn behind it; it leaves at the cap, ready or not.
+    // parts and the kit's timetable, the frame drawn behind it; it leaves at
+    // the cap, ready or not.
     lp = await launchPage('launchReady=never');
     const screen = lp.locator('#launch');
     await expect(screen).toBeVisible();
     assert.deepEqual(await look(lp, '#launch', ['backgroundColor', 'color', 'zIndex', 'position']), ['rgb(26, 26, 26)', 'rgb(236, 236, 236)', '2147483000', 'fixed']);
     assert.equal(await screen.getAttribute('data-tauri-drag-region'), '');
-    for (const [sel, name] of [['.l-t1 i', 'l-rise'], ['.l-t2 i', 'l-rise'], ['.l-ray i', 'l-fall'], ['.l-glow', 'l-glow'], ['.l-word', 'l-word']])
-      assert.deepEqual(await look(lp, `#launch ${sel}`, ['animationName', 'animationFillMode']), [name, 'backwards'], sel);
+    for (const [sel, name, delay, duration] of [['.l-t1 i', 'l-rise', '0.1s', '0.7s'], ['.l-t2 i', 'l-rise', '0.26s', '0.7s'], ['.l-ray i', 'l-fall', '0.82s', '0.64s'], ['.l-glow', 'l-glow', '1.1s', '0.7s'], ['.l-word', 'l-word', '1.45s', '0.6s']])
+      assert.deepEqual(await look(lp, `#launch ${sel}`, ['animationName', 'animationDelay', 'animationDuration', 'animationFillMode']), [name, delay, duration, 'backwards'], sel);
     await expect(lp.locator('aside').first()).toBeAttached({timeout: 30000});
-    assert.deepEqual(await outcome(lp), {left: null, at: -1});
+    assert.equal((await outcome(lp)).left, null);
     await expect(screen).toHaveCount(0, {timeout: 8000});
     assert.equal((await outcome(lp)).left, 'cap');
-    assert.ok((await outcome(lp)).at >= 2200);
+    assert.ok((await outcome(lp)).at >= 3400);
     assert.equal(await launching(lp), false);
     await lp.context().close();
-    // A fast start leaves at readiness, adding no wait.
+    // A fast start plays the whole entrance (2.05 s) and holds it (0.45 s),
+    // timed from the entrance's first frame, before it leaves.
     lp = await launchPage('launchReady=300');
-    await expect(lp.locator('#launch')).toHaveCount(0, {timeout: 8000});
-    const fast = await outcome(lp);
-    assert.equal(fast.left, 'ready');
-    assert.ok(fast.at >= 300 && fast.at < 1380, `fast start left at ${fast.at}`);
-    await lp.context().close();
-    // A first run plays the whole entrance once, then remembers it.
-    lp = await launchPage('launchReady=100', {seen: false});
     await lp.waitForFunction(() => window.__launch, null, {timeout: 30000});
     await lp.waitForTimeout(900);
     assert.equal((await outcome(lp)).left, null);
     await expect(lp.locator('#launch')).toHaveCount(0, {timeout: 8000});
-    const first = await outcome(lp);
-    assert.equal(first.left, 'ready');
-    assert.ok(first.at >= 1380 && first.at < 2200, `first run left at ${first.at}`);
-    assert.equal(await lp.evaluate(() => localStorage.getItem('aogiri-launch-seen')), '1');
+    const fast = await outcome(lp);
+    assert.equal(fast.left, 'ready');
+    assert.equal(typeof fast.entrance, 'number');
+    assert.ok(fast.at >= 300 && fast.at - fast.entrance >= 2490 && fast.at - fast.entrance < 2900, `fast start left at ${fast.at}, entrance at ${fast.entrance}`);
+    await lp.context().close();
+    // An app ready after the hold leaves at readiness.
+    lp = await launchPage('launchReady=2900');
+    await expect(lp.locator('#launch')).toHaveCount(0, {timeout: 8000});
+    const late = await outcome(lp);
+    assert.equal(late.left, 'ready');
+    assert.ok(late.at >= 2900 && late.at < 3350, `late start left at ${late.at}`);
     await lp.context().close();
     // A click, or a key, skips it at once.
     for (const act of [(p) => p.mouse.click(660, 300), (p) => p.keyboard.press('a')]) {
@@ -91,13 +92,15 @@ try {
       await lp.context().close();
     }
     // Reduced motion: the still logo (no entrance, no glow), gone at readiness.
-    lp = await launchPage('launchReady=400', {reduced: true, seen: false});
+    lp = await launchPage('launchReady=400', {reduced: true});
     await expect(lp.locator('#launch')).toBeVisible();
     assert.deepEqual(await look(lp, '#launch .l-t1 i', ['animationName', 'transform']), ['none', 'none']);
     assert.deepEqual(await look(lp, '#launch .l-word', ['animationName', 'opacity']), ['none', '1']);
     assert.deepEqual(await look(lp, '#launch .l-glow', ['opacity']), ['0']);
     await expect(lp.locator('#launch')).toHaveCount(0, {timeout: 8000});
-    assert.equal((await outcome(lp)).left, 'ready');
+    const still = await outcome(lp);
+    assert.equal(still.left, 'ready');
+    assert.ok(still.at >= 400 && still.at < 1000, `reduced motion left at ${still.at}`);
     await lp.context().close();
     // The light theme: its canvas, text and the darker light.
     lp = await launchPage('launchReady=never', {theme: 'light'});
@@ -112,7 +115,7 @@ try {
     await expect(lp.locator('#launch')).toBeHidden();
     assert.equal(await lp.evaluate(() => window.__launch.shown), false);
     await lp.context().close();
-    console.log('Launch screen passed: first frame in dark and light, the five entrances, the frame behind, slow start at the cap, fast start at readiness, a first run once, click and key skip, reduced motion, none outside the desktop app.');
+    console.log('Launch screen passed: first frame in dark and light, the five entrances on the kit timetable, the frame behind, slow start at the cap, a fast start after the whole entrance and its hold, a late start at readiness, click and key skip, reduced motion at readiness, none outside the desktop app.');
   }
   await page.goto(base + '?projects');
   for (let i=1;i<=3;i++) {

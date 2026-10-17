@@ -82,15 +82,19 @@ describe('the launch screen in app.html', () => {
 		]);
 	});
 
-	it('plays an entrance as long as launch.ts waits for; no part is longer than --t-enter', () => {
+	it('plays the logo kit’s timetable, as long as launch.ts waits for', () => {
 		const parts = [...style.matchAll(/animation: (l-[\w-]+) (\d+)ms \S+(?: [\d., ]+\))? (\d+)ms (\w+);/g)];
-		expect(parts.map((m) => m[1])).toEqual(['l-rise', 'l-rise', 'l-fall', 'l-glow', 'l-word']);
-		for (const [, , dur, , fill] of parts) {
-			expect(Number(dur)).toBeLessThanOrEqual(400);
-			// Only the start state is held (before the delay): the end state is
-			// the box's own style, so no transform stays on after the entrance.
-			expect(fill).toBe('backwards');
-		}
+		// [keyframes, start, length] in ms from the first frame (欢迎页说明.md, timeline.json).
+		expect(parts.map((m) => [m[1], Number(m[3]), Number(m[2])])).toEqual([
+			['l-rise', 100, 700],
+			['l-rise', 260, 700],
+			['l-fall', 820, 640],
+			['l-glow', 1100, 700],
+			['l-word', 1450, 600]
+		]);
+		// Only the start state is held (before the delay): the end state is
+		// the box's own style, so no transform stays on after the entrance.
+		for (const [, , , , fill] of parts) expect(fill).toBe('backwards');
 		expect(Math.max(...parts.map((m) => Number(m[2]) + Number(m[3])))).toBe(LAUNCH.sequenceMs);
 	});
 
@@ -107,7 +111,8 @@ describe('the launch screen in app.html', () => {
 
 	it('shows only in the desktop app’s main window at /, and goes by itself if the scripts never run', () => {
 		expect(html).toMatch(/if \(tauri && location\.pathname === '\/' && \(!label \|\| label === 'main'\)\) \{\s*root\.classList\.add\('launching'\);/);
-		expect(Number(/\}, (\d+)\);\s*\}\s*\}\)\(\);/.exec(html)?.[1])).toBeGreaterThan(LAUNCH.capMs);
+		// After the cap and its fade, so it never cuts the fade short.
+		expect(Number(/\}, (\d+)\);\s*\}\s*\}\)\(\);/.exec(html)?.[1])).toBeGreaterThan(LAUNCH.capMs + LAUNCH.fadeMs);
 		expect(html).toMatch(/<div id="launch" aria-hidden="true" data-tauri-drag-region>/);
 	});
 });
