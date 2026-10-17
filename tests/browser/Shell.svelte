@@ -23,6 +23,8 @@
 	//                           sandbox request: the card above the composer)
 	//   &states                 the other conversations in the navigator wait
 	//                           for an answer, run, or failed
+	//   &busy[=<n>]             n more conversations (8 by default), in a third
+	//                           project, all at work
 	//   &cards                  a turn at work with a plan and three subagents of
 	//                           LynShen's agent team (the plan and subagents cards)
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
@@ -87,6 +89,12 @@
 	};
 	const first = named('/Users/me/code/lynshen-desktop', ['对话宽度跟随窗口', '浅色主题调色', '窗口磨砂默认关闭']);
 	named('/Users/me/code/LynShen-CLI', ['daemon 技能开关', 'clippy 清理']);
+	if (mode.has('busy')) {
+		const titles = ['会话缓存按会话分片', '对话列表虚拟滚动', '设置页搜索', '终端字体回退', '导入 DSH 会话', '模型目录缓存', '计划卡折叠', '子智能体页加载', '侧栏拖动排序', '更新检查超时', '浅色主题对比度', '窗口标题计数'];
+		const n = Math.max(1, Math.min(titles.length, Number(mode.get('busy')) || 8));
+		const busy = named('/Users/me/code/aogiri-web', titles.slice(0, n));
+		for (const s of busy.sessions) s.chat.handle({ type: 'status', message: 'streaming' } as never);
+	}
 	const session = store.allSessions.find((s) => s.id === first.sessions[0].id)!;
 	store.activeId = session.id;
 
