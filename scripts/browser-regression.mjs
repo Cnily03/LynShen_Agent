@@ -1230,6 +1230,36 @@ try {
   await expect(win.locator('.composer')).toBeVisible({timeout:30000});
   await expect.poll(async () => (await frostState(win)).root).toBe('on');
   await win.close();
+  // A conversation at work: no spinner in the navigator; a light sweeps its
+  // title, every title on one clock (startTime 0) and at the same point of
+  // the sweep. Reduced motion stops it, dim; under the window frost the
+  // title breathes instead.
+  const sweep = (p) => p.evaluate(() => {
+    const titles = [...document.querySelectorAll('aside .sess-title.running')];
+    const veils = titles.map((t) => t.querySelector('.veil')).filter(Boolean);
+    return {
+      rows: titles.length,
+      veils: veils.length,
+      spinners: document.querySelectorAll('aside .sess .spin').length,
+      clocks: [...new Set(veils.flatMap((v) => v.getAnimations().map((a) => a.startTime)))],
+      phases: [...new Set(veils.map((v) => (new DOMMatrix(getComputedStyle(v).transform).e / v.offsetWidth).toFixed(2)))],
+      shown: veils.filter((v) => getComputedStyle(v).display !== 'none').length,
+      breathing: titles.filter((t) => getComputedStyle(t).animationName !== 'none').length
+    };
+  });
+  const busyNav = await frosted('?shell&busy=6&states', {version: 2});
+  await expect.poll(async () => (await sweep(busyNav)).rows).toBeGreaterThan(6);
+  const swept = await sweep(busyNav);
+  assert.deepEqual({...swept, rows: 0, phases: swept.phases.length}, {rows: 0, veils: swept.rows, spinners: 0, clocks: [0], phases: 1, shown: swept.rows, breathing: 0});
+  await busyNav.emulateMedia({reducedMotion: 'reduce'});
+  await expect.poll(async () => (await sweep(busyNav)).clocks).toEqual([]);
+  assert.deepEqual((await sweep(busyNav)).phases, ['-0.60']);
+  await busyNav.close();
+  const busyFrost = await frosted('?shell&busy=6&states&frost=vibrancy', {version: 2, sidebarVibrancy: true});
+  await expect.poll(async () => (await frostState(busyFrost)).root).toBe('on');
+  const breathed = await sweep(busyFrost);
+  assert.deepEqual([breathed.shown, breathed.clocks, breathed.breathing === breathed.rows, breathed.rows > 6], [0, [], true, true]);
+  await busyFrost.close();
   // The light theme's canvas is an off-white, the sidebar a step darker and
   // the composer a step lighter; the page never paints white. (Glass off:
   // with it the composer lets the canvas through.)

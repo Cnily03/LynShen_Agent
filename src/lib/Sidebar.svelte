@@ -3,7 +3,6 @@
 	import PlusIcon from 'phosphor-svelte/lib/PlusIcon';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwiseIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
-	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import GitBranchIcon from 'phosphor-svelte/lib/GitBranchIcon';
 	import GitForkIcon from 'phosphor-svelte/lib/GitForkIcon';
 	import ArchiveIcon from 'phosphor-svelte/lib/ArchiveIcon';
@@ -29,6 +28,7 @@
 	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
 	import { rowIn } from '$lib/ui/motion';
+	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import { t } from '$lib/i18n';
@@ -478,6 +478,10 @@
 	</nav>
 
 
+	<!-- A conversation at work: the light sweeping its title (ui/shimmer.ts).
+	     It is the row's only "running" mark, also for screen readers. -->
+	{#snippet veil()}<i class="veil" role="img" aria-label={t('shell.status.running')} use:shimmer></i>{/snippet}
+
 	{#snippet sessRow(s: Session, nested = false, selectable = false, p?: Project, where?: string)}
 		{@const status = sessionStatus(s.chat)}
 		{@const req = s.chat.sessionId ? reqs.bySession.get(s.chat.sessionId) : undefined}
@@ -537,7 +541,7 @@
 					class:running={status?.kind === 'running'}
 					class:unread={status?.kind === 'unread'}
 					ondblclick={(e) => { e.stopPropagation(); startRename(s); }}
-					role="presentation">{shownTitle(s.chat.title)}</span
+					role="presentation">{shownTitle(s.chat.title)}{#if status?.kind === 'running'}{@render veil()}{/if}</span
 				>
 			{/if}
 			{#if where}<span class="where" title={where}>{where}</span>{/if}
@@ -549,7 +553,6 @@
 			{#if s.pinned && !s.archived}<span class="pin-mark" title={t('shell.pin')}><PushPinIcon size={12} weight="fill" /></span>{/if}
 			<!-- Another conversation's message waits for this one to be free. -->
 			{#if waiting}<span class="queued-mark" title={waiting} aria-label={waiting}><EnvelopeSimpleIcon size={12} /></span>{/if}
-			{#if status?.kind === 'running'}<SessionMark {status} />{/if}
 			{#if !selectable}
 			{#if !s.archived}
 				<span
@@ -684,11 +687,10 @@
 				>
 					<AgentAvatar agent={a} size={16} />
 					<span class="agent-text">
-						<span class="sess-title">{a.name}</span>
+						<span class="sess-title" class:running={a.busy && !waiting}>{a.name}{#if a.busy && !waiting}{@render veil()}{/if}</span>
 						{#if a.summary}<span class="agent-summary">{a.summary}</span>{/if}
 					</span>
-					{#if waiting}<span class="count">{waiting}</span>
-					{:else if a.busy}<CircleNotchIcon size={16} class="spin state" />{/if}
+					{#if waiting}<span class="count">{waiting}</span>{/if}
 					{#if !a.enabled}<span class="tag">{t('shell.agents.disabled')}</span>
 					{:else}
 						<span
@@ -1513,10 +1515,6 @@
 		color: var(--text);
 		font: inherit;
 	}
-	.sess :global(.state) {
-		color: var(--dim);
-		flex-shrink: 0;
-	}
 	.tag {
 		flex-shrink: 0;
 		padding: 1px 7px;
@@ -1530,14 +1528,57 @@
 		color: var(--text);
 		font-weight: 600;
 	}
-	/* Working: a highlight sweeps across the title. */
-	/* A conversation at work breathes. Opacity only: the compositor runs it,
-	   so a turn of many minutes repaints nothing (a light sweeping through
-	   the text, as before, repainted the row, and the glass behind it, at
-	   every frame for as long as an agent worked). */
+	/* A conversation at work: a light sweeps across its title, every running
+	   title on one clock (ui/shimmer.ts). The title hugs its text, so the
+	   light crosses the words, not the empty row. */
 	.sess-title.running {
+		position: relative;
 		flex: 0 1 auto;
+		max-width: 100%;
 		margin-right: auto;
+	}
+	/* The veil: the row's own colour over the title (30% dark, 22% light: the
+	   title reads as --dim), with a clear window that the sweep moves across.
+	   It must match the row's fill exactly, so it follows hover and
+	   selection with an opaque copy of --surface2 over --sidebar. */
+	.sess {
+		--row-bg: var(--sidebar);
+		--veil: 30%;
+	}
+	:global([data-theme='light']) .sess {
+		--veil: 22%;
+	}
+	.sess:hover,
+	.sess.on {
+		--row-bg: color-mix(in srgb, var(--text) 6%, var(--sidebar));
+	}
+	.veil {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: 300%;
+		pointer-events: none;
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--row-bg) var(--veil), transparent) 0%,
+			color-mix(in srgb, var(--row-bg) var(--veil), transparent) 42%,
+			transparent 50%,
+			color-mix(in srgb, var(--row-bg) var(--veil), transparent) 58%,
+			color-mix(in srgb, var(--row-bg) var(--veil), transparent) 100%
+		);
+		/* At rest (reduced motion): the whole title under the veil. */
+		transform: translateX(-60%);
+	}
+	/* With the window frost or a background image behind the navigator the
+	   row has no one colour to match, so the title breathes instead.
+	   Opacity only: the compositor runs it too. */
+	:global(:root[data-vibrancy]) .veil,
+	:global(:root[data-canvas-bg]) .veil {
+		display: none;
+	}
+	:global(:root[data-vibrancy]) .sess-title.running,
+	:global(:root[data-canvas-bg]) .sess-title.running {
 		animation: title-breathe 1.8s var(--ease-in-out) infinite;
 	}
 	@keyframes title-breathe {
@@ -1546,8 +1587,10 @@
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.sess-title.running {
+		:global(:root[data-vibrancy]) .sess-title.running,
+		:global(:root[data-canvas-bg]) .sess-title.running {
 			animation: none;
+			color: var(--dim);
 		}
 	}
 	/* Under 对话: the project a conversation belongs to. */
