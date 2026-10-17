@@ -1462,10 +1462,11 @@ describe('ChatState: the LynShen sandbox', () => {
 		const c = new ChatState();
 		c.handle({ type: 'approval_request', call_id: 'c1', name: 'bash', summary: 'ls', subagent_id: null, hunks: null });
 		expect(c.pendingApproval).toEqual({ callId: 'c1', name: 'bash', summary: 'ls', subagentId: null, hunks: null, questions: null });
-		// codex's always-allow scopes stay codex's
+		// codex's always-allow scopes stay codex's (the second request waits
+		// behind the first)
 		c.handle({ type: 'approval_request', call_id: 'c2', name: 'exec_command', summary: 'ls', scopes: ['session', 'rule'] });
-		expect(c.pendingApproval?.scopes).toEqual(['session', 'rule']);
-		expect(c.pendingApproval?.sandbox).toBeUndefined();
+		expect(c.pendingApprovals.at(-1)?.scopes).toEqual(['session', 'rule']);
+		expect(c.pendingApprovals.at(-1)?.sandbox).toBeUndefined();
 	});
 
 	it('reads the sandbox fields of a request, not as codex scopes', () => {

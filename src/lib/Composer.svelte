@@ -642,7 +642,9 @@
 			question.name === 'mcp_elicitation' && flow.step === 0 ? question.summary : '',
 			currentQ?.header,
 			n > 1 ? t('chat.questionProgress', { n: flow.step + 1, m: n }) : '',
-			question.subagentId ? t('chat.subagentChip', { id: question.subagentId }) : ''
+			question.subagentId ? t('chat.subagentChip', { id: question.subagentId }) : '',
+			// Several requests wait: this one's place among them.
+			chat.approvalPlace ? t('shell.approvalPlace', { n: chat.approvalPlace.n, m: chat.approvalPlace.of }) : ''
 		]
 			.filter(Boolean)
 			.join(' · ');

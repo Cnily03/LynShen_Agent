@@ -35,7 +35,8 @@
 		ruleScopes = false,
 		keys = true,
 		remote = false,
-		onTerminal
+		onTerminal,
+		place = null
 	}: {
 		approval: {
 			callId: string;
@@ -61,6 +62,8 @@
 		remote?: boolean;
 		/** Opens a terminal in `cwd` with `command` typed, not run (在终端里运行). */
 		onTerminal?: (command: string, cwd: string) => void;
+		/** This request's place when several wait (ChatState.approvalPlace). */
+		place?: { n: number; of: number } | null;
 	} = $props();
 
 	// --- LynShen sandbox requests: title by kind, reason / command / cwd,
@@ -287,6 +290,8 @@
 		{#if approval.subagentId}
 			<span class="meta subagent" title={approval.subagentId}>· {t('chat.subagentChip', { id: approval.subagentId })}</span>
 		{/if}
+		<!-- Several wait: this one's place among them. -->
+		{#if place}<span class="place">{t('shell.approvalPlace', { n: place.n, m: place.of })}</span>{/if}
 	</div>
 
 	{#if questions}
@@ -563,6 +568,15 @@
 		color: var(--dim);
 		font-size: var(--fs-xs);
 		font-weight: 400;
+		white-space: nowrap;
+	}
+	.approval-head .place {
+		flex-shrink: 0;
+		margin-left: auto;
+		color: var(--dim);
+		font-size: var(--fs-xs);
+		font-weight: 400;
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
 	.approval-head .subagent {

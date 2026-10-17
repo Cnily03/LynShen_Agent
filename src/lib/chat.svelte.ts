@@ -74,6 +74,25 @@ export interface TurnStats {
 /** The model request in flight, for the live timer: which stage it is in and
  *  when that stage began. `connect`: request sent, no response yet; `ttft`:
  *  connected, waiting for the first token; `output`: tokens streaming. */
+/** A request that waits for the user: an action to allow, a question, a
+ *  plan, an MCP form. */
+export interface PendingApproval {
+	callId: string;
+	name: string;
+	summary: string;
+	subagentId: string | null;
+	hunks: ApprovalHunk[] | null;
+	/** Present for a claude AskUserQuestion — render an interactive picker. */
+	questions?: Question[] | null;
+	/** An MCP elicitation asking the user to open a page (claude). */
+	url?: string;
+	/** Where an always-allow can be kept, when the engine says (codex). */
+	scopes?: AlwaysScope[];
+	/** A LynShen sandbox request: its kind, reason, scopes (absent from
+	 *  an engine before the sandbox contract). */
+	sandbox?: SandboxRequest;
+}
+
 export interface CallTiming {
 	phase: 'connect' | 'ttft' | 'output';
 	since: number;
@@ -835,22 +854,42 @@ export class ChatState {
 	trustPrompt = $state<{ cwd: string; repoRoot: string | null } | null>(null);
 	goal = $state<Goal | null>(null);
 	plan = $state<PlanStep[]>([]);
-	pendingApproval = $state<{
-		callId: string;
-		name: string;
-		summary: string;
-		subagentId: string | null;
-		hunks: ApprovalHunk[] | null;
-		/** Present for a claude AskUserQuestion — render an interactive picker. */
-		questions?: Question[] | null;
-		/** An MCP elicitation asking the user to open a page (claude). */
-		url?: string;
-		/** Where an always-allow can be kept, when the engine says (codex). */
-		scopes?: AlwaysScope[];
-		/** A LynShen sandbox request: its kind, reason, scopes (absent from
-		 *  an engine before the sandbox contract). */
-		sandbox?: SandboxRequest;
-	} | null>(null);
+	/** What waits for the user's answer, in the order it came: an engine
+	 *  can ask several at once (parallel tool calls, background subagents),
+	 *  and each waits until it is answered. The card shows the first
+	 *  (`pendingApproval`) and its place, "第 1/3 个". */
+	pendingApprovals = $state<PendingApproval[]>([]);
+	/** How many requests of this run (since none waited) are settled: after
+	 *  one of three, the card says "第 2/3 个". */
+	approvalsSettled = $state(0);
+	/** The request in front of the queue, or null. Set to null, it drops that
+	 *  one; set to a request, that request goes in front (in place of one
+	 *  with its call id). */
+	get pendingApproval(): PendingApproval | null {
+		return this.pendingApprovals[0] ?? null;
+	}
+	set pendingApproval(request: PendingApproval | null) {
+		if (!request) this.#settle(this.pendingApprovals.slice(1));
+		else this.pendingApprovals = [request, ...this.pendingApprovals.filter((a) => a.callId !== request.callId)];
+	}
+	/** The front request's place in this run, when more than one is in it. */
+	get approvalPlace(): { n: number; of: number } | null {
+		const of = this.approvalsSettled + this.pendingApprovals.length;
+		return this.pendingApprovals.length && of > 1 ? { n: this.approvalsSettled + 1, of } : null;
+	}
+	/** A request is settled (answered, or its call ran or went): out of the queue. */
+	#dropApproval(callId: string) {
+		if (this.pendingApprovals.some((a) => a.callId === callId)) this.#settle(this.pendingApprovals.filter((a) => a.callId !== callId));
+	}
+	#settle(rest: PendingApproval[]) {
+		this.approvalsSettled = rest.length ? this.approvalsSettled + this.pendingApprovals.length - rest.length : 0;
+		this.pendingApprovals = rest;
+	}
+	/** Nothing waits any more (the turn ended or failed). */
+	#clearApprovals() {
+		this.approvalsSettled = 0;
+		this.pendingApprovals = [];
+	}
 	/** What this session's commands may do, as the engine last said
 	 *  (`sandbox`); null until it says (an engine before the contract never does). */
 	sandbox = $state<SandboxState | null>(null);
@@ -862,7 +901,7 @@ export class ChatState {
 	 *  answer (a directory that does not exist, a scope it does not offer)
 	 *  says so in an `error` and keeps the request waiting, so its card comes
 	 *  back (see `error`). Gone once the call runs or another request comes. */
-	#answered: { approval: NonNullable<ChatState['pendingApproval']>; at: number } | null = null;
+	#answered: { approval: PendingApproval; at: number } | null = null;
 	/** The conversation is open in its engine's TUI (on this or another
 	 *  client): its GUI ops wait until the TUI exits. */
 	inTerminal = $state(false);
@@ -1977,7 +2016,7 @@ export class ChatState {
 			case 'tool_output': {
 				// The call ran: it was decided here, on another device, or by
 				// a mode switch, so its card goes.
-				if (this.pendingApproval && this.pendingApproval.callId === str(ev.call_id)) this.pendingApproval = null;
+				this.#dropApproval(str(ev.call_id));
 				if (this.#answered?.approval.callId === str(ev.call_id)) this.#answered = null;
 				// Engines that do not announce each request (codex) start the next
 				// one once the tools are back.
@@ -2266,7 +2305,8 @@ export class ChatState {
 				// sandbox's (once / session / project), not codex's always-allow ones.
 				const sandbox = parseSandboxRequest(ev as Record<string, unknown>);
 				this.#answered = null;
-				this.pendingApproval = {
+				// After the ones already waiting; one asked again keeps its place.
+				const request: PendingApproval = {
 					callId: str(ev.call_id),
 					name: str(ev.name),
 					summary: str(ev.summary),
@@ -2276,6 +2316,8 @@ export class ChatState {
 					...(str(ev.url) ? { url: str(ev.url) } : {}),
 					...(sandbox ? { sandbox } : Array.isArray(ev.scopes) ? { scopes: arr<AlwaysScope>(ev.scopes) } : {})
 				};
+				const at = this.pendingApprovals.findIndex((a) => a.callId === request.callId);
+				this.pendingApprovals = at < 0 ? [...this.pendingApprovals, request] : this.pendingApprovals.map((a, i) => (i === at ? request : a));
 				break;
 			}
 			case 'sandbox':
@@ -2635,7 +2677,7 @@ export class ChatState {
 					// records how long it thought.
 					this.#collapseReasoning();
 					this.#resetCurrent();
-					this.pendingApproval = null;
+					this.#clearApprovals();
 					// Safety net: a lost tool_output (e.g. a subagent frame whose
 					// tool_result never mapped) would otherwise leave a card spinning
 					// forever — the turn is over, so nothing is still running.
@@ -2687,8 +2729,10 @@ export class ChatState {
 				// request and keeps it waiting (its words say why): the card
 				// comes back, and the turn goes on.
 				const answered = this.#answered;
-				if (answered && !this.pendingApproval && Date.now() - answered.at < 15_000 && APPROVE_REFUSED.test(str(ev.message))) {
+				if (answered && !this.pendingApprovals.some((a) => a.callId === answered.approval.callId) && Date.now() - answered.at < 15_000 && APPROVE_REFUSED.test(str(ev.message))) {
 					this.#answered = null;
+					// Waiting again: no longer one of the settled.
+					this.approvalsSettled = Math.max(0, this.approvalsSettled - 1);
 					this.pendingApproval = answered.approval;
 					this.messages.push({ kind: 'system', text: t('chat.approvalRefused', { msg: str(ev.message) }) });
 					break;
@@ -2749,7 +2793,7 @@ export class ChatState {
 				const inTurn = started || this.#sending !== null;
 				const last = this.messages[this.messages.length - 1];
 				this.lastError = str(ev.message);
-				this.pendingApproval = null;
+				this.#clearApprovals();
 				this.#setSend('failed');
 				this.#sending = null;
 				// The engines can report one failure twice (the item, then the turn).

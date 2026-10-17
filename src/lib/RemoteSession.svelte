@@ -733,7 +733,7 @@
 		{#if chat.pendingApproval}
 			<div class="approval">
 				{#key chat.pendingApproval.callId}
-					<ApprovalCard approval={chat.pendingApproval} onRespond={respond} ruleScopes={caps(chat).ruleScopes} remote />
+					<ApprovalCard approval={chat.pendingApproval} place={chat.approvalPlace} onRespond={respond} ruleScopes={caps(chat).ruleScopes} remote />
 				{/key}
 			</div>
 		{/if}

@@ -1623,7 +1623,7 @@
 		{#if chat.pendingApproval && !chat.pendingApproval.questions?.length}
 			<div class="approval-wrap">
 				{#key chat.pendingApproval.callId}
-					<ApprovalCard approval={chat.pendingApproval} onRespond={respondApproval} ruleScopes={caps(chat).ruleScopes} keys={isActive} onTerminal={(command, cwd) => terminalRequests.open(command, cwd || chat.cwd, session.id)} />
+					<ApprovalCard approval={chat.pendingApproval} place={chat.approvalPlace} onRespond={respondApproval} ruleScopes={caps(chat).ruleScopes} keys={isActive} onTerminal={(command, cwd) => terminalRequests.open(command, cwd || chat.cwd, session.id)} />
 				{/key}
 			</div>
 		{/if}
