@@ -1260,6 +1260,61 @@ try {
   const breathed = await sweep(busyFrost);
   assert.deepEqual([breathed.shown, breathed.clocks, breathed.breathing === breathed.rows, breathed.rows > 6], [0, [], true, true]);
   await busyFrost.close();
+  // 对话 by state: 等你处理 / 进行中 / 已完成 with their counts. A state change
+  // restyles the row at once and moves it to the top of its new group (a
+  // transform that ends with nothing kept, the row above the others); with
+  // the pointer in the list it only restyles, and moves once the pointer
+  // leaves. Reduced motion: no movement. The toolbar switches to the time
+  // order and keeps the choice.
+  const groups = await browser.newPage({viewport: {width: 1280, height: 800}});
+  groups.on('pageerror', e => errors.push(e.message));
+  await groups.goto(base + '?shell&states&busy=3');
+  await expect(groups.locator('aside .ghead').first()).toBeVisible({timeout:30000});
+  await groups.mouse.move(900, 400);
+  const chatList = () => groups.evaluate(() => {
+    const sec = [...document.querySelectorAll('aside .list > section')].find((s) => s.querySelector('.item'));
+    return [...sec.querySelectorAll(':scope .item')].map((it) => it.querySelector('.ghead')?.textContent.replace(/\s+/g, '') ?? it.querySelector('.sess-title').textContent.trim());
+  });
+  const stateOf = (title, ev) => groups.evaluate(({title, ev}) => window.__shellStore.allSessions.find((x) => x.chat.title === title).chat.handle(ev), {title, ev});
+  const moving = (title) => groups.evaluate((title) => new Promise((done) => {
+    const sec = [...document.querySelectorAll('aside .list > section')].find((s) => s.querySelector('.item'));
+    const el = [...sec.querySelectorAll(':scope .item')].find((it) => it.querySelector('.sess-title')?.textContent.trim() === title);
+    const seen = [];
+    const t0 = performance.now();
+    const tick = () => {
+      const cs = getComputedStyle(el);
+      seen.push([cs.transform !== 'none', cs.zIndex]);
+      if (performance.now() - t0 < 600) requestAnimationFrame(tick);
+      else done({moved: seen.some(([m]) => m), lifted: seen.some(([, z]) => z === '2'), after: [getComputedStyle(el).transform, el.getAnimations().length]});
+    };
+    tick();
+  }), title);
+  assert.deepEqual((await chatList()).filter((x) => x.startsWith('等你处理') || x.startsWith('进行中') || x.startsWith('已完成')), ['等你处理3', '进行中4', '已完成1']);
+  const finishing = moving('浅色主题调色');
+  await stateOf('浅色主题调色', {type: 'status', message: 'ready'});
+  assert.deepEqual(await finishing, {moved: true, lifted: true, after: ['none', 0]});
+  const settledList = await chatList();
+  assert.deepEqual(settledList.slice(settledList.indexOf('已完成2')), ['已完成2', '浅色主题调色', '对话宽度跟随窗口']);
+  await groups.mouse.move(100, 300);
+  await stateOf('对话宽度跟随窗口', {type: 'status', message: 'streaming'});
+  await expect(groups.locator('aside .item', {hasText: '对话宽度跟随窗口'}).first().locator('.sess-title.running')).toHaveCount(1);
+  assert.deepEqual((await chatList()).slice(-2), ['浅色主题调色', '对话宽度跟随窗口']);
+  await groups.mouse.move(900, 400);
+  await expect.poll(async () => (await chatList()).indexOf('对话宽度跟随窗口')).toBe((await chatList()).indexOf('进行中4') + 1);
+  // (Once the rows making room have landed.)
+  await groups.waitForFunction(() => [...document.querySelectorAll('aside .item')].every((it) => !it.getAnimations().length));
+  await groups.emulateMedia({reducedMotion: 'reduce'});
+  const still = moving('设置页搜索');
+  await stateOf('设置页搜索', {type: 'status', message: 'ready'});
+  assert.deepEqual(await still, {moved: false, lifted: false, after: ['none', 0]});
+  await groups.getByRole('button', {name: '对话按状态分组'}).click();
+  await expect(groups.locator('aside .ghead')).toHaveCount(0);
+  assert.equal(await groups.evaluate(() => localStorage.getItem('lynshen-sidebar-order')), 'time');
+  await groups.reload();
+  await expect(groups.locator('aside .sess').first()).toBeVisible({timeout:30000});
+  await expect(groups.locator('aside .ghead')).toHaveCount(0);
+  await expect(groups.getByRole('button', {name: '对话按状态分组'})).toHaveAttribute('aria-pressed', 'false');
+  await groups.close();
   // The light theme's canvas is an off-white, the sidebar a step darker and
   // the composer a step lighter; the page never paints white. (Glass off:
   // with it the composer lets the canvas through.)
