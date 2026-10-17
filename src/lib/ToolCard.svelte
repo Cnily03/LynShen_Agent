@@ -16,7 +16,8 @@
 		trace,
 		heading,
 		badge,
-		sections
+		sections,
+		reveal = 0
 	}: {
 		name: string;
 		output: string;
@@ -34,6 +35,9 @@
 		/** What the call's body shows instead of its output, one titled text
 		 *  each (none: the card does not open). */
 		sections?: { label: string; text: string }[];
+		/** Counts the requests to show this call's details (the work status
+		 *  line's "›"): each new one opens the card. */
+		reveal?: number;
 	} = $props();
 
 	// Auto-expand while the tool runs, auto-collapse once it finishes; a
@@ -47,6 +51,9 @@
 		if (running === wasRunning) return;
 		wasRunning = running;
 		collapsed = !running && !untrack(() => isError);
+	});
+	$effect(() => {
+		if (reveal) collapsed = false;
 	});
 
 	const parsed = $derived(parseToolOutput(output));

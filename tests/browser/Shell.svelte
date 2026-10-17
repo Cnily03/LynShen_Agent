@@ -28,6 +28,10 @@
 	//   &cards                  a turn at work with a plan and three subagents of
 	//                           LynShen's agent team (the plan and subagents cards)
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
+	//   &work=<step>            a third turn at work, on one step: think, write,
+	//                           bash (lynshen: `started: <command>`), read or
+	//                           edit (a card naming the file, as claude's), mcp,
+	//                           a run of calls (group), compact
 	//   &textOnly               the engine reports a model that takes no images
 	//                           and does not think (`window.__chat` attaches files)
 	//   &styles                 the engine reports the reply style: the "+"
@@ -250,6 +254,28 @@
 				{ id: 't4', title: '审查改动', status: 'pending', depends_on: ['t3'] }
 			]
 		});
+	}
+	// ?shell&work=<step>: the conversation's third turn, still at work.
+	const work = mode.get('work');
+	if (work && !mode.has('empty')) {
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'status', message: 'streaming' });
+		const tool = (id: string, name: string, update?: string) => {
+			feed({ type: 'tool_start', call_id: id, name });
+			if (update) feed({ type: 'tool_update', call_id: id, name, output: update });
+		};
+		if (work === 'think') feed({ type: 'reasoning_delta', delta: '先找出读缓存的地方。' });
+		else if (work === 'write') feed({ type: 'assistant_delta', delta: '缓存键改成了会话 ID 加文件路径，' });
+		else if (work === 'bash') tool('w1', 'bash', 'started: pnpm vitest run src/lib/cache.test.ts --reporter=dot');
+		else if (work === 'read') tool('w1', 'read', JSON.stringify({ path: '/Users/me/code/lynshen-desktop/src/lib/cache.ts' }));
+		else if (work === 'edit') tool('w1', 'str_replace', JSON.stringify({ path: '/Users/me/code/lynshen-desktop/src/lib/session.svelte.ts', paths: [], diff: '' }));
+		else if (work === 'mcp') tool('w1', 'mcp__linear__create_issue');
+		else if (work === 'group') {
+			tool('w1', 'read', JSON.stringify({ path: '/Users/me/code/lynshen-desktop/src/lib/cache.ts' }));
+			feed({ type: 'tool_output', call_id: 'w1', name: 'read', output: JSON.stringify({ path: '/Users/me/code/lynshen-desktop/src/lib/cache.ts', content: 'export const cache = new Map();' }) });
+			tool('w2', 'bash', 'started: pnpm vitest run src/lib/cache.test.ts');
+			feed({ type: 'tool_update', call_id: 'w2', name: 'bash', output: 'running 2.0s\nstdout:\n ✓ cache.test.ts (12 tests)' });
+		} else if (work === 'compact') session.chat.handle({ type: 'compaction_start' } as never);
 	}
 	const opened: string[] = [];
 	// What the conversation sends its engine: no engine runs here, so the

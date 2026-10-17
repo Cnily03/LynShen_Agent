@@ -35,6 +35,7 @@
 	import { prefs } from '$lib/prefs.svelte';
 	import { fmtDur, turnParts } from '$lib/turnStats';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { tick } from 'svelte';
 	import UserImage from '$lib/UserImage.svelte';
 	import SentFiles from '$lib/SentFiles.svelte';
 	import { copyableText, splitAttachments } from '$lib/attachments';
@@ -573,6 +574,18 @@
 				: null;
 		return { running, failed, latest };
 	}
+
+	// The status line's "›": the running call's card, opened (its run of
+	// calls too) and brought into view.
+	let revealed = $state<{ call: Msg; n: number } | null>(null);
+	async function revealCall(call: Msg) {
+		const head = toolGroups.headOf.get(call);
+		if (head) openGroups.add(head);
+		revealed = { call, n: (revealed?.n ?? 0) + 1 };
+		await tick();
+		rowEls[messages.indexOf(head ?? call)]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	}
+	const reveal = (m: Msg) => (revealed?.call === m ? revealed.n : 0);
 </script>
 
 <svelte:document onselectionchange={() => cite && window.getSelection()?.isCollapsed && (cite = null)} />
@@ -710,7 +723,7 @@
 				{#if open}
 					<div class="tg-list">
 						{#each run as x (x)}
-							{#if x.kind === 'tool'}<ToolCard name={x.name} output={x.output} running={x.running} isError={x.isError} subagent={x.subagent} trace={traceOf?.(x) ?? undefined} />{/if}
+							{#if x.kind === 'tool'}<ToolCard name={x.name} output={x.output} running={x.running} isError={x.isError} subagent={x.subagent} trace={traceOf?.(x) ?? undefined} reveal={reveal(x)} />{/if}
 						{/each}
 					</div>
 				{/if}
@@ -725,7 +738,7 @@
 				{@const card = sendCardProps(sendCardView(m, sendOf?.(m.callId)), m.isError)}
 				<ToolCard name={m.name} output={m.output} running={m.running} isError={m.isError} subagent={m.subagent} heading={card.heading} badge={card.badge} sections={card.sections} />
 			{:else}
-				<ToolCard name={m.name} output={m.output} running={m.running} isError={m.isError} subagent={m.subagent} trace={traceOf?.(m) ?? undefined} />
+				<ToolCard name={m.name} output={m.output} running={m.running} isError={m.isError} subagent={m.subagent} trace={traceOf?.(m) ?? undefined} reveal={reveal(m)} />
 			{/if}
 		{:else if m.kind === 'compaction'}
 			<CompactionCard stage={m.state} before={m.before} after={m.after} written={m.written} since={m.since} summary={m.summary} error={m.error} live={m.live} />
@@ -746,7 +759,7 @@
 	{:else if autoRetry}
 		<RetryNotice retry={autoRetry} {backend} onNow={onAutoRetryNow} onCancel={onAutoRetryCancel} />
 	{:else}
-		<Indicator phase={shownPhase} tokens={compactionTokens} {call} />
+		<Indicator phase={shownPhase} tokens={compactionTokens} {call} {messages} onDetails={revealCall} />
 	{/if}
 </div>
 {#if cite}
