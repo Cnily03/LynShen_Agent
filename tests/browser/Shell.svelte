@@ -216,6 +216,7 @@
 			feed({ type: 'tool_output', call_id: id, name: 'edit', output: JSON.stringify({ path: `/Users/me/code/lynshen-desktop/${path}`, diff }) });
 		};
 		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'connecting' });
 		feed({ type: 'status', message: 'streaming' });
 		if (recapMode !== 'suggestion') {
 			edit('r1', 'src/lib/cache.ts', 30, 5);
