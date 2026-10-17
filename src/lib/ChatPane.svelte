@@ -1102,8 +1102,8 @@
 		});
 	});
 	function stop() {
-		autoRetry.cancel(chat);
 		if (chat.busy) markStopped(chat.messages);
+		autoRetry.cancel(chat);
 		send({ op: 'interrupt' });
 	}
 	function respondApproval(op: ApproveOp) {
