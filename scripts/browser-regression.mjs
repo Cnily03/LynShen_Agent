@@ -1530,6 +1530,172 @@ try {
   await expect(groups.locator('aside .ghead')).toHaveCount(0);
   await expect(groups.getByRole('button', {name: '对话按状态分组'})).toHaveAttribute('aria-pressed', 'false');
   await groups.close();
+  // Sub-agents under their conversation: while its turn runs sub-agents,
+  // the running and just finished ones list under its row (26px, 14px in, on
+  // a tree line), four at most, then 还有 N 个. They fade in and settle 4px,
+  // after 80ms and then 120ms apart, while the rows below make room; the
+  // pointer in the list holds them like a move. Done, one turns --text at
+  // 500 in place. They move with their conversation when it changes group,
+  // and fold once its turn is over (&stay for the 30 s), the rows below
+  // moving up. Nothing is kept on a row. A click (or Enter) opens a
+  // sub-agent's page, 还有 N 个 the conversation. Reduced motion: no
+  // movement; the rail lists none.
+  const subs = await browser.newPage({viewport: {width: 1280, height: 800}});
+  subs.on('pageerror', e => errors.push(e.message));
+  await subs.goto(base + '?shell&busy=3&subagents=0&stay=1500');
+  await expect(subs.locator('aside .ghead').first()).toBeVisible({timeout:30000});
+  await subs.mouse.move(900, 400);
+  const subList = () => subs.evaluate(() => {
+    const sec = [...document.querySelectorAll('aside .list > section')].find((s) => s.querySelector('.item'));
+    return [...sec.querySelectorAll(':scope .item')].map((it) => (it.classList.contains('under') ? '└' : '') + (it.querySelector('.ghead')?.textContent.replace(/\s+/g, '') ?? it.querySelector('.sess-title, .sub-title').textContent.trim()));
+  });
+  const subParent = '窗口磨砂默认关闭';
+  const subsOf = (list) => { const out = []; for (let j = list.indexOf(subParent) + 1; j < list.length && list[j].startsWith('└'); j++) out.push(list[j].slice(1)); return out; };
+  const subSettled = () => subs.waitForFunction(() => [...document.querySelectorAll('aside .item')].every((it) => !it.getAnimations().length));
+  const subKept = () => subs.evaluate(() => [...document.querySelectorAll('aside .item')].filter((it) => getComputedStyle(it).transform !== 'none' || it.getAnimations().length).length);
+  // A token's computed colour, to compare with an element's.
+  const subToken = (name) => subs.evaluate((name) => { const i = document.createElement('i'); i.style.color = `var(${name})`; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c; }, name);
+  assert.deepEqual(subsOf(await subList()), []);
+  // (Svelte waits out a transition's delay in an animation of its own, as long as the delay.)
+  const subSpawned = await subs.evaluate(() => new Promise((done) => {
+    for (let i = 1; i <= 3; i++) window.__subagent(i);
+    requestAnimationFrame(() => requestAnimationFrame(() => done({
+      delays: [...document.querySelectorAll('aside .item.under')].map((it) => it.getAnimations()[0]?.effect.getTiming().duration),
+      making: [...document.querySelectorAll('aside .item:not(.under)')].filter((it) => it.getAnimations().length).length
+    })));
+  }));
+  assert.deepEqual(subSpawned.delays, [80, 200, 320]);
+  assert.ok(subSpawned.making >= 6, `${subSpawned.making} rows make room`);
+  const subFade = await subs.evaluate(() => new Promise((done) => setTimeout(() => {
+    const a = document.querySelector('aside .item.under').getAnimations()[0];
+    const k = a.effect.getKeyframes();
+    done([a.effect.getTiming().duration, k[0].opacity, k[0].transform, k.at(-1).opacity, k.at(-1).transform]);
+  }, 140)));
+  assert.deepEqual(subFade, [240, '0', 'translateY(-4px)', '1', 'translateY(0px)']);
+  await subSettled();
+  assert.equal(await subKept(), 0);
+  assert.deepEqual(subsOf(await subList()), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试']);
+  const subLook = await subs.evaluate(() => {
+    const items = [...document.querySelectorAll('aside .item.under')];
+    const parentRow = document.querySelector('aside .item .sess.on');
+    const line = getComputedStyle(items[0], '::before');
+    const veils = items.map((it) => it.querySelector('.sub-title.running .veil')).filter(Boolean);
+    return {
+      heights: items.map((it) => it.getBoundingClientRect().height),
+      indent: items[0].querySelector('.sub').getBoundingClientRect().left - parentRow.getBoundingClientRect().left,
+      line: [line.width, line.backgroundColor, line.left],
+      clocks: [...new Set(veils.flatMap((v) => v.getAnimations().map((a) => a.startTime)))],
+      veils: veils.length
+    };
+  });
+  const subLine = await subs.evaluate(() => { const i = document.createElement('i'); i.style.background = 'var(--border-strong)'; document.body.append(i); const c = getComputedStyle(i).backgroundColor; i.remove(); return c; });
+  assert.deepEqual(subLook, {heights: [26, 26, 26], indent: 14, line: ['1px', subLine, '11px'], clocks: [0], veils: 3});
+  // The pointer in the list: a new one waits (it would move the rows below),
+  // and comes in once the pointer leaves.
+  await subs.mouse.move(100, 300);
+  await subs.evaluate(() => window.__subagent(4));
+  await subs.waitForTimeout(400);
+  assert.deepEqual(subsOf(await subList()), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试']);
+  await subs.mouse.move(900, 400);
+  await expect.poll(async () => subsOf(await subList()).length).toBe(4);
+  await subs.evaluate(() => { window.__subagent(5); window.__subagent(6); });
+  await expect.poll(async () => subsOf(await subList())).toEqual(['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '还有 2 个']);
+  await subSettled();
+  // Done: --text at 500, at once and in place.
+  const subDoneAt = await subs.evaluate(() => document.querySelector('aside .sub[data-agent="/root/agent-1"]').getBoundingClientRect().top);
+  await subs.evaluate(() => window.__subagent(1, 'completed'));
+  const subDone = await subs.evaluate(() => {
+    const b = document.querySelector('aside .sub[data-agent="/root/agent-1"]');
+    const t = b.querySelector('.sub-title');
+    // (A transition of the text colour: `color` or `all`, for a time.)
+    const fades = (el) => { const cs = getComputedStyle(el); const times = cs.transitionDuration.split(', '); return cs.transitionProperty.split(', ').some((p, i) => (p === 'color' || p === 'all') && parseFloat(times[i % times.length]) > 0); };
+    return {weight: getComputedStyle(t).fontWeight, color: getComputedStyle(t).color, veil: !!t.querySelector('.veil'), top: b.getBoundingClientRect().top, moves: b.closest('.item').getAnimations().length, colorTransition: fades(b) || fades(t)};
+  });
+  assert.deepEqual(subDone, {weight: '500', color: await subToken('--text'), veil: false, top: subDoneAt, moves: 0, colorTransition: false});
+  await expect(subs.getByRole('button', {name: '「窗口磨砂默认关闭」的子智能体 读缓存层的代码，已完成。打开它的会话'})).toHaveCount(1);
+  // A click opens its page; Enter on a focused one too; 还有 N 个 opens the conversation.
+  await subs.getByRole('button', {name: '「窗口磨砂默认关闭」的子智能体 跑单元测试，运行中。打开它的会话'}).click();
+  await subs.getByRole('button', {name: /的子智能体 改 SessionCache 和调用方/}).focus();
+  await subs.keyboard.press('Enter');
+  await subs.getByRole('button', {name: '「窗口磨砂默认关闭」还有 2 个子智能体，打开对话查看'}).click();
+  const subParentId = await subs.evaluate(() => window.__shellSession);
+  assert.deepEqual((await subs.evaluate(() => window.__opened)).slice(-3), ['agent:/root/agent-3:side', 'agent:/root/agent-2:side', `select:${subParentId}`]);
+  await subs.mouse.move(900, 400);
+  await subSettled();
+  // The turn ends: the conversation moves to 已完成 with its sub-agents (all
+  // above the rows they pass), then they fold and the rows below move up.
+  const subCarry = subs.evaluate(() => new Promise((done) => {
+    const seen = new Map();
+    const t0 = performance.now();
+    const tick = () => {
+      for (const it of document.querySelectorAll('aside .item')) {
+        const key = it.classList.contains('under') ? 'under' : it.querySelector('.sess.on') ? 'parent' : 'rows';
+        const cs = getComputedStyle(it);
+        const s = seen.get(key) ?? {moved: false, lifted: false, faded: false};
+        s.moved ||= cs.transform !== 'none';
+        s.lifted ||= cs.zIndex === '2';
+        s.faded ||= it.classList.contains('under') && Number(cs.opacity) < 1;
+        seen.set(key, s);
+      }
+      if (performance.now() - t0 < 700) requestAnimationFrame(tick);
+      else done(Object.fromEntries(seen));
+    };
+    tick();
+  }));
+  await subs.evaluate(() => { for (let i = 2; i <= 6; i++) window.__subagent(i, 'completed'); window.__shellChat.handle({type: 'status', message: 'ready'}); });
+  const subCarried = await subCarry;
+  assert.deepEqual([subCarried.parent, subCarried.under], [{moved: true, lifted: true, faded: false}, {moved: true, lifted: true, faded: false}]);
+  const subEnded = await subList();
+  assert.equal(subEnded.indexOf(subParent), subEnded.findIndex((x) => x.startsWith('已完成')) + 1);
+  assert.deepEqual(subsOf(subEnded), ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '还有 2 个']);
+  await subSettled();
+  const subFolding = await subs.evaluate(() => new Promise((done) => {
+    const below = [...document.querySelectorAll('aside .item')].findLast((it) => it.classList.contains('under')).nextElementSibling;
+    const seen = {faded: false, rowsUp: false};
+    const t0 = performance.now();
+    const tick = () => {
+      for (const it of document.querySelectorAll('aside .item.under')) seen.faded ||= Number(getComputedStyle(it).opacity) < 1;
+      seen.rowsUp ||= below.isConnected && getComputedStyle(below).transform !== 'none';
+      if (performance.now() - t0 > 4000) return done({...seen, timeout: true});
+      if (document.querySelector('aside .item.under') || performance.now() - t0 < 300) requestAnimationFrame(tick);
+      else done(seen);
+    };
+    tick();
+  }));
+  assert.deepEqual(subFolding, {faded: true, rowsUp: true});
+  await subSettled();
+  assert.equal(await subKept(), 0);
+  assert.deepEqual(subsOf(await subList()), []);
+  // The time order lists them under their conversation too.
+  await subs.evaluate(() => { window.__shellChat.handle({type: 'connecting'}); window.__shellChat.handle({type: 'status', message: 'streaming'}); window.__subagent(7); window.__subagent(8); });
+  await subs.getByRole('button', {name: '对话按状态分组'}).click();
+  await expect(subs.locator('aside .ghead')).toHaveCount(0);
+  await expect.poll(async () => subsOf(await subList())).toEqual(['对比基准', '整理提交说明']);
+  await subs.getByRole('button', {name: '对话按状态分组'}).click();
+  await subSettled();
+  // Reduced motion: they come and go at once, and nothing moves.
+  await subs.emulateMedia({reducedMotion: 'reduce'});
+  const subStill = await subs.evaluate(() => new Promise((done) => {
+    window.__subagent(9);
+    requestAnimationFrame(() => requestAnimationFrame(() => done([document.querySelectorAll('aside .item.under').length, [...document.querySelectorAll('aside .item')].filter((it) => it.getAnimations().length).length])));
+  }));
+  assert.deepEqual(subStill, [3, 0]);
+  await subs.evaluate(() => { for (let i = 7; i <= 9; i++) window.__subagent(i, 'completed'); window.__shellChat.handle({type: 'status', message: 'ready'}); });
+  await expect(subs.locator('aside .item.under')).toHaveCount(0, {timeout: 4000});
+  assert.equal(await subKept(), 0);
+  await subs.emulateMedia({reducedMotion: 'no-preference'});
+  // Collapsed to the rail: none, also while the navigator peeks.
+  await subs.evaluate(() => { window.__shellChat.handle({type: 'connecting'}); window.__subagent(10); });
+  await expect(subs.locator('aside .item.under')).toHaveCount(1);
+  await subs.locator('.titlebar').getByRole('button', {name: '收起侧栏'}).click();
+  await expect(subs.locator('aside .item.under')).toHaveCount(0);
+  await subs.mouse.move(24, 400);
+  await subs.waitForTimeout(500);
+  await expect(subs.locator('aside .item.under')).toHaveCount(0);
+  await subs.mouse.move(900, 400);
+  await subs.locator('.titlebar').getByRole('button', {name: '展开侧栏'}).click();
+  await expect(subs.locator('aside .item.under')).toHaveCount(1);
+  await subs.close();
   // The light theme's canvas is an off-white, the sidebar a step darker and
   // the composer a step lighter; the page never paints white. (Glass off:
   // with it the composer lets the canvas through.)
