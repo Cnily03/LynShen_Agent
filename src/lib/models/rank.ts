@@ -21,13 +21,16 @@ export interface QuickOptions {
 	recent: string[];
 	/** The account is on the trial plan: domestic models lead its recommendations. */
 	trial?: boolean;
+	/** The device pays with the balance: what the plan includes leads nothing. */
+	balance?: boolean;
 	limit?: number;
 }
 
-/** Recommended order: what the plan pays for, then (trial) the domestic
- *  models, then the catalog's own order. */
-function recommendedOrder(items: PickItem[], trial: boolean): PickItem[] {
-	const planKnown = items.some((i) => i.inPlan !== undefined);
+/** Recommended order: what the plan pays for (unless the device pays with
+ *  the balance), then (trial) the domestic models, then the catalog's own
+ *  order. */
+function recommendedOrder(items: PickItem[], trial: boolean, balance = false): PickItem[] {
+	const planKnown = !balance && items.some((i) => i.inPlan !== undefined);
 	const rank = (i: PickItem) => [planKnown && !i.inPlan ? 1 : 0, trial && !i.domestic ? 1 : 0, i.recommended ?? 0];
 	return items
 		.filter((i) => i.recommended !== undefined)
@@ -65,7 +68,7 @@ export function quickList(items: PickItem[], opts: QuickOptions): QuickRow[] {
 		if (item && !item.drawsImages) add(item, 'recent');
 	}
 	const usable = items.filter((i) => i.health !== 'down' && !i.drawsImages);
-	for (const item of recommendedOrder(usable, !!opts.trial)) add(item, 'recommended');
+	for (const item of recommendedOrder(usable, !!opts.trial, !!opts.balance)) add(item, 'recommended');
 	if (!items.some((i) => i.recommended !== undefined)) for (const item of usable) add(item, 'recommended');
 	return rows;
 }

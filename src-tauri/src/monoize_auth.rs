@@ -336,7 +336,8 @@ pub fn monoize_trial_claim() -> Result<Value, String> {
 }
 
 /// The account's desktop plan in force (trial or paid; null without one) and
-/// this device key's funding choice (`GET /api/desktop/oauth/plan`). Errors
+/// who pays this device key's requests, the plan or the balance
+/// (`GET /api/desktop/oauth/plan`, `plan_funding` and `bucket`). Errors
 /// as [`gateway_key_call`]'s (a 404: a gateway without the endpoint).
 #[tauri::command(async)]
 pub fn monoize_desktop_plan() -> Result<Value, String> {
@@ -352,20 +353,154 @@ pub fn monoize_model_catalog() -> Result<Value, String> {
     gateway_key_call("GET", "/api/desktop/models/catalog", None)
 }
 
-/// The body of `PUT /api/desktop/oauth/plan`: `plan` or `balance` only.
-fn plan_funding_request(funding: &str) -> Option<Value> {
-    matches!(funding, "plan" | "balance").then(|| json!({ "plan_funding": funding }))
+/// The body of `PUT /api/desktop/oauth/plan` (contract v1.2 2.2): `plan` or
+/// `balance` only; `mode` only `until_reset` (the balance until the plan's
+/// used-up window recovers, then the gateway returns the device to the
+/// plan), with `until` (the 402's `retry_at`, RFC 3339) when known. Without a
+/// mode the choice is permanent (the gateway's default; an older gateway
+/// knows no mode).
+fn plan_funding_request(funding: &str, mode: Option<&str>, until: Option<&str>) -> Option<Value> {
+    if !matches!(funding, "plan" | "balance") {
+        return None;
+    }
+    match (mode, until) {
+        (None, None) => Some(json!({ "plan_funding": funding })),
+        (Some("until_reset"), until) if funding == "balance" => {
+            let mut body = json!({ "plan_funding": funding, "mode": "until_reset" });
+            if let Some(until) = until.filter(|u| !u.is_empty() && u.len() <= 64) {
+                body["until"] = json!(until);
+            }
+            Some(body)
+        }
+        _ => None,
+    }
 }
 
-/// Sets who pays this device key's requests in the plan's groups: `plan`
-/// (the default) or `balance` (`PUT /api/desktop/oauth/plan`). Answers the
-/// same body as [`monoize_desktop_plan`]; it applies from the next request.
+/// Sets who pays this device key's requests (notes/plan-balance-contract.md
+/// 2.2): `plan` (only the plan; the gateway refuses it with `409
+/// plan_inactive` without a plan in force) or `balance` (only the balance; a
+/// new device key starts on it) (`PUT /api/desktop/oauth/plan`). Answers the
+/// same body as [`monoize_desktop_plan`]; it applies from the next request
+/// of every session on this device. Sent only on the user's explicit choice.
+/// `mode`: `until_reset` for the balance until the window recovers, `until`
+/// its end when known.
 #[tauri::command(async)]
-pub fn monoize_set_plan_funding(funding: String) -> Result<Value, String> {
-    let body = plan_funding_request(&funding).ok_or_else(|| {
-        json!({ "status": null, "code": "invalid_request", "message": "plan_funding must be plan or balance" }).to_string()
+pub fn monoize_set_plan_funding(
+    funding: String,
+    mode: Option<String>,
+    until: Option<String>,
+) -> Result<Value, String> {
+    let body = plan_funding_request(&funding, mode.as_deref(), until.as_deref()).ok_or_else(|| {
+        json!({ "status": null, "code": "invalid_request", "message": "plan_funding must be plan or balance (mode: until_reset with balance)" }).to_string()
     })?;
     gateway_key_call("PUT", "/api/desktop/oauth/plan", Some(body))
+}
+
+/// An order id the app puts in a path: letters, digits and `-` only, so it
+/// cannot change the path it is put in.
+fn store_order_id(id: &str) -> Result<&str, String> {
+    if !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        Ok(id)
+    } else {
+        Err(json!({ "status": null, "code": "invalid_request", "message": "invalid order id" }).to_string())
+    }
+}
+
+/// The body of `POST /api/desktop/oauth/store/orders` (gateway DP-O1).
+/// `upgrade_from`: the plan in force that a higher plan replaces at the
+/// gateway's quoted upgrade price (notes/plan-balance-contract.md, v1.2
+/// proposal); absent for any other order.
+fn store_order_request(
+    product_id: &str,
+    channel_id: &str,
+    custom_minor: Option<&str>,
+    request_id: &str,
+    upgrade_from: Option<&str>,
+) -> Value {
+    let mut body = json!({
+        "product_id": product_id,
+        "payment_channel_id": channel_id,
+        "request_id": request_id,
+    });
+    if let Some(minor) = custom_minor {
+        body["custom_recharge_minor"] = json!(minor);
+    }
+    if let Some(from) = upgrade_from {
+        body["upgrade_from"] = json!(from);
+    }
+    body
+}
+
+/// The body of `POST /api/desktop/oauth/store/orders/{id}/attempts` (DP-A1).
+fn store_attempt_request(method: Option<&str>, request_id: &str) -> Value {
+    let mut body = json!({ "request_id": request_id });
+    if let Some(method) = method {
+        body["payment_method"] = json!(method);
+    }
+    body
+}
+
+/// What this device key can buy: plans and balance packs with prices in CNY
+/// fen, the ways to pay, and the custom top-up range
+/// (`GET /api/desktop/oauth/store/catalog`). Errors as [`gateway_key_call`]'s
+/// (a 404: a gateway that does not sell to the app yet).
+#[tauri::command(async)]
+pub fn monoize_store_catalog() -> Result<Value, String> {
+    gateway_key_call("GET", "/api/desktop/oauth/store/catalog", None)
+}
+
+/// The account's recent orders, newest first (`GET /api/desktop/oauth/store/orders`).
+#[tauri::command(async)]
+pub fn monoize_store_orders(limit: u32) -> Result<Value, String> {
+    gateway_key_call(
+        "GET",
+        &format!("/api/desktop/oauth/store/orders?limit={}", limit.clamp(1, 50)),
+        None,
+    )
+}
+
+/// Creates an order for a product (`POST /api/desktop/oauth/store/orders`);
+/// the same `request_id` returns the same order, so a retry cannot buy twice.
+/// `upgrade_from`: an upgrade of the plan in force (the gateway prices it).
+#[tauri::command(async)]
+pub fn monoize_store_order(
+    product_id: String,
+    channel_id: String,
+    custom_minor: Option<String>,
+    request_id: String,
+    upgrade_from: Option<String>,
+) -> Result<Value, String> {
+    gateway_key_call(
+        "POST",
+        "/api/desktop/oauth/store/orders",
+        Some(store_order_request(
+            &product_id,
+            &channel_id,
+            custom_minor.as_deref(),
+            &request_id,
+            upgrade_from.as_deref(),
+        )),
+    )
+}
+
+/// Starts paying an order: the answer holds a QR code to show or a payment
+/// page to open (`POST /api/desktop/oauth/store/orders/{id}/attempts`).
+#[tauri::command(async)]
+pub fn monoize_store_pay(order_id: String, method: Option<String>, request_id: String) -> Result<Value, String> {
+    let id = store_order_id(&order_id)?;
+    gateway_key_call(
+        "POST",
+        &format!("/api/desktop/oauth/store/orders/{id}/attempts"),
+        Some(store_attempt_request(method.as_deref(), &request_id)),
+    )
+}
+
+/// The order as it stands; the gateway asks the payment provider while it is
+/// unpaid (`POST /api/desktop/oauth/store/orders/{id}/query`).
+#[tauri::command(async)]
+pub fn monoize_store_query(order_id: String) -> Result<Value, String> {
+    let id = store_order_id(&order_id)?;
+    gateway_key_call("POST", &format!("/api/desktop/oauth/store/orders/{id}/query"), None)
 }
 
 fn clear_session() {
@@ -612,17 +747,58 @@ mod tests {
     }
 
     #[test]
+    fn store_requests_carry_only_what_was_chosen() {
+        assert_eq!(
+            store_order_request("p1", "store-channel-epay", None, "req-1", None),
+            json!({ "product_id": "p1", "payment_channel_id": "store-channel-epay", "request_id": "req-1" })
+        );
+        assert_eq!(
+            store_order_request("p1", "c1", Some("2345"), "req-2", None)["custom_recharge_minor"],
+            "2345"
+        );
+        assert_eq!(
+            store_order_request("branch", "c1", None, "req-4", Some("sprout"))["upgrade_from"],
+            "sprout"
+        );
+        assert_eq!(
+            store_attempt_request(Some("wxpay"), "req-3"),
+            json!({ "request_id": "req-3", "payment_method": "wxpay" })
+        );
+        assert!(store_attempt_request(None, "req-4").get("payment_method").is_none());
+    }
+
+    #[test]
+    fn an_order_id_cannot_change_the_path() {
+        assert_eq!(store_order_id("6f1d2c3e-aaaa-4bbb-8ccc-0123456789ab"), Ok("6f1d2c3e-aaaa-4bbb-8ccc-0123456789ab"));
+        let long = "x".repeat(129);
+        for bad in ["", "../plan", "a/b", "a?b=1", "a b", long.as_str()] {
+            assert!(store_order_id(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn the_funding_choice_is_plan_or_balance() {
         assert_eq!(
-            plan_funding_request("balance"),
+            plan_funding_request("balance", None, None),
             Some(json!({ "plan_funding": "balance" }))
         );
         assert_eq!(
-            plan_funding_request("plan"),
+            plan_funding_request("plan", None, None),
             Some(json!({ "plan_funding": "plan" }))
         );
-        assert_eq!(plan_funding_request("both"), None);
-        assert_eq!(plan_funding_request(""), None);
+        assert_eq!(
+            plan_funding_request("balance", Some("until_reset"), None),
+            Some(json!({ "plan_funding": "balance", "mode": "until_reset" }))
+        );
+        assert_eq!(
+            plan_funding_request("balance", Some("until_reset"), Some("2026-10-17T13:20:00Z")),
+            Some(json!({ "plan_funding": "balance", "mode": "until_reset", "until": "2026-10-17T13:20:00Z" }))
+        );
+        assert_eq!(plan_funding_request("plan", Some("until_reset"), None), None);
+        assert_eq!(plan_funding_request("balance", None, Some("2026-10-17T13:20:00Z")), None);
+        assert_eq!(plan_funding_request("balance", Some("forever"), None), None);
+        assert_eq!(plan_funding_request("both", None, None), None);
+        assert_eq!(plan_funding_request("", None, None), None);
     }
 
     #[test]

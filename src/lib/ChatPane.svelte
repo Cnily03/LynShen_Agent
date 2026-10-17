@@ -97,6 +97,7 @@
 	import type { SessionSwitch } from '$lib/composer/SessionSwitches.svelte';
 	import Modal from '$lib/ui/Modal.svelte';
 	import { toast } from '$lib/ui/toast.svelte';
+	import { trial } from '$lib/trial.svelte';
 	import { isImageModel } from '$lib/providers/monoize';
 	import { acceptsImages } from '$lib/settings/providerFields';
 	import { planPages } from '$lib/planPages.svelte';
@@ -104,7 +105,10 @@
 	import Picker from '$lib/shell/Picker.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import type { SectionKey } from '$lib/settings/nav';
-	import type { ErrorAction } from '$lib/errorInfo';
+	import type { ErrorAction, ErrorInfo } from '$lib/errorInfo';
+	import { planWaits } from '$lib/planStop.svelte';
+	import { resetText } from '$lib/planStop';
+	import { isGateway } from '$lib/models/catalog';
 	import FindBar from '$lib/shell/FindBar.svelte';
 	import { autoRetry } from '$lib/autoRetry.svelte';
 	import { parseDelivery } from '$lib/delivery';
@@ -332,13 +336,69 @@
 		}
 	}
 
+	// A turn the plan stopped (planStop.ts), the way on the user picked.
+	// "改用余额继续": this device pays with the balance from its next request
+	// (every conversation on it, as Settings → 账户 sets it), and this turn
+	// goes on. "额度恢复前先用余额" (a used-up window): the same until the
+	// window recovers; the gateway then returns the device to the plan.
+	// Nothing switches unless the user asks.
+	async function payWithBalance(info: ErrorInfo, untilReset = false) {
+		planWaits.cancel(session.id);
+		const error = await trial.setFunding('balance', untilReset ? 'until_reset' : 'permanent', untilReset ? (info.plan?.resetsAt ?? null) : null);
+		if (error) {
+			toast.error(t('shell.trial.fundingFailed', { error }));
+			return;
+		}
+		// What the gateway made of it: until when (contract v1.2), or for good
+		// (a gateway without the mode).
+		const until = untilReset ? trial.balanceUntil : null;
+		toast.success(until ? t('shell.funding.untilReset', { time: resetText(until) }) : t('shell.trial.fundingToBalance'));
+		if (info.plan) void store.retryTurn(session.id, t(untilReset ? 'chat.planStop.balanceUntilNote' : 'chat.planStop.balanceNote'), true);
+	}
+	// "等待恢复": the turn goes on by itself once the window recovers, unless
+	// the conversation moved on meanwhile.
+	function waitForPlan(info: ErrorInfo) {
+		const at = info.plan?.resetsAt;
+		if (!at) return;
+		const id = session.id;
+		const c = chat;
+		planWaits.wait(id, at, () => {
+			if (!c.busy && c.lastError) void store.retryTurn(id, t('chat.planStop.resumeNote'), true);
+		});
+	}
+	// The plan's windows, live: after each request of a session on the
+	// gateway while this device pays with the plan, the plan is read again
+	// (a short wait folds a burst of requests into one read), so the
+	// remaining quota at the composer's foot, the account card and Settings
+	// follow the work, not a timer.
+	const viaGateway = $derived((chat.backendId === 'lynshen' && isGateway(chat.provider ?? '')) || !!session.gateway);
+	$effect(() => {
+		void chat.totalIn;
+		void chat.totalOut;
+		void chat.busy;
+		if (viaGateway) untrack(() => trial.funding === 'plan' && trial.refreshSoon());
+	});
+	// A new turn (sent, retried, from another device) ends the wait.
+	$effect(() => {
+		if (chat.busy) untrack(() => planWaits.cancel(session.id));
+	});
+
 	// An error notice's fix button.
-	function fixError(action: ErrorAction) {
+	function fixError(action: ErrorAction, info: ErrorInfo) {
 		if (action === 'restart') store.restartSession(session.id, true);
 		else if (action === 'login' || action === 'account') onOpenSettings?.('account');
+		else if (action === 'purchase' || action === 'renew' || action === 'topUp') onOpenSettings?.('purchase');
+		else if (action === 'useBalance') void payWithBalance(info);
+		else if (action === 'balanceUntilReset') void payWithBalance(info, true);
+		else if (action === 'waitPlan') waitForPlan(info);
 		else if (action === 'providers') onOpenSettings?.('providers');
+		else if (action === 'devices') onOpenSettings?.('devices');
 		else if (action === 'compact') send({ op: 'command', input: '/compact' });
-		else if (action === 'model') openModelPicker();
+		// The composer's model menu (its list is the engine's /model answer).
+		else if (action === 'model') {
+			if (composerRef) composerRef.openModelMenu();
+			else openModelPicker();
+		}
 	}
 
 	// The project history picker's sources: LynShen's own conversations, or the
@@ -1051,6 +1111,7 @@
 	});
 	function stop() {
 		autoRetry.cancel(chat);
+		planWaits.cancel(session.id);
 		send({ op: 'interrupt' });
 	}
 	function respondApproval(op: ApproveOp) {
@@ -1578,7 +1639,7 @@
 	/>
 	<main bind:this={scroller} onscroll={onScroll} onwheel={onWheel}>
 		<div bind:this={contentEl}>
-			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
+			<MessageList bind:this={messageList} bind:mark messages={chat.messages} {streamingMsg} {streamingReasoning} phase={chat.phase} call={chat.call} compactionTokens={chat.compactionTokens} retry={chat.retry} autoRetry={chat.autoRetry} onAutoRetryNow={() => autoRetry.now(chat)} onAutoRetryCancel={() => autoRetry.cancel(chat)} {findActive} {scroller} onEdit={editMessage} onCite={citeText} onNote={noteRequirement} onRewind={rewindToMessage} onFile={openChatFile} onAttachment={openAttachment} onDismiss={(m) => (chat.messages = chat.messages.filter((x) => x !== m))} backend={chat.backendId} provider={chat.provider ?? ''} onErrorAction={fixError} planWaitUntil={planWaits.until(session.id)} onCancelPlanWait={() => planWaits.cancel(session.id)} traceOf={traceable ? traceOf : undefined} agents={allAgents} onOpenAgent={traceable ? openAgent : undefined} onAgentChanges={viewAgentChanges} onMergeAgent={mergeAgent} onStopAgent={chat.backendId === 'lynshen' ? stopAgent : undefined} onPickAttempt={pickAttempt} attemptPicks={chat.attemptPicks} sendOf={(id) => chat.sendOf(id)} {onOpenSession} onPlan={planAction} onOpenPlan={(id) => planPages.open(session.id, id)} {planMode} onChanges={onOpenChanges ? openChanges : undefined} />
 		</div>
 		{#if chat.booting && chat.engineState !== 'exited'}
 			<div class="welcome spawning">

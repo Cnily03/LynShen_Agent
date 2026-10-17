@@ -12,8 +12,16 @@ const KEPT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http:/
 const frostAtStart = (() => {
   try { return JSON.parse(localStorage.getItem('lynshen-prefs') ?? '{}').sidebarVibrancy === true; } catch { return false; }
 })();
-// ?trial[=granted|used|404|not_eligible]: signed in, and the gateway's
-// answer to the first-use trial claim (a 404 is a gateway without the endpoint).
+// ?trial[=granted|used|full|ended|404|not_eligible]: signed in, and the
+// gateway's answer to the first-use trial claim (a 404 is a gateway without
+// the endpoint). =full: its 5-hour window is used up (recovers in 2 hours);
+// =ended: no plan in force any more (the claim says not_eligible); =web: a
+// paid plan (Grove) bought on the website, which this device does not pay
+// with yet (the claim says not_eligible).
+// ?funding=plan: the device pays with the plan (default: the balance, as a
+// new device key starts; notes/plan-balance-contract.md F5). A granted claim
+// moves it to the plan (v1.2; &noclaimswitch: it does not). PUT plan without
+// a plan in force answers 409 plan_inactive (contract 2.2).
 const trialReply = new URL(location.href).searchParams.get('trial');
 // ?latency[=random|<ms>]: the plan's GET / PUT answer that much later
 // (random: 300–1500 ms), as a slow gateway would.
@@ -27,18 +35,103 @@ const accountLatency = Number(params0.get('accountLatency') || 0);
 // ?models[=old]: a gateway account with the sample models (catalogSample.ts):
 // the model catalog, or (=old) a gateway without it (404, the plain list only).
 const modelsMode = params0.get('models');
-let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null;
-let planFunding = 'plan';
-const trialPlan = (used: boolean) => ({
+// ?purchase[=404|reject|offline]: the gateway's store for the app
+// (desktop-purchase.spec.md): the owner's plans and packs, and one EPay
+// Channel with both wallets (WeChat answers a QR code, Alipay a payment page).
+// `window.__storePaid = true` makes the next status check see the payment.
+// =404: a gateway without the store; =reject: the first payment attempt is
+// refused (payment_provider_rejected); =offline: the first order fails on the
+// network. &nofundswitch: fulfilling a plan leaves the device's funding as it
+// was (a gateway before contract v1.2). &current=sprout|branch: that plan is
+// in force already (12 days left): a higher plan is an upgrade at a quoted
+// price, a lower one is not offered, the same one renews.
+const purchaseMode = params0.get('purchase');
+let loggedIn = new URL(location.href).searchParams.has('loggedIn') || trialReply != null || purchaseMode != null;
+let planFunding = params0.get('funding') === 'plan' ? 'plan' : 'balance';
+// A move to the balance until the used-up window recovers (PUT mode
+// until_reset): its end; `window.__windowRecovered()` is the gateway putting
+// the device back on the plan when it comes.
+let balanceUntil: string | null = null;
+// &oldgw: a gateway before contract v1.2 (no bucket, balance_until, devices,
+// upgrade quotes or renewal; a PUT with a mode is refused).
+const oldGateway = params0.has('oldgw');
+let windowRecovered = false;
+// During it the stored choice stays the plan and the bucket is the balance
+// (contract v1.2 2.1).
+const fundingBody = () => (oldGateway ? {plan_funding: planFunding} : {plan_funding: planFunding, bucket: balanceUntil ? 'balance' : planFunding, balance_until: balanceUntil});
+const setFunding = (args: any) => {
+  // A gateway before contract v1.2 knows no mode.
+  if (oldGateway && args.mode) throw JSON.stringify({status: 400, code: 'invalid_request', message: 'unknown field `mode`'});
+  if (args.funding === 'balance' && args.mode === 'until_reset') {
+    planFunding = 'plan';
+    balanceUntil = args.until ?? new Date(planStartedAt + 2 * 3_600_000).toISOString();
+    return;
+  }
+  planFunding = args.funding;
+  balanceUntil = null;
+};
+// ?devices=<n>: the devices using the plan now (of 3 at most; default 1).
+const planDevices = () => ({in_use: Number(params0.get('devices') ?? 1), limit: 3, this_device: true});
+const planRefused = () => JSON.stringify({status: 409, code: 'plan_inactive', message: '现在没有生效的套餐'});
+const STORE_CATALOG = {
+  currency: 'CNY',
+  products: [
+    {id: 'b10', kind: 'balance', name: '10', description: '', price_minor: '1000', duration_seconds: null, groups: [], windows: [], balance: {recharge_minor: '1000', bonus_minor: '0', actual_received_minor: '1000'}},
+    {id: 'b50', kind: 'balance', name: '50', description: '', price_minor: '5000', duration_seconds: null, groups: [], windows: [], balance: {recharge_minor: '5000', bonus_minor: '500', actual_received_minor: '5500'}},
+    ...[['sprout', 'Sprout', '4900', '800', '2300'], ['branch', 'Branch', '9900', '1600', '4600']].map(([id, name, price, h5, d7]) => ({
+      id, kind: 'plan', name, description: '可用模型：Claude、GPT、Gemini、国产模型。积分：1 积分 = ¥1 按量消费', price_minor: price, duration_seconds: 2_592_000, groups: ['套餐专用'], balance: null,
+      windows: [{window_kind: '5h', window_seconds: 18000, quota_fen_cny: h5}, {window_kind: 'custom', window_seconds: 604800, quota_fen_cny: d7}]
+    }))
+  ],
+  payment_options: ['alipay', 'wxpay'].map((method) => ({id: `store-channel-epay:${method}`, channel_id: 'store-channel-epay', method, label: method === 'alipay' ? 'Alipay' : 'WeChat Pay', actions: ['qr', 'redirect'], min_minor: '1', max_minor: '100000000'})),
+  custom_recharge: {product_id: 'b10', min_minor: '100', max_minor: '100000000'}
+};
+const store = {
+  orders: [] as any[],
+  attempts: new Map<string, any>(),
+  payFailures: purchaseMode === 'reject' ? 1 : 0,
+  orderFailures: purchaseMode === 'offline' ? 1 : 0,
+  plan: null as any
+};
+const storeRefusal = (status: number | null, code: string | null, message: string) => JSON.stringify({status, code, message});
+// A plan of the store in force (&current=<product id>: one bought before).
+const storePlan = (id: string, endsAt: number) => {
+  const product = STORE_CATALOG.products.find((p) => p.id === id)!;
+  const kinds = product.windows.map((w: any) => [w.window_seconds === 18000 ? '5h' : '7d', (Number(w.quota_fen_cny) / 100).toFixed(2)]);
+  return {id, name: product.name, group: '套餐专用', windows: kinds.map(([kind, quota]) => ({kind, quota_cny: quota, used_cny: '0.00', resets_at: null})), expires_at: new Date(endsAt).toISOString(), trial: false, active: true, ...(oldGateway ? {} : {devices: planDevices()})};
+};
+if (params0.get('current')) { store.plan = storePlan(params0.get('current')!, Date.now() + 12 * 86_400_000); planFunding = 'plan'; }
+// The catalog as the gateway sends it to an account with a paid plan: a
+// higher plan carries the upgrade quote (placeholder numbers: the price
+// difference; the formula is the gateway's), a lower one is not offered.
+function storeCatalog() {
+  const current = store.plan ? STORE_CATALOG.products.find((p) => p.id === store.plan.id) : null;
+  if (!current || oldGateway) return STORE_CATALOG;
+  return {...STORE_CATALOG, products: STORE_CATALOG.products.map((p) => {
+    if (p.kind !== 'plan') return p;
+    if (p.id === current.id) return {...p, renewal: true};
+    // contract v1.2 5a: the price in fen, and when the quote runs out.
+    if (Number(p.price_minor) > Number(current.price_minor))
+      return {...p, upgrade: {price_minor: String(Number(p.price_minor) - Number(current.price_minor)), expires_at: new Date(Date.now() + 30 * 60_000).toISOString()}};
+    return {...p, downgrade: true};
+  })};
+}
+// The trial's windows: unused, used, or (=full) the 5-hour one used up.
+const planStartedAt = Date.now();
+// Plans end at a fixed time (the same plan on the next load), 6.5 to 7.5 days
+// after the start for the trial (a 7-day trial when its card counts days).
+const planEndsFrom = Math.floor(planStartedAt / 86_400_000) * 86_400_000 + 12 * 3_600_000;
+const trialPlan = (used: boolean, full = trialReply === 'full' && !windowRecovered) => ({
   name: '7 天体验套餐',
   group: '国内模型分组',
   windows: [
-    { kind: '5h', quota_cny: '4.00', used_cny: used ? '1.36' : '0.00', resets_at: used ? new Date(Date.now() + 3 * 3_600_000).toISOString() : null },
-    { kind: '7d', quota_cny: '10.00', used_cny: used ? '3.58' : '0.00', resets_at: used ? new Date(Date.now() + 5 * 86_400_000).toISOString() : null }
+    { kind: '5h', quota_cny: '4.00', used_cny: full ? '4.00' : used ? '1.36' : '0.00', resets_at: full ? new Date(planStartedAt + 2 * 3_600_000).toISOString() : used ? new Date(planStartedAt + 3 * 3_600_000).toISOString() : null },
+    { kind: '7d', quota_cny: '10.00', used_cny: full ? '6.20' : used ? '3.58' : '0.00', resets_at: used || full ? new Date(planStartedAt + 5 * 86_400_000).toISOString() : null }
   ],
-  expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString()
+  expires_at: new Date(planEndsFrom + 7 * 86_400_000).toISOString()
 });
 Object.assign(window, {
+  __windowRecovered: () => { windowRecovered = true; balanceUntil = null; },
   __calls: calls,
   __keptAvatar: KEPT_AVATAR,
   __TAURI_INTERNALS__: {
@@ -66,6 +159,66 @@ Object.assign(window, {
         if (command === 'read_config') return {provider: 'monoize', model: 'deepseek-v4.1-flash', models: SAMPLE_PLAIN_IDS.map((name) => ({name})), compact_model: 'glm-5.3-flash', image_model: 'gpt-image-2'};
         if (command === 'read_auth_providers') return ['monoize'];
       }
+      if (command.startsWith('monoize_store_')) {
+        if (purchaseMode === '404') throw storeRefusal(404, null, 'Not Found');
+        const view = (o: any) => {
+          if ((window as any).__storePaid && o.state === 'awaiting_payment') {
+            o.state = 'completed';
+            // The gateway moves the account's devices to a plan bought (contract
+            // v1.2); &nofundswitch: a gateway that does not.
+            if (o.kind === 'plan' && !params0.has('nofundswitch')) planFunding = 'plan';
+            // Renewal: 30 days from the current end; an upgrade keeps the quoted end;
+            // otherwise 30 days from now (contract v1.2 section 5).
+            if (o.kind === 'plan') {
+              const renewed = store.plan?.id === o.product_id ? Date.parse(store.plan.expires_at) + 30 * 86_400_000 : null;
+              // An upgrade keeps the end (contract v1.2 5a).
+              const upgraded = o.upgrade_from && store.plan ? Date.parse(store.plan.expires_at) : null;
+              store.plan = storePlan(o.product_id, renewed ?? upgraded ?? Date.now() + 30 * 86_400_000);
+            }
+          }
+          return {...o};
+        };
+        switch (command) {
+          case 'monoize_store_catalog': return storeCatalog();
+          case 'monoize_store_orders': return {orders: store.orders.slice().reverse().slice(0, args.limit).map(view)};
+          case 'monoize_store_order': {
+            if (store.orderFailures > 0) { store.orderFailures--; throw storeRefusal(null, null, 'all gateways unreachable'); }
+            const kept = store.orders.find((o) => o.request_id === args.requestId);
+            if (kept) return view(kept);
+            const product = storeCatalog().products.find((p: any) => p.id === args.productId)! as any;
+            const amount = args.customMinor ?? product.upgrade?.price_minor ?? product.price_minor;
+            const order = {
+              id: `order-${store.orders.length + 1}`, order_number: `LS-${store.orders.length + 1}`, request_id: args.requestId, product_id: product.id, upgrade_from: args.upgradeFrom ?? null,
+              kind: product.kind, name: product.name, amount_minor: amount, currency: 'CNY', payment_state: 'unpaid', fulfillment_state: 'pending', state: 'awaiting_payment',
+              balance: product.kind === 'balance' ? (args.customMinor ? {recharge_minor: amount, bonus_minor: '0', actual_received_minor: amount} : product.balance) : null,
+              expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), created_at: new Date().toISOString()
+            };
+            store.orders.push(order);
+            return view(order);
+          }
+          case 'monoize_store_pay': {
+            if (store.payFailures > 0) { store.payFailures--; throw storeRefusal(422, 'payment_provider_rejected', 'payment provider rejected checkout'); }
+            const kept = store.attempts.get(args.requestId);
+            if (kept) return kept;
+            const expires_at = new Date(Date.now() + 30 * 60_000).toISOString();
+            const answer = {
+              attempt: {id: `attempt-${store.attempts.size + 1}`, state: 'presented', method: args.method, expires_at},
+              action: args.method === 'alipay' ? {kind: 'redirect', url: `https://pay.example.com/pay/${args.orderId}`, expires_at} : {kind: 'qr', payload: `weixin://wxpay/bizpayurl?pr=${args.orderId}`, expires_at}
+            };
+            store.attempts.set(args.requestId, answer);
+            return answer;
+          }
+          case 'monoize_store_query': return view(store.orders.find((o) => o.id === args.orderId));
+        }
+      }
+      // The plan bought in the store (?purchase without ?trial).
+      if ((command === 'monoize_desktop_plan' || command === 'monoize_set_plan_funding') && purchaseMode != null && trialReply == null) {
+        if (command === 'monoize_set_plan_funding') {
+          if (args.funding === 'plan' && !store.plan) throw planRefused();
+          setFunding(args);
+        }
+        return {plan: store.plan, ...fundingBody()};
+      }
       switch (command) {
         // ?home: a new install signed in to the gateway, whose engine has
         // not written its own list yet.
@@ -78,16 +231,25 @@ Object.assign(window, {
         case 'desktop_installation_id': return 'inst-browser';
         case 'monoize_trial_claim':
           if (trialReply === '404') throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
-          if (trialReply === 'not_eligible') return {status: 'not_eligible'};
-          return {status: 'granted', plan: trialPlan(trialReply === 'used')};
+          if (trialReply === 'not_eligible' || trialReply === 'ended' || trialReply === 'web') return {status: 'not_eligible'};
+          // A grant puts the account's devices on the trial (contract v1.2
+          // 2.3); &noclaimswitch: a gateway that leaves them on the balance.
+          if (!params0.has('noclaimswitch')) planFunding = 'plan';
+          return {status: 'granted', plan: trialPlan(trialReply === 'used'), plan_funding: planFunding};
         // GET / PUT /api/desktop/oauth/plan (an older gateway with ?trial=404).
         case 'monoize_desktop_plan':
         case 'monoize_set_plan_funding':
           if (trialReply === '404' || trialReply === 'not_eligible' || trialReply == null) throw JSON.stringify({status: 404, code: null, message: 'Not Found'});
-          if (command === 'monoize_set_plan_funding') planFunding = args.funding;
+          if (command === 'monoize_set_plan_funding') {
+            if (args.funding === 'plan' && trialReply === 'ended') throw planRefused();
+            setFunding(args);
+          }
           {
             // The gateway stores a change as it arrives and answers later.
-            const answer = {plan: {...trialPlan(trialReply === 'used'), trial: true, active: true}, plan_funding: planFunding};
+            const plan = trialReply === 'ended' ? null
+              : trialReply === 'web' ? {...trialPlan(true), name: 'Grove', group: '套餐专用', expires_at: new Date(planEndsFrom + 30 * 86_400_000).toISOString(), trial: false, active: true, devices: planDevices()}
+              : {...trialPlan(trialReply === 'used'), trial: true, active: true, ...(oldGateway ? {} : {devices: planDevices()})};
+            const answer = {plan, ...fundingBody()};
             if (latency != null) await slow();
             return answer;
           }
@@ -122,6 +284,8 @@ Object.assign(window, {
           return {supported: true, effect: (kind === 'mica' ? frostAtStart : args.on) ? kind : null};
         }
         case 'diagnostic_logs': return [];
+        // No ACP agent registered (the app's command answers a list).
+        case 'acp_agents_list': return [];
         // ?avatar: the account's avatar as the app kept it (account_avatar.rs);
         // an upload answers the gateway's user and the picture it sent.
         case 'monoize_avatar_cached': return new URL(location.href).searchParams.has('avatar') ? {url: '/api/desktop/oauth/avatars/a1', data_url: KEPT_AVATAR} : null;

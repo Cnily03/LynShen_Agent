@@ -1694,7 +1694,9 @@ try {
   await expect(page.getByText('当前的 LynShen 引擎还不能在这里管理技能。到「更新」里更新 Aogiri 后再试')).toBeVisible();
   // The first-use trial plan against a stubbed gateway: claimed at most once
   // per start (and right after a fresh sign-in: see the first run below); a
-  // grant shows its card until 知道了, then never again, and is final; the
+  // grant shows its card until answered, then never again, and is final; the
+  // card asks whether this device pays with the trial (a new device pays
+  // with the balance; nothing is switched unless the user says so); the
   // account card shows the plan on one line; a refusal or an older gateway
   // (404) shows nothing and is asked again at the next start, once.
   const trialPage = await browser.newPage({viewport:{width:1440,height:860}});
@@ -1703,7 +1705,7 @@ try {
   const openTrial = async (query, {fresh} = {fresh: false}) => {
     await trialPage.goto(base + query);
     if (fresh) {
-      await trialPage.evaluate(() => localStorage.removeItem('lynshen-trial-claims'));
+      await trialPage.evaluate(() => { localStorage.removeItem('lynshen-trial-claims'); localStorage.removeItem('lynshen-funding-offered'); });
       await trialPage.reload();
     }
     await expect(trialPage.locator('.composer')).toBeVisible({timeout:30000});
@@ -1716,10 +1718,18 @@ try {
   assert.equal(await claimCount(), 1);
   await trialPage.evaluate(() => window.__trial.signedIn());
   assert.equal(await claimCount(), 1, 'the trial was claimed twice');
+  const fundingPuts = () => trialPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding));
+  // The grant put this device on the trial (contract v1.2): said, with 改用余额.
+  await expect(grantCard).toContainText('本设备的请求由体验套餐支付');
+  await expect(grantCard.getByRole('button',{name:'改用余额'})).toBeVisible();
   await grantCard.getByRole('button',{name:'知道了'}).click();
   await expect(grantCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], '知道了 changed the funding');
+  // The trial's plan was put to the user: no second offer for it.
+  await expect(trialPage.getByRole('region',{name:'套餐'})).toHaveCount(0);
   await openTrial('?shell&trial');
   await expect(grantCard).toHaveCount(0);
+  await expect(trialPage.getByRole('region',{name:'套餐'})).toHaveCount(0);
   assert.equal(await claimCount(), 0, 'the trial was claimed again after a grant');
   // The account card: a short menu. The plan on one line (name, end, the
   // window with the least left), the balance, 设置, 退出登录; the rest is in
@@ -1732,6 +1742,9 @@ try {
   await expect(planLine).toContainText('5 小时额度剩 4.00 积分');
   await expect(acctCard).toContainText('余额');
   await expect(acctCard.getByRole('button',{name:/设置/})).toBeVisible();
+  await acctCard.getByRole('button',{name:'购买套餐或充值'}).click();
+  assert.equal(await trialPage.evaluate(() => window.__purchaseOpened), 1, 'the account card did not open 套餐与充值');
+  await trialPage.getByRole('button',{name:'账号'}).click();
   await expect(acctCard.getByRole('button',{name:'退出登录'})).toBeVisible();
   for (const gone of ['最近 60 秒', '计费方式', '显示货币', '主题']) await expect(acctCard).not.toContainText(gone);
   assert.ok(await acctCard.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && el.getBoundingClientRect().top >= 0), 'the account card does not fit');
@@ -1752,6 +1765,52 @@ try {
   assert.equal(await claimCount(), 1);
   await openTrial('?shell&trial=not_eligible');
   assert.equal(await claimCount(), 1, 'not_eligible was not asked again at the next start');
+  // 改用余额 on the card: this device pays with the balance from now on.
+  await openTrial('?shell&trial', {fresh: true});
+  await grantCard.getByRole('button',{name:'改用余额'}).click();
+  await expect(grantCard).toHaveCount(0);
+  await expect.poll(fundingPuts).toEqual(['balance']);
+  await expect(trialPage.getByText('本设备已改为余额计费')).toBeVisible();
+  // A gateway that leaves the device on the balance: the card asks, and
+  // 用体验套餐 moves it to the trial.
+  await openTrial('?shell&trial&noclaimswitch', {fresh: true});
+  await expect(grantCard).toContainText('本设备使用体验套餐支付？');
+  await grantCard.getByRole('button',{name:'用体验套餐'}).click();
+  await expect(grantCard).toHaveCount(0);
+  await expect.poll(fundingPuts).toEqual(['plan']);
+  await expect(trialPage.getByText('本设备已改为套餐计费')).toBeVisible();
+  await openTrial('?shell&trial&noclaimswitch', {fresh: true});
+  await grantCard.getByRole('button',{name:'暂不，用余额'}).click();
+  await expect(grantCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], 'keeping the balance changed the funding');
+  // A plan bought on the website, which this device does not pay with: offered
+  // once; 继续用余额 sends nothing, and it is not offered again.
+  const offerCard = trialPage.getByRole('region',{name:'套餐'});
+  await openTrial('?shell&trial=web', {fresh: true});
+  await expect(offerCard.getByRole('heading',{name:'检测到套餐 Grove'})).toBeVisible();
+  await offerCard.getByRole('button',{name:'继续用余额'}).click();
+  await expect(offerCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], 'keeping the balance changed the funding');
+  await openTrial('?shell&trial=web');
+  await trialPage.waitForTimeout(500);
+  await expect(offerCard).toHaveCount(0);
+  await openTrial('?shell&trial=web', {fresh: true});
+  await offerCard.getByRole('button',{name:'本设备改用套餐'}).click();
+  await expect.poll(fundingPuts).toEqual(['plan']);
+  await expect(offerCard).toHaveCount(0);
+  // The gateway moved this device to the plan bought: said once, with 改用余额.
+  await openTrial('?shell&trial=web&funding=plan', {fresh: true});
+  await expect(offerCard.getByRole('heading',{name:'本设备现在由套餐 Grove 支付'})).toBeVisible();
+  await offerCard.getByRole('button',{name:'改用余额'}).click();
+  await expect.poll(fundingPuts).toEqual(['balance']);
+  await expect(offerCard).toHaveCount(0);
+  await openTrial('?shell&trial=web&funding=plan', {fresh: true});
+  await offerCard.getByRole('button',{name:'知道了'}).click();
+  await expect(offerCard).toHaveCount(0);
+  await openTrial('?shell&trial=web&funding=plan');
+  await trialPage.waitForTimeout(500);
+  await expect(offerCard).toHaveCount(0);
+  assert.deepEqual(await fundingPuts(), [], '知道了 changed the funding');
   await trialPage.close();
 
   // Who pays (Settings → 账户) against a slow gateway (each answer 300–1500
@@ -1760,9 +1819,11 @@ try {
   // click is what the gateway ends with.
   const fundPage = await browser.newPage({viewport:{width:1280,height:900}});
   fundPage.on('pageerror', e => errors.push(e.message));
-  await fundPage.goto(base + '?trial=used&latency=random');
+  await fundPage.goto(base + '?trial=used&funding=plan&latency=random');
   const choice = fundPage.locator('#set-account-plan .funding');
-  await expect(choice.locator('.opt.on')).toHaveText('优先用体验套餐', {timeout:30000});
+  await expect(choice.locator('.opt.on')).toHaveText('套餐 · 7 天体验套餐', {timeout:30000});
+  await expect(choice).toContainText('本设备由谁支付');
+  await expect(choice).toContainText('只用套餐额度；用完会暂停并提示，不会自动扣余额。');
   // The plan's state, end and windows (used / quota, when each recovers).
   const planGroup = fundPage.locator('#set-account-plan');
   await expect(planGroup).toContainText('使用中');
@@ -1771,6 +1832,7 @@ try {
   await expect(planGroup.locator('.win').first()).toContainText(/5 小时\s*1\.36 \/ 4\.00 积分/);
   await expect(planGroup.locator('.win').last()).toContainText(/7 天\s*3\.58 \/ 10\.00 积分/);
   await expect(planGroup.locator('.win').first()).toContainText(/恢复/);
+  await expect(planGroup).toContainText('套餐正在使用：1 / 3 台设备');
   await choice.evaluate((el) => {
     window.__shown = [el.querySelector('.opt.on')?.textContent?.trim()];
     new MutationObserver(() => {
@@ -1778,7 +1840,7 @@ try {
       if (now && now !== window.__shown.at(-1)) window.__shown.push(now);
     }).observe(el, { subtree: true, attributes: true, childList: true, characterData: true });
   });
-  const clicks = ['用余额', '优先用体验套餐', '用余额', '优先用体验套餐', '用余额'];
+  const clicks = ['余额', '套餐 · 7 天体验套餐', '余额', '套餐 · 7 天体验套餐', '余额'];
   for (const [i, label] of clicks.entries()) {
     if (i === 3) await fundPage.evaluate(() => { void window.__trial.refreshStatus(); });
     await choice.getByRole('button',{name:label}).click();
@@ -1786,13 +1848,318 @@ try {
     await fundPage.waitForTimeout(150);
   }
   await expect.poll(() => fundPage.evaluate(() => window.__trial.saving), {timeout:20000}).toBe(false);
-  await expect(choice.locator('.opt.on')).toHaveText('用余额');
+  await expect(choice.locator('.opt.on')).toHaveText('余额');
+  await expect(choice).toContainText('只扣余额，不用套餐。');
   const puts = await fundPage.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding));
   assert.equal(puts.at(-1), 'balance', `the last change sent was ${puts.at(-1)}`);
-  assert.deepEqual(await fundPage.evaluate(() => window.__shown), ['优先用体验套餐', ...clicks], 'the funding choice snapped back');
+  assert.deepEqual(await fundPage.evaluate(() => window.__shown), ['套餐 · 7 天体验套餐', ...clicks], 'the funding choice snapped back');
   await fundPage.evaluate(() => window.__trial.refreshStatus());
-  await expect(choice.locator('.opt.on')).toHaveText('用余额');
+  await expect(choice.locator('.opt.on')).toHaveText('余额');
+  // The plan ended while the device still pays with it: the choice stays,
+  // and says the requests stop; 余额 is the way out.
+  await fundPage.goto(base + '?trial=ended&funding=plan');
+  await expect(choice).toContainText('套餐已结束，本设备的请求会停下', {timeout:30000});
+  await expect(choice.locator('.opt.on')).toHaveText('套餐');
   await fundPage.close();
+
+  // A turn the plan stopped (gateway contract notes/plan-balance-contract.md
+  // section 3): the card names the window and when it recovers, and offers
+  // the ways on side by side, none taken for the user; 等待恢复 waits (and
+  // can be called off), 改用余额继续 moves this device to the balance and
+  // says so; an ended plan offers renewing; a model outside the plan offers
+  // another model, and on the plan the pickers mark such models (listed, not
+  // hidden), on the balance they do not mention the plan.
+  {
+    const pp = await browser.newPage({viewport:{width:1280,height:820}});
+    pp.on('pageerror', e => errors.push(e.message));
+    const mrow = (scope, name) => scope.locator('.mline').filter({has: scope.page().getByText(name, {exact: true})});
+    const puts = () => pp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding));
+    // The trial's card shows on the first page of this context only.
+    const answerTrialCard = async () => {
+      await expect(pp.locator('.composer')).toBeVisible({timeout:30000});
+      await pp.evaluate(() => window.__trialDone);
+      await pp.waitForTimeout(300);
+      const grant = pp.getByRole('region',{name:'体验套餐'});
+      if (await grant.count()) await grant.getByRole('button',{name:/暂不|知道了/}).click();
+    };
+    await pp.goto(base + '?shell&empty&trial=full&funding=plan&planStop=quota');
+    await answerTrialCard();
+    const card = pp.locator('.err').filter({hasText:'套餐 5 小时额度用完了'});
+    await expect(card).toContainText(/\d\d:\d\d 恢复。本设备由套餐支付，额度用完不会自动改扣余额。/);
+    const ways = card.locator('.foot button');
+    await expect(ways).toHaveText([/^等待恢复 · \d\d:\d\d$/, '额度恢复前先用余额', '购买套餐', '原始信息']);
+    assert.equal(await card.locator('.b.primary').count(), 0, 'one way on was pushed as the primary');
+    await ways.first().click();
+    await expect(card.getByRole('status')).toContainText(/\d\d:\d\d 恢复后自动继续/);
+    await expect(ways).toHaveText(['额度恢复前先用余额', '购买套餐', '原始信息']);
+    await card.getByRole('button',{name:'取消等待'}).click();
+    await expect(card.getByRole('status')).toHaveCount(0);
+    assert.deepEqual(await puts(), [], 'waiting changed the funding');
+    // The balance until the window recovers (owner, 2026-10-17): sent as
+    // until_reset, said with its end; the gateway puts the device back on the
+    // plan then, and the app says so.
+    await card.getByRole('button',{name:'额度恢复前先用余额'}).click();
+    await expect(pp.getByText(/余额支付至 \d\d:\d\d，之后恢复套餐/).first()).toBeVisible();
+    const temp = await pp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => [c.args.funding, c.args.mode, c.args.until]));
+    assert.deepEqual(temp.map((c) => c.slice(0, 2)), [['balance', 'until_reset']]);
+    assert.ok(!Number.isNaN(Date.parse(temp[0][2])), 'the 402 retry_at was not sent as until');
+    await pp.evaluate(() => { window.__windowRecovered(); void window.__trial.refreshStatus(); });
+    await expect(pp.getByText('已恢复使用套餐')).toBeVisible();
+    assert.equal(await pp.evaluate(() => window.__trial.funding), 'plan');
+    // A fourth device on a plan for three: which limit, the balance, the devices.
+    await pp.goto(base + '?shell&empty&trial&funding=plan&planStop=devices');
+    const full = pp.locator('.err').filter({hasText:'套餐已在 3 台设备上使用，已达上限'});
+    await expect(full).toBeVisible({timeout:30000});
+    await expect(full.locator('.foot button')).toHaveText(['改用余额继续', '查看设备', '原始信息']);
+    // The plan ended: renew, or the balance.
+    await pp.goto(base + '?shell&empty&trial=ended&funding=plan&planStop=inactive');
+    const ended = pp.locator('.err').filter({hasText:'Grove 已结束'});
+    await expect(ended).toBeVisible({timeout:30000});
+    await expect(ended.locator('.foot button')).toHaveText(['续费套餐', '改用余额继续', '原始信息']);
+    await pp.goto(base + '?shell&empty&trial=ended&funding=plan&planStop=none');
+    await expect(pp.locator('.err').filter({hasText:'现在没有生效的套餐'}).locator('.foot button')).toHaveText(['购买套餐', '改用余额继续', '原始信息'], {timeout:30000});
+    // A model outside the plan: another model, or the balance; the picker
+    // lists it marked 套餐外.
+    await pp.goto(base + '?shell&empty&models&trial&funding=plan&planStop=notInPlan');
+    await answerTrialCard();
+    // The composer's foot says who pays.
+    await expect(pp.locator('.fbtn.payer')).toHaveText(/^套餐 · (5 小时|7 天)剩 \d+(\.\d+)? 积分$/);
+    const outside = pp.locator('.err').filter({hasText:'不在套餐内'});
+    await expect(outside.locator('.foot button')).toHaveText(['换个模型', '改用余额继续', '原始信息']);
+    await outside.getByRole('button',{name:'换个模型'}).click();
+    const quick = pp.locator('.pop.mm .qs');
+    await expect(mrow(quick, 'Claude Opus 5.5').locator('.aside')).toHaveText('套餐外');
+    await expect(mrow(quick, 'Claude Opus 5.5')).toHaveClass(/outside/);
+    await expect(mrow(quick, 'GLM-5.3').locator('.aside')).toHaveText('套餐内');
+    await pp.keyboard.press('Escape');
+    // The windows follow the work: a request of the session reads the plan
+    // again (once for a burst), not a timer.
+    const reads = () => pp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_desktop_plan').length);
+    await pp.waitForTimeout(2500);
+    const before = await reads();
+    await pp.evaluate(() => { for (let i = 0; i < 3; i++) window.__shellChat.handle({type: 'usage', input_tokens: 1200, output_tokens: 80}); });
+    await expect.poll(reads, {timeout:6000}).toBe(before + 1);
+    // On the balance the plan is not mentioned.
+    await pp.goto(base + '?shell&empty&models&trial&noclaimswitch');
+    await answerTrialCard();
+    await pp.locator('.fbtn.model').click();
+    await expect(quick.locator('.mline').first()).toBeVisible();
+    await expect(quick.getByText(/套餐内|套餐外/)).toHaveCount(0);
+    await expect(pp.locator('.fbtn.payer')).toHaveText('余额支付');
+    await pp.close();
+  }
+
+  // Settings → 套餐与充值 against a stubbed store (gateway desktop-purchase.spec.md):
+  // the plans with price, length and windows in words, the packs and a custom
+  // amount; a plan by a WeChat QR code (checked until paid, then the plan and
+  // the orders read again), what a plan bought under another one replaces, a
+  // pack by the Alipay page in the browser, closing and continuing the same
+  // payment, a refused payment retried with a new attempt on the same order,
+  // a network failure retried with the same ids, and a gateway without the store.
+  {
+    const sp = await browser.newPage({viewport:{width:1280,height:900}});
+    sp.on('pageerror', e => errors.push(e.message));
+    const storeCalls = (cmd) => sp.evaluate((c) => window.__calls.filter((x) => x.command === c).map((x) => x.args), cmd);
+    await sp.goto(base + '?purchase&balance&section=purchase');
+    await expect(sp.getByRole('heading',{name:'套餐与充值',level:1})).toBeVisible({timeout:30000});
+    await expect(sp.locator('.sec h3')).toHaveText(['当前', '套餐', '充值余额']);
+    await expect(sp.locator('#set-purchase-plan')).toContainText('没有套餐');
+    const plansSec = sp.locator('#set-purchase-plans');
+    await expect(plansSec).toContainText('¥49 / 30 天 · 每 5 小时 8 积分 · 每 7 天 23 积分');
+    await expect(plansSec).toContainText('¥99 / 30 天 · 每 5 小时 16 积分 · 每 7 天 46 积分');
+    const topUp = sp.locator('#set-purchase-topup');
+    await expect(topUp.locator('.row', {hasText:'¥50'})).toContainText('到账 ¥55，含赠送 ¥5');
+    // The newest dialog: the one closed last may still be fading out.
+    const dialog = sp.getByRole('dialog').last();
+    const sproutRow = plansSec.locator('.row', {hasText:'Sprout'});
+    await sproutRow.getByRole('button',{name:'购买'}).click();
+    await expect(dialog).toContainText('购买 Sprout');
+    await expect(dialog).toContainText(/付款后立即生效，30 天内有效，\d+月\d+日到期。/);
+    await expect(dialog).toContainText('付款后本设备由套餐支付，可以随时改用余额。');
+    await expect(dialog).toContainText('套餐仅在 Aogiri 桌面端 / LynShen CLI 中使用；API Key 调用始终按余额计费。');
+    await dialog.getByRole('button',{name:'微信',exact:true}).click();
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog.locator('.qr svg')).toBeVisible();
+    await expect(dialog).toContainText('用微信扫码支付 ¥49');
+    await expect(dialog).toContainText(/已等待 \d+ 秒 · (29|30):\d\d 后失效/);
+    assert.deepEqual((await storeCalls('monoize_store_order')).map((a) => [a.productId, a.channelId, a.customMinor]), [['sprout', 'store-channel-epay', null]]);
+    assert.deepEqual((await storeCalls('monoize_store_pay')).map((a) => a.method), ['wxpay']);
+    await sp.evaluate(() => { window.__storePaid = true; });
+    await expect(dialog).toContainText('支付成功，Sprout 已生效', {timeout:10000});
+    assert.ok((await storeCalls('monoize_store_query')).length >= 1, 'the payment was not checked');
+    // A plan bought pays by default (the gateway moved the device at
+    // fulfilment): the dialog says so, with the end counted from the
+    // purchase, and 改用余额 is one tap away.
+    await expect(dialog).toContainText('本设备现在由 Sprout 支付');
+    await expect(dialog).toContainText(/\d+月\d+日 \d\d:\d\d 到期（30 天）/);
+    assert.deepEqual(await storeCalls('monoize_set_plan_funding'), [], 'the app sent a choice the gateway had made');
+    await dialog.getByRole('button',{name:'改用余额'}).click();
+    await expect(dialog).toContainText('本设备仍由余额支付');
+    assert.deepEqual((await storeCalls('monoize_set_plan_funding')).map((a) => a.funding), ['balance']);
+    await dialog.getByRole('button',{name:'使用此套餐'}).click();
+    await expect(dialog).toContainText('本设备现在由 Sprout 支付');
+    assert.deepEqual((await storeCalls('monoize_set_plan_funding')).map((a) => a.funding), ['balance', 'plan']);
+    await dialog.getByRole('button',{name:'完成'}).click();
+    await expect(sp.getByRole('dialog')).toHaveCount(0);
+    await expect(sp.locator('#set-purchase-plan')).toContainText('Sprout');
+    await expect(sp.locator('#set-purchase-funding .opt.on')).toHaveText('套餐 · Sprout');
+    await expect(sproutRow).toContainText('使用中');
+    const orders = sp.locator('#set-purchase-orders');
+    await expect(orders.locator('.row', {hasText:'Sprout · ¥49'})).toContainText('已完成');
+    // Under a plan in force (the catalog read again): a higher plan is an
+    // upgrade at the quoted price; the same plan renews from its end.
+    await sp.evaluate(() => { window.__storePaid = false; });
+    await plansSec.locator('.row', {hasText:'Branch'}).getByRole('button',{name:'升级'}).click();
+    await expect(dialog).toContainText('付款后立即从「Sprout」升级到「Branch」');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    await sproutRow.getByRole('button',{name:'续费'}).click();
+    await expect(dialog).toContainText('续费：到期时间从当前到期日顺延 30 天');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    // ¥50 by the Alipay page in the browser; closing only stops waiting.
+    await topUp.locator('.row', {hasText:'¥50'}).getByRole('button',{name:'充值'}).click();
+    await expect(dialog).toContainText('充值 ¥50');
+    await dialog.getByRole('button',{name:'支付宝',exact:true}).click();
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog).toContainText('已在浏览器中打开支付页');
+    assert.ok((await storeCalls('plugin:opener|open_url')).some((a) => JSON.stringify(a).includes('pay.example.com/pay/order-2')), 'the payment page was not opened');
+    await dialog.getByRole('button',{name:'关闭',exact:true}).last().click();
+    await expect(sp.getByRole('dialog')).toHaveCount(0);
+    const fifty = orders.locator('.row', {hasText:'充值 ¥50'});
+    await expect(fifty).toContainText('待支付');
+    await expect(fifty).toContainText('到账 ¥55');
+    await fifty.getByRole('button',{name:'继续支付'}).click();
+    await expect(dialog).toContainText('已在浏览器中打开支付页');
+    assert.equal((await storeCalls('monoize_store_order')).length, 2, 'continuing ordered again');
+    const pays = await storeCalls('monoize_store_pay');
+    assert.equal(pays.at(-1).requestId, pays.at(-2).requestId, 'continuing did not reuse the payment attempt');
+    await sp.evaluate(() => { window.__storePaid = true; });
+    await expect(dialog).toContainText('支付成功，已到账 ¥55', {timeout:10000});
+    await dialog.getByRole('button',{name:'完成'}).click();
+    // A custom amount, checked against the gateway's range.
+    const custom = sp.locator('#set-purchase-custom');
+    const amountBox = custom.getByRole('textbox',{name:'充值金额（元）'});
+    await amountBox.fill('0.5');
+    await expect(custom).toContainText('请输入 ¥1 到 ¥1,000,000 之间的金额');
+    await expect(custom.getByRole('button',{name:'充值'})).toBeDisabled();
+    await amountBox.fill('23.5');
+    await custom.getByRole('button',{name:'充值'}).click();
+    await expect(dialog).toContainText('充值 ¥23.50');
+    await dialog.getByRole('button',{name:'取消'}).click();
+    await sp.close();
+  }
+  {
+    // A plan in force (Sprout, 12 days left): the same plan renews from its
+    // end with the usage kept; a higher one is an upgrade at the price the
+    // gateway quotes, ordered as such; a lower one is listed, not offered.
+    const up = await browser.newPage({viewport:{width:1280,height:900}});
+    up.on('pageerror', e => errors.push(e.message));
+    await up.goto(base + '?purchase&current=sprout&section=purchase');
+    const ud = up.getByRole('dialog').last();
+    const rows = up.locator('#set-purchase-plans .row');
+    await expect(rows.filter({hasText:'Sprout'}).getByRole('button')).toHaveText('续费', {timeout:30000});
+    await expect(rows.filter({hasText:'Branch'})).toContainText('补 ¥50 升级');
+    await expect(up.locator('#set-purchase-plan')).toContainText('套餐正在使用：1 / 3 台设备');
+    await rows.filter({hasText:'Sprout'}).getByRole('button',{name:'续费'}).click();
+    await expect(ud).toHaveAttribute('aria-label', '续费 Sprout');
+    await expect(ud).toContainText(/续费：到期时间从当前到期日顺延 30 天，到 \d+月\d+日；已用额度保留。/);
+    await ud.getByRole('button',{name:'取消'}).click();
+    await rows.filter({hasText:'Branch'}).getByRole('button',{name:'升级'}).click();
+    await expect(ud).toHaveAttribute('aria-label', '升级到 Branch');
+    await expect(ud).toContainText('¥50');
+    await expect(ud).toContainText(/付款后立即从「Sprout」升级到「Branch」：到期时间不变（\d+月\d+日），当前时段的用量保留/);
+    await ud.getByRole('button',{name:'微信',exact:true}).click();
+    await ud.getByRole('button',{name:'去支付'}).click();
+    await expect(ud.locator('.qr svg')).toBeVisible();
+    const order = await up.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_store_order').map((c) => [c.args.productId, c.args.upgradeFrom]));
+    assert.deepEqual(order, [['branch', 'sprout']], 'the upgrade was not ordered as one');
+    await up.evaluate(() => { window.__storePaid = true; });
+    await expect(ud).toContainText('本设备现在由 Branch 支付', {timeout:10000});
+    await ud.getByRole('button',{name:'完成'}).click();
+    // Now on Branch: Sprout is lower, and has no button.
+    await expect(rows.filter({hasText:'Sprout'})).toContainText('低于当前套餐');
+    await expect(rows.filter({hasText:'Sprout'}).getByRole('button')).toHaveCount(0);
+    await up.close();
+  }
+  {
+    // A gateway before contract v1.2 (the releases ship together, but not
+    // always at the same minute): no device count, no quotes or renewal
+    // (the same plan starts over and replaces, as it does there), and the
+    // balance until the window recovers falls back to the balance for good.
+    const og = await browser.newPage({viewport:{width:1280,height:900}});
+    og.on('pageerror', e => errors.push(e.message));
+    await og.goto(base + '?purchase&oldgw&current=sprout&section=purchase');
+    const orows = og.locator('#set-purchase-plans .row');
+    await expect(orows.filter({hasText:'Sprout'}).getByRole('button')).toHaveText('购买', {timeout:30000});
+    await expect(orows.filter({hasText:'Branch'}).getByRole('button')).toHaveText('购买');
+    await expect(og.locator('#set-purchase-plan')).not.toContainText('台设备');
+    await orows.filter({hasText:'Sprout'}).getByRole('button',{name:'购买'}).click();
+    await expect(og.getByRole('dialog').last()).toContainText('付款后立即重新开始一个 30 天的「Sprout」');
+    await og.getByRole('dialog').last().getByRole('button',{name:'取消'}).click();
+    await og.goto(base + '?shell&empty&oldgw&trial=full&funding=plan&planStop=quota');
+    const ocard = og.locator('.err').filter({hasText:'额度用完了'});
+    await expect(ocard).toBeVisible({timeout:30000});
+    const grant = og.getByRole('region',{name:'体验套餐'});
+    if (await grant.count()) await grant.getByRole('button',{name:'知道了'}).click();
+    await ocard.getByRole('button',{name:'额度恢复前先用余额'}).click();
+    await expect(og.getByText('本设备已改为余额计费')).toBeVisible();
+    assert.deepEqual(await og.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.mode ?? null)), ['until_reset', null]);
+    await og.close();
+  }
+  {
+    // A gateway that leaves the device on the balance at fulfilment: the app
+    // makes the plan pay, as a purchase does by default.
+    const fp = await browser.newPage({viewport:{width:1280,height:900}});
+    fp.on('pageerror', e => errors.push(e.message));
+    await fp.goto(base + '?purchase&nofundswitch&section=purchase');
+    const fd = fp.getByRole('dialog').last();
+    await fp.locator('#set-purchase-plans .row', {hasText:'Sprout'}).getByRole('button',{name:'购买'}).click({timeout:30000});
+    await fd.getByRole('button',{name:'微信',exact:true}).click();
+    await fd.getByRole('button',{name:'去支付'}).click();
+    await expect(fd.locator('.qr svg')).toBeVisible();
+    await fp.evaluate(() => { window.__storePaid = true; });
+    await expect(fd).toContainText('本设备现在由 Sprout 支付', {timeout:10000});
+    assert.deepEqual(await fp.evaluate(() => window.__calls.filter((c) => c.command === 'monoize_set_plan_funding').map((c) => c.args.funding)), ['plan']);
+    await fp.close();
+  }
+  {
+    // Refused for certain: a new attempt on the same order.
+    const rp = await browser.newPage();
+    rp.on('pageerror', e => errors.push(e.message));
+    const calls = (cmd) => rp.evaluate((c) => window.__calls.filter((x) => x.command === c).map((x) => x.args), cmd);
+    await rp.goto(base + '?purchase=reject&section=purchase');
+    const dialog = rp.getByRole('dialog');
+    await rp.locator('#set-purchase-plans .row', {hasText:'Sprout'}).getByRole('button',{name:'购买'}).click({timeout:30000});
+    await dialog.getByRole('button',{name:'去支付'}).click();
+    await expect(dialog.getByRole('alert')).toContainText('支付渠道拒绝了这笔订单');
+    await dialog.getByRole('button',{name:'重试'}).click();
+    await expect(dialog.locator('.qr svg').or(dialog.getByText('已在浏览器中打开支付页'))).toBeVisible();
+    assert.equal((await calls('monoize_store_order')).length, 1, 'a refused payment ordered again');
+    const pays = await calls('monoize_store_pay');
+    assert.equal(pays.length, 2);
+    assert.notEqual(pays[0].requestId, pays[1].requestId, 'a refused attempt was retried with its own id');
+    await rp.close();
+    // Not reached: the same ids again, so the retry cannot order twice.
+    const np = await browser.newPage();
+    np.on('pageerror', e => errors.push(e.message));
+    await np.goto(base + '?purchase=offline&section=purchase');
+    const nd = np.getByRole('dialog');
+    await np.locator('#set-purchase-topup .row', {hasText:'¥10'}).getByRole('button',{name:'充值'}).click({timeout:30000});
+    await nd.getByRole('button',{name:'去支付'}).click();
+    await expect(nd.getByRole('alert')).toContainText('连不上 LynShen 服务');
+    await nd.getByRole('button',{name:'重试'}).click();
+    await expect(nd.locator('.qr svg').or(nd.getByText('已在浏览器中打开支付页'))).toBeVisible();
+    const tries = await np.evaluate(() => window.__calls.filter((x) => x.command === 'monoize_store_order').map((x) => x.args.requestId));
+    assert.equal(tries.length, 2);
+    assert.equal(tries[0], tries[1], 'a retry after a network failure used a new order id');
+    await np.close();
+    // A gateway without the store: the website instead.
+    const op = await browser.newPage();
+    op.on('pageerror', e => errors.push(e.message));
+    await op.goto(base + '?purchase=404&section=purchase');
+    await expect(op.getByText('当前的 LynShen 服务还不支持在应用里购买，请到网站购买。')).toBeVisible({timeout:30000});
+    await expect(op.getByRole('button',{name:'去网站购买'})).toBeVisible();
+    await op.close();
+  }
 
   // Settings → 账户 while the account is read (查看账户 from a 余额不足 error
   // opens it): loading, never 未登录 or the sign-in. The next start shows the
@@ -1809,6 +2176,11 @@ try {
   await expect(acctPage.locator('.sec h3')).toHaveText(['套餐与余额', '用量', '更多', '登录']);
   await expect(acctPage.locator('#set-account-noplan')).toContainText('没有套餐');
   await expect(acctPage.locator('#set-account-currency')).toContainText('显示货币');
+  // 购买套餐 and 充值 open Settings → 套餐与充值 in the app, not the website.
+  await acctPage.locator('#set-account-balance').getByRole('button',{name:'充值'}).click();
+  await expect(acctPage.getByRole('heading',{name:'套餐与充值',level:1})).toBeVisible();
+  await acctPage.getByRole('button',{name:'账户',exact:true}).click();
+  await expect(acctPage.locator('#set-account-noplan').getByRole('button',{name:'购买套餐'})).toBeVisible();
   await expect(acctPage.locator('.acct-profile').getByRole('button',{name:'退出登录'})).toHaveCount(0);
   await expect(acctPage.getByRole('button',{name:'退出登录',exact:true})).toBeVisible();
   const widths = await acctPage.locator('.sec .body').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
@@ -2037,7 +2409,7 @@ try {
     await expect(dlg.locator('.more.sel .pop-label')).toHaveText('更多版本 · 2');
     // The long name in the browser: one row, full text.
     assert.equal(await cutOff(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.name')), false, `${theme}: the long name is cut in the browser`);
-    await expect(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.facts')).toHaveText('不稳定 · 1M 上下文 · ¥21.3 / ¥107 每百万 · 看图 · 思考');
+    await expect(row(dlg, 'Claude Sonnet 5.5 (1M context, extended thinking)').locator('.facts')).toHaveText('不稳定 · 套餐外，余额模式可用 · 1M 上下文 · ¥21.3 / ¥107 每百万 · 看图 · 思考');
     // An unavailable model: after the working ones, its dot, picked after a confirmation.
     const openai = await dlg.locator('.mline').evaluateAll((rows) => rows.map((r) => r.querySelector('.name').textContent).filter((n) => /^GPT/.test(n)));
     // A chat picker lists no image model (GPT Image 2).
@@ -2178,5 +2550,5 @@ try {
     await cp.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start), the short account card, the funding choice under a slow gateway, Settings → 账户 (read without a logged-out flash, its groups, the plan windows), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, the balance until it recovers and 已恢复使用套餐, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a gateway before contract v1.2, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields).');
 } finally { await browser.close(); await server.close(); }

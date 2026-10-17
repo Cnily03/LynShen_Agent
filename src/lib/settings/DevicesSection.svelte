@@ -19,7 +19,14 @@
 	import SettingsSection from './SettingsSection.svelte';
 	import GatewayNotice from './GatewayNotice.svelte';
 
-	let { onSignIn }: { onSignIn: () => void } = $props();
+	let {
+		onSignIn,
+		onTopUp
+	}: {
+		onSignIn: () => void;
+		/** Settings → 套餐与充值, where the balance is topped up in the app. */
+		onTopUp?: () => void;
+	} = $props();
 
 	let data = $state<DeviceOverview | null>(null);
 	let error = $state<unknown>(null);
@@ -193,7 +200,7 @@
 			{#if buyError}
 				<p class="err" role="alert">
 					{buyError.text}
-					{#if buyError.topUp}<button type="button" class="linkish" onclick={() => openExternal(`${web}/dashboard/wallet`)}>{t('settings.devices.topUp')}</button>{/if}
+					{#if buyError.topUp}<button type="button" class="linkish" onclick={() => (onTopUp ? ((buying = null), onTopUp()) : openExternal(`${web}/dashboard/wallet`))}>{t('settings.devices.topUp')}</button>{/if}
 				</p>
 			{/if}
 		</div>

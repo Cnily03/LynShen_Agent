@@ -31,18 +31,33 @@ export interface TrialPlan {
 	/** From GET /api/desktop/oauth/plan: whether it is the trial (a paid
 	 *  desktop plan otherwise). */
 	trial?: boolean;
+	/** How many devices use the plan now, of how many it allows at once
+	 *  (a device past the limit is refused with 429 `plan_device_limit`). */
+	devices?: { inUse: number; limit: number; thisDevice?: boolean };
 }
 
-/** Who pays a request of this device key in the plan's groups: the plan
- *  ("plan", the default; an exhausted window fails with 402
- *  `plan_quota_exhausted`, no balance fallback) or the balance. */
+/** Who pays every request of this device (its device key), chosen by the
+ *  user (notes/plan-balance-separation.md 3.1): the plan only, or the
+ *  balance only. On the plan a used-up window (402 `plan_quota_exhausted`),
+ *  an ended plan (402 `plan_inactive`) or a model outside the plan (403
+ *  `model_not_in_plan`) stops the request; the balance is never used
+ *  instead. A device starts on the balance and moves to the plan only by an
+ *  explicit act (the trial card, the step after buying a plan, the prompt
+ *  for a plan bought elsewhere, Settings → 账户). */
 export type PlanFunding = 'plan' | 'balance';
 
 /** GET /api/desktop/oauth/plan: the account's desktop plan in force (trial
  *  or paid; null without one) and this key's funding choice. */
 export interface DesktopPlanStatus {
 	plan: TrialPlan | null;
+	/** Who pays this device's next request (the gateway's `bucket`; an older
+	 *  gateway: its `plan_funding`). */
 	funding: PlanFunding;
+	/** On the balance until then (RFC 3339) because the plan's window was used
+	 *  up (contract v1.2 2.1: `plan_funding` stays `plan`, `bucket` is
+	 *  `balance`); the gateway returns the device to the plan after it.
+	 *  Absent: the choice stands until the user changes it. */
+	balanceUntil?: string | null;
 }
 
 /** What one claim attempt came to. */
@@ -87,6 +102,16 @@ export const claimKey = (installationId: string, userId: string) => `${installat
 
 const text = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : null);
 
+/** The plan's devices: `{in_use, limit, this_device}`; null when absent or not that. */
+function devicesOf(v: unknown): TrialPlan['devices'] | null {
+	if (!v || typeof v !== 'object') return null;
+	const d = v as Record<string, unknown>;
+	const inUse = Number(d.in_use);
+	const limit = Number(d.limit);
+	if (!Number.isInteger(inUse) || !Number.isInteger(limit) || inUse < 0 || limit <= 0) return null;
+	return { inUse, limit, ...(typeof d.this_device === 'boolean' ? { thisDevice: d.this_device } : {}) };
+}
+
 /** The plan of a `granted` / `already_granted` answer; null when it is not one. */
 export function parsePlan(v: unknown): TrialPlan | null {
 	if (!v || typeof v !== 'object') return null;
@@ -109,7 +134,8 @@ export function parsePlan(v: unknown): TrialPlan | null {
 		windows,
 		expires_at: expires,
 		...(typeof p.active === 'boolean' ? { active: p.active } : {}),
-		...(typeof p.trial === 'boolean' ? { trial: p.trial } : {})
+		...(typeof p.trial === 'boolean' ? { trial: p.trial } : {}),
+		...(devicesOf(p.devices) ? { devices: devicesOf(p.devices)! } : {})
 	};
 }
 
@@ -118,8 +144,18 @@ export function parseDesktopPlan(body: unknown): DesktopPlanStatus | null {
 	if (!body || typeof body !== 'object') return null;
 	const b = body as Record<string, unknown>;
 	if (b.plan_funding !== 'plan' && b.plan_funding !== 'balance') return null;
-	return { plan: b.plan == null ? null : parsePlan(b.plan), funding: b.plan_funding };
+	const funding: PlanFunding = b.bucket === 'plan' || b.bucket === 'balance' ? b.bucket : b.plan_funding;
+	const until = typeof b.balance_until === 'string' && !Number.isNaN(Date.parse(b.balance_until)) ? b.balance_until : null;
+	return {
+		plan: b.plan == null ? null : parsePlan(b.plan),
+		funding,
+		...(until && funding === 'balance' ? { balanceUntil: until } : {})
+	};
 }
+
+/** Tells one plan (one purchase, one trial) from the next: the prompts that
+ *  ask once per plan remember this. */
+export const planKey = (plan: TrialPlan): string => `${plan.name.trim()}|${new Date(plan.expires_at).toISOString()}`;
 
 /** The outcome of a claim the gateway answered with HTTP 200. */
 export function outcomeOfReply(body: unknown): ClaimOutcome {
@@ -305,14 +341,18 @@ export function credits(v: string, exact = false): string {
 }
 
 /** A window's name: "5 小时", "7 天", "每天" / "每周" / "每月" (a paid
- *  plan's calendar windows); another kind as sent. */
+ *  plan's calendar windows); another kind as sent. A rolling window of whole
+ *  days reads in days ("336h", as the gateway names a 14-day rule, is
+ *  "14 天"): the exact length, in the largest whole unit. */
 export function windowLabel(kind: string): string {
 	const calendar = { day: 'shell.trial.day', week: 'shell.trial.week', month: 'shell.trial.month' } as const;
 	const named = calendar[kind.trim().toLowerCase() as keyof typeof calendar];
 	if (named) return t(named);
 	const m = /^(\d+)\s*([hd])$/i.exec(kind.trim());
 	if (!m) return kind;
-	return t(m[2].toLowerCase() === 'h' ? 'chat.quota.hours' : 'chat.quota.days', { n: Number(m[1]) });
+	const n = Number(m[1]);
+	if (m[2].toLowerCase() === 'h' && n >= 24 && n % 24 === 0) return t('chat.quota.days', { n: n / 24 });
+	return t(m[2].toLowerCase() === 'h' ? 'chat.quota.hours' : 'chat.quota.days', { n });
 }
 
 /** Length of a window in hours, to order them (unknown kinds last). */
@@ -349,6 +389,9 @@ export function tightestWindow(plan: TrialPlan): { window: TrialWindow; left: st
 	}
 	return best;
 }
+
+/** "套餐正在使用：2 / 3 台设备". */
+export const planDevicesText = (d: NonNullable<TrialPlan['devices']>) => t('shell.trial.devices', { n: d.inUse, limit: d.limit });
 
 /** A date for the plan: "10月20日" / "Oct 20", with the time when asked. */
 export function planDate(iso: string, withTime = false): string {

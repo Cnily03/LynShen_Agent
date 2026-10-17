@@ -18,6 +18,9 @@ export interface CatalogModel extends ModelInfo {
 	maxOutput?: number;
 	/** The admin has not described it: name, vendor and family come from the id. */
 	cataloged: boolean;
+	/** The balance can run it (a route in the key's own groups); false for a
+	 *  model only the plan's groups serve. Unset from an older gateway. */
+	balanceOk?: boolean;
 }
 
 export interface CatalogPlan {
@@ -31,6 +34,9 @@ export interface GatewayCatalog {
 	generatedAt: string;
 	cnyPerUsd?: number;
 	plan: CatalogPlan | null;
+	/** Who pays this device's next request (contract 4.1), where the gateway
+	 *  says; else the plan's funding choice. */
+	bucket?: 'plan' | 'balance';
 	/** In the gateway's order. */
 	models: CatalogModel[];
 }
@@ -111,7 +117,8 @@ function modelOf(raw: unknown, recommendedAt: number | undefined): CatalogModel 
 		efforts,
 		...(num(caps.context_total) ? { contextTotal: num(caps.context_total) } : {}),
 		...(num(caps.max_output_tokens) ? { maxOutput: num(caps.max_output_tokens) } : {}),
-		cataloged
+		cataloged,
+		...(typeof o.balance_available === 'boolean' ? { balanceOk: o.balance_available } : {})
 	};
 }
 
@@ -126,15 +133,17 @@ export function parseCatalog(body: unknown): GatewayCatalog | null {
 		if (m?.recommended !== undefined) recommended++;
 		return m ? [m] : [];
 	});
+	const bucket = [root.bucket, plan?.bucket, plan?.plan_funding].find((v) => v === 'plan' || v === 'balance') as 'plan' | 'balance' | undefined;
 	return {
 		generatedAt: str(root.generated_at),
 		...(num(root.cny_per_usd) ? { cnyPerUsd: num(root.cny_per_usd) } : {}),
+		...(bucket ? { bucket } : {}),
 		plan: plan
 			? {
 					active: plan.active !== false,
 					name: str(plan.name),
 					trial: plan.trial === true,
-					funding: plan.plan_funding === 'balance' ? 'balance' : 'plan'
+					funding: (plan.plan_funding ?? plan.bucket) === 'balance' ? 'balance' : 'plan'
 				}
 			: null,
 		models
@@ -164,9 +173,14 @@ export function defaultModel(catalog: GatewayCatalog | null, among?: string[]): 
 	if (!catalog) return undefined;
 	const allowed = among ? new Set(among.map((n) => n.toLowerCase())) : null;
 	const listed = (m: CatalogModel) => !allowed || [m.id, m.requestModel, ...m.aliases].some((n) => allowed.has(n.toLowerCase()));
-	const usable = catalog.models.filter((m) => m.recommended !== undefined && !m.drawsImages && m.health !== 'down' && listed(m));
-	const trial = !!catalog.plan?.trial;
-	const rank = (m: CatalogModel) => [m.inPlan ? 0 : 1, trial && !m.domestic ? 1 : 0, m.recommended ?? 0];
+	// A device on the balance: the plan neither leads nor narrows the pick,
+	// and a model only the plan runs is not one to start on.
+	const onPlan = (catalog.bucket ?? catalog.plan?.funding) !== 'balance';
+	const trial = onPlan && !!catalog.plan?.trial;
+	const usable = catalog.models.filter(
+		(m) => m.recommended !== undefined && !m.drawsImages && m.health !== 'down' && listed(m) && (onPlan || m.balanceOk !== false)
+	);
+	const rank = (m: CatalogModel) => [onPlan && !m.inPlan ? 1 : 0, trial && !m.domestic ? 1 : 0, m.recommended ?? 0];
 	return usable.sort((a, b) => {
 		const [x, y] = [rank(a), rank(b)];
 		return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];

@@ -772,6 +772,24 @@ export const fetchDevices = () => gatewayCall<DeviceOverview>('monoize_devices')
 export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) =>
 	gatewayCall<{ balance_nano_usd: string }>('monoize_buy_seat', { kind, days, requestId });
 
+/** Buying a plan or balance in the app (gateway desktop-purchase.spec.md;
+ *  src/lib/purchase.ts reads the answers). A refusal is a GatewayError; 404
+ *  without a code: a gateway that does not sell to the app yet. */
+export const fetchStoreCatalog = () => gatewayCall<unknown>('monoize_store_catalog');
+/** The account's recent orders, newest first. */
+export const fetchStoreOrders = (limit: number) => gatewayCall<unknown>('monoize_store_orders', { limit });
+/** Creates an order (CNY); `requestId` makes a retry return the same order.
+ *  `upgradeFrom`: the plan in force a higher plan replaces at the gateway's
+ *  quoted price. */
+export const createStoreOrder = (productId: string, channelId: string, customMinor: string | null, requestId: string, upgradeFrom: string | null = null) =>
+	gatewayCall<unknown>('monoize_store_order', { productId, channelId, customMinor, requestId, upgradeFrom });
+/** Starts paying an order with `method` (`wxpay`, `alipay`, `card`): a QR
+ *  code or a payment page. `requestId` makes a retry return the same one. */
+export const payStoreOrder = (orderId: string, method: string | null, requestId: string) =>
+	gatewayCall<unknown>('monoize_store_pay', { orderId, method, requestId });
+/** The order now; the gateway asks the payment provider when it is unpaid. */
+export const queryStoreOrder = (orderId: string) => gatewayCall<unknown>('monoize_store_query', { orderId });
+
 /** This installation's id (DA-4a), which the trial claim is keyed by; null
  *  when it could not be stored. */
 export const desktopInstallationId = () => invoke<string | null>('desktop_installation_id');
@@ -785,9 +803,13 @@ export const fetchDesktopPlan = () => gatewayCall<unknown>('monoize_desktop_plan
  *  coverage (GET /api/desktop/models/catalog; src/lib/models/gatewayCatalog.ts
  *  reads it). 404: an older gateway, which has only the plain model list. */
 export const fetchModelCatalog = () => gatewayCall<unknown>('monoize_model_catalog');
-/** Sets who pays this key's requests in the plan's groups (PUT
- *  /api/desktop/oauth/plan); answers the same body. */
-export const setPlanFunding = (funding: 'plan' | 'balance') => gatewayCall<unknown>('monoize_set_plan_funding', { funding });
+/** Sets who pays this device's requests (PUT /api/desktop/oauth/plan);
+ *  answers the same body. `until_reset`: the balance until the plan's
+ *  used-up window recovers (`until`: the 402's `retry_at`, RFC 3339), then
+ *  the plan again (the gateway switches back); without it the choice stays
+ *  until the user changes it (contract v1.2 2.2). */
+export const setPlanFunding = (funding: 'plan' | 'balance', mode: 'until_reset' | null = null, until: string | null = null) =>
+	gatewayCall<unknown>('monoize_set_plan_funding', { funding, mode, until: mode ? until : null });
 
 /** The account's own requests over the last 60 seconds, for the account
  *  card's RPM / TPM / cache-hit tiles (GET /api/desktop/oauth/live-usage with

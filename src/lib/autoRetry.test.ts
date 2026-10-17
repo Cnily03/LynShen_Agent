@@ -58,6 +58,9 @@ describe('auto retry', () => {
 		expect(retryable('stream disconnected before completion: error sending request', 'codex')).toBe(true);
 		expect(retryable('LLM API returned HTTP 503: {"error":"no_available_provider"}', 'lynshen')).toBe(true);
 		expect(retryable('LLM API returned HTTP 429: rate limit', 'lynshen')).toBe(false);
+		// What the plan refused waits for the user, never for a timer.
+		for (const code of ['plan_quota_exhausted', 'plan_inactive', 'model_not_in_plan', 'plan_device_limit'])
+			expect(retryable(`unexpected status 402 Payment Required: {"error":{"code":"${code}"}}`, 'codex')).toBe(false);
 		expect(retryable('LLM API returned HTTP 401: invalid api key', 'lynshen')).toBe(false);
 	});
 

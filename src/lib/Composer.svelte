@@ -62,6 +62,10 @@
 	import ShieldSlashIcon from 'phosphor-svelte/lib/ShieldSlashIcon';
 	import { caps, BACKEND_LABELS, type AcpAgentRef, type BackendId } from '$lib/backends';
 	import { styleDescription, styleName } from '$lib/styles';
+	import { isGateway } from '$lib/models/catalog';
+	import { trial } from '$lib/trial.svelte';
+	import { credits, tightestWindow, windowLabel } from '$lib/trial';
+	import { resetText } from '$lib/planStop';
 
 	let {
 		chat,
@@ -758,6 +762,29 @@
 	const showCtx = $derived(bcaps.contextUsage && ctxLimit > 0 && (prefs.footContext || ctxPct >= CTX_SHOW_PCT));
 	const showCost = $derived(prefs.footCost && (chat.cost > 0 || !!chat.billing));
 	const quota = $derived(planQuota(chat.planUsage));
+	// Who pays this session's requests, where it goes through the LynShen
+	// gateway and the account has a plan to choose (or the device still pays
+	// with one that ended): "套餐 · 5 小时剩 2.64" or "余额支付", quiet text
+	// at the foot (notes/plan-balance-separation.md 3.8). Nothing without a
+	// plan: everything is the balance then.
+	const viaGateway = $derived(
+		(chat.backendId === 'lynshen' && isGateway(chat.provider ?? '')) || !!toolProvider?.onLynShen || gateway === true
+	);
+	const payer = $derived.by(() => {
+		if (!viaGateway || !trial.choiceShown) return null;
+		const plan = trial.plan;
+		const until = trial.balanceUntil;
+		if (until) return { label: t('chat.payer.balanceUntil', { time: resetText(until) }), title: t('chat.payer.balanceUntilTitle', { time: resetText(until) }), warn: false };
+		if (trial.funding === 'balance') return { label: t('chat.payer.balance'), title: t('chat.payer.balanceTitle'), warn: false };
+		if (!plan) return { label: t('chat.payer.ended'), title: t('shell.trial.fundingEndedHint'), warn: true };
+		const tight = tightestWindow(plan);
+		const name = plan.name.trim() || t('shell.trial.label');
+		return {
+			label: tight ? t('chat.payer.planLeft', { window: windowLabel(tight.window.kind), n: credits(tight.left) }) : t('chat.payer.plan'),
+			title: t('chat.payer.planTitle', { name }),
+			warn: !!tight && tight.share >= 1
+		};
+	});
 
 	function onKey(e: KeyboardEvent) {
 		// While an IME is composing (e.g. selecting a Chinese candidate with Enter),
@@ -1085,6 +1112,9 @@
 			</span>
 		{/if}
 		<div class="fspace"></div>
+		{#if payer}
+			<span class="fbtn static payer" class:warn={payer.warn} role="note" title={payer.title} aria-label={payer.title}>{payer.label}</span>
+		{/if}
 		{#if chat.efforts.length || bcaps.modelPicker || !backendLocked || gateway !== null}
 			<!-- The model button opens the model menu (agent, model, effort, provider). -->
 			<button
@@ -1438,6 +1468,17 @@
 	}
 	.fbtn.isolation > :global(svg) {
 		flex: none;
+		color: var(--warn);
+	}
+	/* Who pays (the plan or the balance): plain text, the caution colour only
+	   once the plan cannot pay. */
+	.fbtn.payer {
+		flex-shrink: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: var(--dim);
+	}
+	.fbtn.payer.warn {
 		color: var(--warn);
 	}
 	.iso-label {

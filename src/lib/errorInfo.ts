@@ -2,13 +2,35 @@
 // errors through raw (`unexpected status 401 Unauthorized: invalid token,
 // url: …`); this names what went wrong, what to do, and which button does it.
 // Unknown errors return null and show as they came.
+import { planStopOf, type PlanStop } from './planStop';
 
-export type ErrorAction = 'restart' | 'login' | 'account' | 'compact' | 'model' | 'providers';
+/** `purchase` / `renew` / `topUp`: Settings → 套餐与充值; `useBalance`:
+ *  this device pays with the balance from its next request, and the stopped
+ *  turn goes on; `balanceUntilReset`: the same until the plan's used-up
+ *  window recovers (then the plan again); `waitPlan`: the turn goes on once
+ *  the window recovers (planStop.ts). */
+export type ErrorAction =
+	| 'restart'
+	| 'login'
+	| 'account'
+	| 'compact'
+	| 'model'
+	| 'providers'
+	| 'purchase'
+	| 'renew'
+	| 'topUp'
+	| 'useBalance'
+	| 'waitPlan'
+	| 'balanceUntilReset'
+	| 'devices';
 
 export interface ErrorInfo {
 	/** i18n key under `chat.err.<kind>` for the title and the hint. */
 	kind: string;
-	action?: ErrorAction;
+	/** The ways out, as buttons, in this order. */
+	actions?: ErrorAction[];
+	/** What the plan refused (a device that pays with its plan). */
+	plan?: PlanStop;
 	/** Named in the hint: the provider, the tool, the model. */
 	subject?: string;
 	/** The HTTP status and request id, when the raw text carries them. */
@@ -47,9 +69,9 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 	const low = text.toLowerCase();
 	const status = statusOf(text);
 	const requestId = requestIdOf(text);
-	const info = (kind: string, action?: ErrorAction, subject?: string): ErrorInfo => ({
+	const info = (kind: string, action?: ErrorAction | ErrorAction[], subject?: string): ErrorInfo => ({
 		kind,
-		...(action ? { action } : {}),
+		...(action ? { actions: Array.isArray(action) ? action : [action] } : {}),
 		...(subject ? { subject } : {}),
 		...(status ? { status } : {}),
 		...(requestId ? { requestId } : {})
@@ -74,11 +96,28 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		if (/lynshen/i.test(text) || backend === 'lynshen') return info('lynshenAuth', 'restart');
 		return info('toolAuth', undefined, tool || undefined);
 	}
-	// A desktop plan's window is used up (the key pays with the plan, which
-	// never falls back to the balance): not a balance problem.
-	if (/plan[_ ]quota[_ ]exhausted/i.test(text)) return info('planQuota', 'account');
+	// The device pays with its plan, which never falls back to the balance:
+	// a used-up window, an ended plan, a model outside the plan or a plan
+	// already in use on as many devices as it allows stops the turn (not a
+	// balance or rate problem), and the user picks the way on.
+	const stop = planStopOf(text);
+	if (stop) {
+		const ACTIONS: Record<typeof stop.code, ErrorAction[]> = {
+			// The balance only until the window recovers (owner, 2026-10-17).
+			plan_quota_exhausted: ['waitPlan', 'balanceUntilReset', 'purchase'],
+			plan_inactive: [stop.reason === 'none' ? 'purchase' : 'renew', 'useBalance'],
+			model_not_in_plan: ['model', 'useBalance'],
+			plan_device_limit: ['useBalance', 'devices']
+		};
+		const KINDS = { plan_quota_exhausted: 'planQuota', plan_inactive: 'planInactive', model_not_in_plan: 'notInPlan', plan_device_limit: 'planDevices' };
+		const actions = ACTIONS[stop.code];
+		const kind = KINDS[stop.code];
+		return { ...info(kind, actions, stop.model), plan: stop };
+	}
+	// Through the LynShen gateway the balance is topped up in the app; a key
+	// of the user's own (DeepSeek, …) is topped up at its provider.
 	if (status === 402 || /insufficient[_ ](balance|quota|funds)|余额不足|quota exceeded|billing/i.test(text))
-		return info('balance', 'account');
+		return info('balance', backend === 'lynshen' && provider && !LYNSHEN_PROVIDERS.has(provider) ? 'account' : 'topUp');
 	if (/context[_ ]length|context window|prompt is too long|maximum context|too many tokens|input.*exceeds|上下文/i.test(text))
 		return info('context', 'compact');
 	if (status === 429 || /rate[ _-]?limit|too many requests|限流|请求过于频繁/i.test(text)) return info('rateLimit');

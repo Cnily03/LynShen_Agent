@@ -1680,6 +1680,7 @@
 					loggedIn: signedInNow,
 					updateAvailable: updater.available,
 					onManageAccount: () => openSettings('account'),
+					onPurchase: () => openSettings('purchase'),
 					onSettings: () => showSettings || openSettings(),
 					onUpdate: () => openSettings('updates'),
 					onLoggedOut: () => {

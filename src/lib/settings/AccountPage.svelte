@@ -2,8 +2,10 @@
 	// Settings → 账户 for a signed-in LynShen Console account, in the manner
 	// of macOS System Settings: who it is (the avatar changes on a click, and
 	// the website shows it too), then full-width groups of rows:
-	//   套餐与余额  the plan (state, end, its windows), who pays, the balance
-	//              with 充值, the currency;
+	//   套餐与余额  the plan (state, end, its windows), who pays (the plan
+	//              only or the balance only, PlanFundingChoice), the balance
+	//              with 充值, the currency; 购买套餐 and 充值 open Settings →
+	//              套餐与充值 (PurchaseSection), where both are bought in the app;
 	//   用量       用量明细, with the last minute's usage as its second line;
 	//   more       模型广场, API 密钥, 邀请好友, 授权设备, the console;
 	//   sign-in    重新登录 and 退出登录, quiet, at the bottom.
@@ -34,7 +36,7 @@
 	import { openExternal } from '$lib/openExternal';
 	import { avatarInitial, cacheHitText, liveCount, roleBadgeKey } from '$lib/account';
 	import { fetchMonoizeLiveUsage, readConfig, type LiveUsage, type MonoizeUser } from '$lib/protocol';
-	import { planDate } from '$lib/trial';
+	import { planDate, planDevicesText } from '$lib/trial';
 	import { trial } from '$lib/trial.svelte';
 	import PlanFundingChoice from '$lib/PlanFundingChoice.svelte';
 	import PlanUsage from '$lib/PlanUsage.svelte';
@@ -49,7 +51,8 @@
 		onApiKey,
 		onUsage,
 		onInvite,
-		onDevices
+		onDevices,
+		onPurchase
 	}: {
 		user: MonoizeUser;
 		/** The first `balance_infos` entry of /user/balance; null while loading. */
@@ -64,6 +67,8 @@
 		onInvite: () => void;
 		/** Settings → 授权设备. */
 		onDevices: () => void;
+		/** Settings → 套餐与充值. */
+		onPurchase: () => void;
 	} = $props();
 
 	const badge = $derived(roleBadgeKey(user.role));
@@ -156,19 +161,23 @@
 
 <SettingsSection title={t('settings.accountPage.planSection')} id="account-plan">
 	{#if deskPlan}
-		<SettingsRow stacked title={deskPlan.name.trim() || t('shell.trial.label')} tag={t('settings.accountPage.planActive')} description={t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) })}>
+		<SettingsRow
+			stacked
+			title={deskPlan.name.trim() || t('shell.trial.label')}
+			tag={t('settings.accountPage.planActive')}
+			description={[t('shell.account.expires', { date: planDate(deskPlan.expires_at, true) }), ...(deskPlan.devices ? [planDevicesText(deskPlan.devices)] : [])].join(' · ')}
+		>
 			<PlanUsage plan={deskPlan} />
 		</SettingsRow>
-		<PlanFundingChoice />
 	{:else}
 		<SettingsRow id="account-noplan" title={t('shell.account.plan')} description={billingPlan || t('settings.accountPage.noPlan')}>
 			{#if !billingPlan}
-				<Button size="sm" variant="ghost" onclick={() => openExternal(`${web}/dashboard/store?tab=plan&surface=desktop`)}>
-					{t('settings.accountPage.viewPlans')} <ArrowSquareOutIcon size={13} />
-				</Button>
+				<Button size="sm" variant="ghost" onclick={onPurchase}>{t('settings.accountPage.buyPlan')}</Button>
 			{/if}
 		</SettingsRow>
 	{/if}
+	<!-- Who pays: with a plan in force, or while the device still pays with one that ended. -->
+	<PlanFundingChoice />
 	<SettingsRow
 		id="account-balance"
 		title={t('settings.usage.balance')}
@@ -177,7 +186,7 @@
 			: undefined}
 	>
 		<span class="amount">{balanceText}</span>
-		<Button size="sm" onclick={() => openExternal(`${web}/dashboard/wallet`)}>{t('settings.accountPage.topUp')} <ArrowSquareOutIcon size={13} /></Button>
+		<Button size="sm" onclick={onPurchase}>{t('settings.accountPage.topUp')}</Button>
 	</SettingsRow>
 	<SettingsRow id="account-currency" title={t('settings.accountPage.currency')} description={t('settings.accountPage.currencySub')}>
 		<Segmented

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { setLocale } from '$lib/i18n';
 import { buildModelRows, type ModelRow } from '$lib/composer/modelRows';
 import { SAMPLE_CATALOG, SAMPLE_PLAIN_IDS } from './catalogSample';
 import { catalogIndex, defaultModel, parseCatalog } from './gatewayCatalog';
@@ -6,6 +7,7 @@ import { itemsFromOptions, itemsFromRows } from './items';
 import { browseLines, browseSections, foldFamily, openAtFirst, quickList, searchSections } from './rank';
 import { cheapKeys, searchModels } from './search';
 import { fmtAmount, priceText } from './price';
+import { factsOf, outsidePlan, shortFactsOf } from './facts';
 import type { PickItem } from './catalog';
 
 const catalog = parseCatalog(SAMPLE_CATALOG)!;
@@ -101,6 +103,20 @@ describe('defaultModel', () => {
 		expect(defaultModel(balance)?.id).toBe('auto');
 		const autoDown = parseCatalog({ ...SAMPLE_CATALOG, plan: null, models: SAMPLE_CATALOG.models.map((m) => ({ ...m, covered_by_plan: false, health: m.id === 'auto' ? { state: 'unavailable' } : m.health })) });
 		expect(defaultModel(autoDown)?.id).toBe('claude-opus-5-5');
+	});
+	it('does not lead with the plan when the device pays with the balance', () => {
+		const balance = parseCatalog({ ...SAMPLE_CATALOG, plan: { ...SAMPLE_CATALOG.plan, plan_funding: 'balance' } });
+		expect(balance?.bucket).toBe('balance');
+		expect(defaultModel(balance)?.id).toBe('auto');
+		// Contract 4.1: the bucket at the top; a model only the plan runs is not a start on the balance.
+		const v1 = parseCatalog({
+			...SAMPLE_CATALOG,
+			bucket: 'balance',
+			models: SAMPLE_CATALOG.models.map((m) => ({ ...m, balance_available: m.id !== 'auto' }))
+		});
+		expect(v1?.bucket).toBe('balance');
+		expect(v1?.models.find((m) => m.id === 'auto')?.balanceOk).toBe(false);
+		expect(defaultModel(v1)?.id).toBe('claude-opus-5-5');
 	});
 	it('keeps to the models the engine lists', () => {
 		expect(defaultModel(catalog, ['kimi-k3', 'gpt-image-2'])?.id).toBe('kimi-k3');
@@ -351,5 +367,37 @@ describe('recents', () => {
 		const rows = quickList(items, { favorites: [], recent: ['monoize::gpt-image-2', 'monoize::kimi-k3'] });
 		expect(rows.some((r) => r.item.id === 'gpt-image-2')).toBe(false);
 		expect(rows[1]).toMatchObject({ section: 'recent', item: { id: 'kimi-k3' } });
+	});
+});
+
+describe('the plan in the facts', () => {
+	beforeAll(() => setLocale('zh'));
+	const items = itemsFromRows(gatewayRows(SAMPLE_PLAIN_IDS), lookup);
+	const opus = items.find((i) => i.id === 'claude-opus-5-5')!;
+	const flash = items.find((i) => i.id === 'deepseek-v4.1-flash')!;
+	const o = (bucket: 'plan' | 'balance' | null) => ({ currency: 'CNY' as const, bucket });
+	it('marks a model outside the plan on the plan, first, and lists it', () => {
+		expect(outsidePlan(opus, o('plan'))).toBe(true);
+		expect(factsOf(opus, o('plan'))[0]).toBe('套餐外，余额模式可用');
+		expect(shortFactsOf(opus, o('plan'))).toEqual(['套餐外']);
+		expect(factsOf(flash, o('plan'))).toContain('套餐内');
+		expect(shortFactsOf(flash, o('plan'))).toEqual(['套餐内']);
+	});
+	it('does not mention the plan on the balance', () => {
+		expect(outsidePlan(opus, o('balance'))).toBe(false);
+		expect(factsOf(opus, o('balance')).join()).not.toMatch(/套餐/);
+		expect(factsOf(flash, o('balance')).join()).not.toMatch(/套餐/);
+		expect(shortFactsOf(flash, o('balance'))[0]).not.toMatch(/套餐/);
+	});
+	it('says what the catalog says when the choice is unknown', () => {
+		expect(factsOf(flash, o(null))).toContain('套餐内');
+		expect(factsOf(opus, o(null)).join()).not.toMatch(/套餐/);
+	});
+	it('leads the recommendations with the plan only on the plan', () => {
+		const onPlan = quickList(items, { favorites: [], recent: [] });
+		const onBalance = quickList(items, { favorites: [], recent: [], balance: true });
+		const first = (rows: ReturnType<typeof quickList>) => rows.find((r) => r.section === 'recommended')!.item.id;
+		expect(items.find((i) => i.id === first(onPlan))?.inPlan).toBe(true);
+		expect(first(onBalance)).toBe('auto');
 	});
 });

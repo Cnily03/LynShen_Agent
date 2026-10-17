@@ -29,7 +29,7 @@
 	import CallTimer from '$lib/CallTimer.svelte';
 	import RetryNotice from '$lib/RetryNotice.svelte';
 	import ErrorNotice from '$lib/ErrorNotice.svelte';
-	import type { ErrorAction } from '$lib/errorInfo';
+	import type { ErrorAction, ErrorInfo } from '$lib/errorInfo';
 	import { t } from '$lib/i18n';
 	import type { CallTiming, Msg, RetryState } from '$lib/chat.svelte';
 	import { prefs } from '$lib/prefs.svelte';
@@ -72,6 +72,8 @@
 		backend = '',
 		provider = '',
 		onErrorAction,
+		planWaitUntil = null,
+		onCancelPlanWait,
 		traceOf,
 		agents,
 		onOpenAgent,
@@ -124,7 +126,11 @@
 		/** The LynShen engine's provider (see ErrorNotice). */
 		provider?: string;
 		/** An error notice's fix (restart, sign in, compact …). */
-		onErrorAction?: (action: ErrorAction) => void;
+		onErrorAction?: (action: ErrorAction, info: ErrorInfo) => void;
+		/** The turn the plan stopped waits for its window (planStop.svelte.ts):
+		 *  when it goes on; the last error notice shows it. */
+		planWaitUntil?: number | null;
+		onCancelPlanWait?: () => void;
 		/** A tool call whose run the agent trace shows (claude's Agent / Workflow). */
 		traceOf?: (m: Msg) => { label: string; run: () => void } | null;
 		/** The conversation's subagents: spawn and wait calls render as their
@@ -531,6 +537,7 @@
 	const openGroups = new SvelteSet<Msg>();
 	// The last message with something to show (a plan's actions show there only).
 	const lastShown = $derived(messages.findLast((m) => hasContent(m)));
+	const lastError = $derived(messages.findLast((m) => m.kind === 'error'));
 	/** A spawn or wait call that renders as a subagent card. */
 	function isAgentCall(m: Msg): boolean {
 		return !!agents && m.kind === 'tool' && (SPAWN_TOOLS.has(m.name) || WAIT_TOOLS.has(m.name));
@@ -749,7 +756,15 @@
 		{:else if m.kind === 'escalation'}
 			<EscalationLine record={m.record} />
 		{:else if m.kind === 'error'}
-			<ErrorNotice text={m.text} {backend} {provider} onAction={onErrorAction} onDismiss={onDismiss ? () => onDismiss(m) : undefined} />
+			<ErrorNotice
+				text={m.text}
+				{backend}
+				{provider}
+				waitingUntil={m === lastError ? planWaitUntil : null}
+				onAction={onErrorAction}
+				onCancelWait={onCancelPlanWait}
+				onDismiss={onDismiss ? () => onDismiss(m) : undefined}
+			/>
 				{/if}
 			</div>
 		{/if}
