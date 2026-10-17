@@ -445,7 +445,16 @@
 				{/if}
 			</div>
 			{#if settings}
-				<SettingsPage sessionId={session.id} chat={session.chat} bind:section navWidth={NAV_W} onClose={() => {}} />
+				<!-- 导入's result: folders added and conversations opened go to `window.__opened`. -->
+				<SettingsPage
+					sessionId={session.id}
+					chat={session.chat}
+					bind:section
+					navWidth={NAV_W}
+					onClose={() => {}}
+					onAddFolders={(paths) => (opened.push(...paths.map((p) => `folder:${p}`)), paths.length)}
+					onOpenSession={(s) => opened.push(`import:${s.engine}:${s.id}:${s.cwd}`)}
+				/>
 			{/if}
 		</div>
 	</div>

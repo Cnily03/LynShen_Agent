@@ -31,6 +31,7 @@
 		folderName,
 		importedFolders,
 		isPath,
+		openableImports,
 		mcpKey,
 		planMcp,
 		projectRows,
@@ -40,6 +41,7 @@
 		skippedBySource,
 		summarize,
 		type McpResult,
+		type OpenableImport,
 		type RunSummary
 	} from '$lib/agentImport';
 	import Button from '$lib/ui/Button.svelte';
@@ -50,7 +52,14 @@
 	import SettingsSection from './SettingsSection.svelte';
 	import SettingsRow from './SettingsRow.svelte';
 
-	let { onAddFolders }: { onAddFolders?: (paths: string[]) => number } = $props();
+	let {
+		onAddFolders,
+		onOpenSession
+	}: {
+		onAddFolders?: (paths: string[]) => number;
+		/** Opens a conversation the run brought over, in its project. */
+		onOpenSession?: (session: OpenableImport) => void;
+	} = $props();
 
 	let found = $state<ImportScan | null>(null);
 	let scanning = $state(false);
@@ -63,6 +72,10 @@
 	let summary = $state<RunSummary | null>(null);
 	let folders = $state<string[]>([]);
 	let foldersAdded = $state(false);
+	/** What the last run brought over that opens from here. */
+	let openable = $state<OpenableImport[]>([]);
+	/** Rows shown at once; the rest are in the projects' history. */
+	const OPEN_SHOWN = 8;
 
 	const sessionGroups = $derived(found ? groupSessions(found) : []);
 	// Conversations that are there but could not be read, per tool.
@@ -128,6 +141,7 @@
 		runError = '';
 		summary = null;
 		foldersAdded = false;
+		openable = [];
 		try {
 			const picked = scanned.sessions.filter((s) => picks[sessionKey(s)]);
 			const inOpencode = (await opencodeAgent()) !== undefined;
@@ -143,6 +157,7 @@
 			const servers = await addServers(scanned.mcp.filter((m) => !m.present && picks[mcpKey(m)]));
 			summary = summarize(outcomes, servers);
 			folders = importedFolders(outcomes);
+			openable = openableImports(outcomes);
 		} catch (e) {
 			runError = String(e);
 		} finally {
@@ -378,6 +393,22 @@
 						<div class="rwhere">{t('settings.import.where')}</div>
 					{/if}
 				</Notice>
+				{#if openable.length && onOpenSession}
+					<div class="opened">
+						<div class="otitle">{t('settings.import.openTitle')}</div>
+						{#each openable.slice(0, OPEN_SHOWN) as s (s.id)}
+							<div class="orow">
+								<span class="chip">{label(s.source)}</span>
+								<span class="oname" title={s.cwd}>{s.title}</span>
+								<span class="ppath">{folderName(s.cwd)}</span>
+								<Button size="sm" variant="ghost" onclick={() => onOpenSession?.(s)}>{t('settings.import.open')}</Button>
+							</div>
+						{/each}
+						{#if openable.length > OPEN_SHOWN}
+							<div class="omore">{t('settings.import.openMore', { n: openable.length - OPEN_SHOWN })}</div>
+						{/if}
+					</div>
+				{/if}
 				{#if folders.length && onAddFolders}
 					<div class="folders">
 						{#if foldersAdded}
@@ -557,6 +588,36 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+	}
+	.opened {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin: 10px 0;
+	}
+	.otitle {
+		font-size: var(--fs-xs);
+		color: var(--dim);
+		margin-bottom: 4px;
+	}
+	.orow {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 32px;
+	}
+	.oname {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.orow .ppath {
+		flex: 1;
+	}
+	.omore {
+		font-size: var(--fs-xs);
+		color: var(--dim);
 	}
 	.done {
 		font-size: var(--fs-xs);

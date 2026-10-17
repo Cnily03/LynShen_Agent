@@ -217,6 +217,31 @@ export function summarize(outcomes: ImportOutcome[], mcp: McpResult[]): RunSumma
 	};
 }
 
+/** A conversation a run brought over, as the result opens it. */
+export interface OpenableImport {
+	source: ImportSource;
+	/** The copy to open (`ImportOutcome.target`). */
+	id: string;
+	title: string;
+	cwd: string;
+	/** The backend it continues on. */
+	engine: 'lynshen' | 'claude' | 'codex';
+}
+
+/** The conversations of a run that the result can open in their project:
+ *  imported (or imported before), in a folder that still exists, on a
+ *  backend that opens a conversation by its id. OpenCode copies (engine
+ *  acp) open from the project's history, which knows the agent. */
+export function openableImports(outcomes: ImportOutcome[]): OpenableImport[] {
+	const out: OpenableImport[] = [];
+	for (const o of outcomes) {
+		if (o.kind !== 'session' || o.status === 'failed' || !o.target || !o.cwd || !o.cwd_exists) continue;
+		if (o.engine !== 'lynshen' && o.engine !== 'claude' && o.engine !== 'codex') continue;
+		out.push({ source: o.source, id: o.target, title: o.title || o.key, cwd: o.cwd, engine: o.engine });
+	}
+	return out;
+}
+
 /** Folders of the conversations a run brought over that still exist: the
  *  projects to show them under. */
 export function importedFolders(outcomes: ImportOutcome[]): string[] {

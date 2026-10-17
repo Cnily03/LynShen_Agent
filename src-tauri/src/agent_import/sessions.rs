@@ -25,9 +25,9 @@
 use super::{dsh, opencode, Roots, SessionPick};
 use crate::claude_history::{is_session_id, is_synthetic, row_text, truncate_chars};
 use crate::native_import::{
-    codex_first_prompt, codex_names, codex_threads, existing_copy, import_claude, import_codex, is_conversation,
-    load_registry, mtime_ms, now_ms, rollout_files, same_dir, save_registry, ImportRecord, LYNSHEN_ORIGINATOR,
-    MAX_TITLE_CHARS,
+    codex_first_prompt, codex_names, codex_thread_prompts, codex_threads, existing_copy, import_claude, import_codex,
+    is_compressed, is_conversation, load_registry, mtime_ms, now_ms, rollout_files, same_dir, save_registry,
+    ImportRecord, LYNSHEN_ORIGINATOR, MAX_TITLE_CHARS,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -209,29 +209,6 @@ fn copies_of<'a>(registry: &'a [ImportRecord], source: &str) -> HashSet<&'a str>
     registry.iter().filter(|r| r.source == source).map(|r| r.to.as_str()).collect()
 }
 
-/// Calls `each` with every line of a file that contains one of `needles`,
-/// parsed. Lines are searched before they are parsed: session files reach
-/// 100 MB and most lines are not wanted.
-fn matching_rows(path: &Path, needles: &[&str], mut each: impl FnMut(Value)) {
-    let Ok(file) = fs::File::open(path) else { return };
-    let mut reader = BufReader::new(file);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        let Ok(text) = std::str::from_utf8(&line) else { continue };
-        if !needles.iter().any(|n| text.contains(n)) {
-            continue;
-        }
-        if let Ok(v) = serde_json::from_str::<Value>(text) {
-            each(v);
-        }
-    }
-}
-
 // --- Claude Code -------------------------------------------------------------
 
 /// What the list shows of a Claude Code session file.
@@ -394,32 +371,28 @@ fn scan_claude(roots: &Roots, registry: &[ImportRecord], report: &mut Report) ->
 
 // --- Codex -------------------------------------------------------------------
 
-fn codex_prompts(path: &Path) -> usize {
-    let mut n = 0;
-    matching_rows(path, &["\"user_message\""], |v| {
-        let p = &v["payload"];
-        let text = p["message"].as_str().unwrap_or("").trim();
-        if v["type"].as_str() == Some("event_msg")
-            && p["type"].as_str() == Some("user_message")
-            && !text.is_empty()
-            && !text.starts_with('<')
-        {
-            n += 1;
-        }
-    });
-    n
-}
-
 fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> Vec<Found> {
     let threads = codex_threads(&roots.codex);
-    // Rollout files that are not part of a thread: no `session_meta` first line.
+    // Rollout files that are not part of a thread: no `session_meta` first
+    // line, or a compressed one that does not decompress.
     let known: HashSet<&Path> = threads.values().flatten().map(|s| s.path.as_path()).collect();
     let files = rollout_files(&roots.codex);
-    let headless = files.iter().filter(|p| !known.contains(p.as_path()) && fs::metadata(p).is_ok_and(|m| m.len() > 0)).count();
-    report.skip_n("codex", headless, SkipKind::Unrecognised, "no session header (session_meta)");
-    let compressed = compressed_rollouts(&roots.codex);
-    report.skip_n("codex", compressed, SkipKind::Compressed, "compressed (.jsonl.zst), which this version cannot read");
-    report.note("codex", format!("{} rollout files, {} threads in {}", files.len(), threads.len(), roots.codex.display()));
+    let (compressed, plain): (Vec<&PathBuf>, Vec<&PathBuf>) = files.iter().partition(|p| is_compressed(p));
+    let unknown = |list: &[&PathBuf]| {
+        list.iter().filter(|p| !known.contains(p.as_path()) && fs::metadata(p).is_ok_and(|m| m.len() > 0)).count()
+    };
+    report.skip_n("codex", unknown(&plain), SkipKind::Unrecognised, "no session header (session_meta)");
+    report.skip_n("codex", unknown(&compressed), SkipKind::Compressed, "compressed (.jsonl.zst) and cannot be decompressed");
+    report.note(
+        "codex",
+        format!(
+            "{} rollout files ({} compressed), {} threads in {}",
+            files.len(),
+            compressed.len(),
+            threads.len(),
+            roots.codex.display()
+        ),
+    );
     if threads.is_empty() {
         return Vec::new();
     }
@@ -439,7 +412,7 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> 
         };
         let live: Vec<_> = segs.iter().filter(|s| !s.archived).collect();
         // A fork's own files: its prompts since the fork.
-        let prompts = live.iter().map(|s| codex_prompts(&s.path)).sum();
+        let prompts = codex_thread_prompts(&threads, id);
         let title = names
             .get(id)
             .map(|n| truncate_chars(n, MAX_TITLE_CHARS))
@@ -458,24 +431,6 @@ fn scan_codex(roots: &Roots, registry: &[ImportRecord], report: &mut Report) -> 
         });
     }
     out
-}
-
-/// Rollouts Codex compressed (`rollout-*.jsonl.zst`, behind a Codex feature
-/// flag that is off by default).
-fn compressed_rollouts(codex: &Path) -> usize {
-    let mut n = 0;
-    let mut stack = vec![codex.join("sessions"), codex.join("archived_sessions")];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl.zst")) {
-                n += 1;
-            }
-        }
-    }
-    n
 }
 
 // --- converted conversations -------------------------------------------------
@@ -1200,10 +1155,43 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!((found[0].title.as_str(), found[0].messages), ("fix it", 1));
         let skipped: Vec<(usize, &str)> = report.skipped.iter().map(|s| (s.count, s.reason.as_str())).collect();
+        assert_eq!(skipped, [(1, "no session header (session_meta)"), (1, "compressed (.jsonl.zst) and cannot be decompressed")]);
+    }
+
+    /// Ticket #35: Codex Desktop's threads listed with 0 prompts (paginated
+    /// rollouts have no `user_message` events), and its compressed ones not
+    /// at all.
+    #[test]
+    fn codex_paginated_and_compressed_rollouts_are_listed_with_their_prompts() {
+        let roots = testutil::roots("codex-paged");
+        testutil::copy_tree(&testutil::codex_fixtures(), &roots.codex);
+        let (found, report) = scan_all(&roots);
+        let mut codex: Vec<(&str, usize, &str)> = found
+            .iter()
+            .filter(|f| f.source == "codex")
+            .map(|f| (f.title.as_str(), f.messages, f.cwd.as_str()))
+            .collect();
+        codex.sort();
+        let cwd = testutil::CODEX_FIXTURE_CWD;
         assert_eq!(
-            skipped,
-            [(1, "no session header (session_meta)"), (1, "compressed (.jsonl.zst), which this version cannot read")]
+            codex,
+            [
+                ("修复安装包进程终止与启动", 3, cwd),
+                ("修复游戏目录识别崩溃", 1, cwd),
+                ("检查前台游戏调度时间片", 2, cwd),
+                ("添加关闭预启动开关", 2, cwd),
+                ("评估项目能否用于优化工具", 2, cwd),
+            ]
         );
+        assert!(report.skipped.iter().all(|s| s.source != "codex"), "{:?}", report.skipped);
+        assert!(report.log.iter().any(|l| l.starts_with("codex: 6 rollout files (3 compressed), 5 threads")), "{:?}", report.log);
+        // Imported, it is listed as imported, and its copy is not offered.
+        let id = found.iter().find(|f| f.title == "修复安装包进程终止与启动").unwrap().id.clone();
+        let done = import(&roots, &SessionPick { source: "codex".into(), id: id.clone(), cwd: cwd.into() }).unwrap();
+        assert_eq!((done.engine, done.title.as_str()), ("codex", "修复安装包进程终止与启动"));
+        let again = scan_all(&roots).0;
+        assert!(again.iter().find(|f| f.id == id).unwrap().imported);
+        assert!(again.iter().all(|f| f.id != done.id));
     }
 
     #[test]

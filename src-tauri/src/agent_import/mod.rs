@@ -512,6 +512,28 @@ pub(crate) mod testutil {
         fs::write(path, text).unwrap();
         path.to_path_buf()
     }
+
+    /// Copies a fixture folder.
+    pub fn copy_tree(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    /// The Codex home tests/fixtures/codex/make-fixtures.mjs writes:
+    /// paginated, legacy and compressed rollouts of one Windows folder.
+    pub fn codex_fixtures() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("codex").join("home").join(".codex")
+    }
+
+    /// The folder every fixture thread ran in (make-fixtures.mjs `CWD`).
+    pub const CODEX_FIXTURE_CWD: &str = r"D:\我要干大活\三角帧不掉洲";
 }
 
 #[cfg(test)]

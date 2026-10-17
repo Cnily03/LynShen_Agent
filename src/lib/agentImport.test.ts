@@ -6,6 +6,7 @@ import {
 	folderName,
 	importedFolders,
 	isPath,
+	openableImports,
 	mcpKey,
 	planMcp,
 	projectRows,
@@ -221,6 +222,24 @@ describe('summarize', () => {
 				outcome({ kind: 'skill', cwd: null })
 			])
 		).toEqual(['/p/a', '/p/b']);
+	});
+});
+
+describe('opening what a run brought over (ticket #35)', () => {
+	it('lists the conversations that open by id in a folder that still exists', () => {
+		expect(
+			openableImports([
+				outcome({ source: 'codex', engine: 'codex', target: 'cx-copy', title: '添加关闭预启动开关', cwd: 'D:\\我要干大活\\三角帧不掉洲' }),
+				outcome({ key: 's2', status: 'existing', target: 'sdef', title: null }),
+				outcome({ key: 's3', cwd: '/p/gone', cwd_exists: false }),
+				outcome({ key: 's4', status: 'failed', target: null }),
+				outcome({ key: 's5', source: 'opencode', engine: 'acp', target: 'ses_copy' }),
+				outcome({ kind: 'skill', key: '/s/pdf', target: '/x/pdf', cwd: null, engine: null })
+			])
+		).toEqual([
+			{ source: 'codex', id: 'cx-copy', title: '添加关闭预启动开关', cwd: 'D:\\我要干大活\\三角帧不掉洲', engine: 'codex' },
+			{ source: 'zcode', id: 'sdef', title: 's2', cwd: '/p/a', engine: 'lynshen' }
+		]);
 	});
 });
 
