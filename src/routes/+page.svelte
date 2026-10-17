@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { refreshMonoizeCatalog } from '$lib/providers/monoize';
 	import { DaemonSync } from '$lib/daemonSync.svelte';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { crossfade } from '$lib/ui/viewTransition';
 	import { engine } from '$lib/engineVersion.svelte';
 	import { listen } from '@tauri-apps/api/event';
@@ -137,7 +137,7 @@
 	import { fileName } from '$lib/attachments';
 	import StateIcon from '$lib/agents/StateIcon.svelte';
 	import { runState } from '$lib/agentTrace';
-	import { shortPath } from '$lib/agentProgress';
+	import { shortPath, type AgentRow } from '$lib/agentProgress';
 	import type { ApprovalMode } from '$lib/approval';
 	import GoalPanel from '$lib/GoalPanel.svelte';
 	import ChangesPanel from '$lib/ChangesPanel.svelte';
@@ -839,6 +839,19 @@
 		if (!request || !tilesReady) return;
 		untrack(() => openSubagentPage(request.sessionId, request.agentId, request.place));
 	});
+	/** A sub-agent clicked in the navigator (under its conversation): its
+	 *  conversation in front, then its page beside it, where settings say
+	 *  (a Workflow: the conversation's agent trace). */
+	async function openNavSubagent(sessionId: string, agent: AgentRow) {
+		store.activeId = sessionId;
+		projectPageId = null;
+		showHome = false;
+		await tick();
+		if (!agent.workflow) return subagentPages.open(sessionId, agent.id, prefs.openElsewhere);
+		const chat = sessionMap.get(sessionId)?.chat;
+		if (chat) chat.agentFocus = null;
+		openPanelTile('agents');
+	}
 
 	// The workbench-active session always has a chat tile: activating a session
 	// (sidebar click, ⌘N, resume, deep link…) opens or focuses it.
@@ -1659,6 +1672,7 @@
 				onSessionMenu={openSessionMenu}
 				onProjectMenu={openProjectMenu}
 				holdOpen={!!sessionChromeFor || !!projectChromeFor}
+				onOpenSubagent={openNavSubagent}
 				onHistory={(p) => store.openHistory(p)}
 				agents={agentDirectory.agents}
 				agentsStatus={agentDirectory.status}

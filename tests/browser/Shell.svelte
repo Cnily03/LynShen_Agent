@@ -27,6 +27,13 @@
 	//                           project, all at work
 	//   &cards                  a turn at work with a plan and three subagents of
 	//                           LynShen's agent team (the plan and subagents cards)
+	//   &subagents[=<n>]        the conversation runs a turn with n subagents (3
+	//                           by default; 0: none yet), listed under it in the
+	//                           navigator; `window.__subagent(i, status)` sends
+	//                           the lifecycle event of the i-th (1-based:
+	//                           /root/agent-<i>), `window.__shellChat` the rest
+	//                           (`{type: 'status', message: 'ready'}` ends the turn)
+	//   &stay=<ms>              how long they stay once the turn is over (30 s)
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
 	//   &textOnly               the engine reports a model that takes no images
 	//                           and does not think (`window.__chat` attaches files)
@@ -98,6 +105,8 @@
 	}
 	// The sessions, to change their state from a test (the navigator's groups).
 	Object.assign(window, { __shellStore: store });
+	const withSubagents = mode.has('subagents');
+	const subagentStay = Number(mode.get('stay')) || undefined;
 	// A row's right-click menu, as the page opens it (the navigator holds its
 	// order while it shows).
 	let rowMenu = $state<{ sid: string; x: number; y: number } | null>(null);
@@ -258,6 +267,18 @@
 			]
 		});
 	}
+	// ?shell&subagents: a turn of the conversation that runs subagents.
+	const SUBAGENT_TASKS = ['读缓存层的代码', '改 SessionCache 和调用方', '跑单元测试', '审查改动', '更新 design.md 的缓存一节', '检查类型', '对比基准', '整理提交说明', '清理旧缓存', '补充文档', '核对迁移', '回归测试'];
+	const subagentEvent = (i: number, status = 'running') => ({ type: 'subagent_lifecycle', path: `/root/agent-${i}`, label: SUBAGENT_TASKS[(i - 1) % SUBAGENT_TASKS.length], role: 'worker', status, message: '' });
+	if (withSubagents && !mode.has('empty')) {
+		feed({ type: 'user_message', content: '把会话缓存改成按会话分片，跑完单元测试再提交。' });
+		feed({ type: 'connecting' });
+		feed({ type: 'status', message: 'streaming' });
+		feed({ type: 'assistant_delta', delta: '分给工作组：读代码、改实现、跑测试、审查。' });
+		const n = mode.get('subagents') === '' ? 3 : Math.max(0, Number(mode.get('subagents')) || 0);
+		for (let i = 1; i <= n; i++) feed(subagentEvent(i));
+	}
+	Object.assign(window, { __subagent: (i: number, status?: string) => feed(subagentEvent(i, status)) });
 	const opened: string[] = [];
 	// What the conversation sends its engine: no engine runs here, so the
 	// session is no draft waiting for one and its adapter keeps the ops.
@@ -349,7 +370,7 @@
 				onToggleCollapsed={() => (collapsed = !collapsed)}
 				onHome={() => {}}
 				homeOpen={home}
-				onSelect={() => {}}
+				onSelect={(id) => withSubagents && opened.push(`select:${id}`)}
 				onNewProject={() => {}}
 				onNewSession={() => {}}
 				onNewChat={() => {}}
@@ -367,6 +388,8 @@
 					rowMenu = { sid, x: ev.clientX, y: ev.clientY };
 				}}
 				holdOpen={!!rowMenu}
+				onOpenSubagent={(id, agent) => subagentPages.open(id, agent.id, prefs.openElsewhere)}
+				{subagentStay}
 				onProjectMenu={() => {}}
 				onHistory={() => {}}
 				footer={{ loggedIn: true, onManageAccount: () => {}, onSettings: () => {}, onUpdate: () => {}, onLoggedOut: () => {} }}

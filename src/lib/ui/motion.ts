@@ -159,8 +159,42 @@ export function moveRow(_node: Element, { from, to }: { from: DOMRect; to: DOMRe
 	};
 }
 
+/** A sub-agent arriving under its conversation in the navigator: fade and
+ *  settle 4px down (240ms, --ease-enter) after `delay` (80ms, then 120ms
+ *  more for each one that arrives with it: sidebarSubagents.ts, arrivals),
+ *  while the rows below make room. A negative delay: at once (the list
+ *  filling in). */
+export function childIn(_node: Element, { delay = 80, y = -4, duration = T_BASE } = {}): TransitionConfig {
+	if (delay < 0) return { duration: 0 };
+	return {
+		delay: motionMs(delay),
+		duration: motionMs(duration),
+		easing: EASE_ENTER,
+		css: (t, u) => `opacity: ${t}; transform: translateY(${u * y}px)`
+	};
+}
+
+/** A sub-agent folding away once its conversation's turn is over: it fades
+ *  out, 140ms on --ease-exit (shorter than its entrance), while the rows
+ *  below move up into its place. Opacity only. */
+export function childOut(_node: Element, { duration = 140 } = {}): TransitionConfig {
+	return {
+		duration: motionMs(duration),
+		easing: EASE_EXIT,
+		css: (t) => `opacity: ${t}`
+	};
+}
+
 /** An item arriving in the navigator's flat list: a row slides in (rowIn),
- *  a group's heading fades in (groupIn). */
-export function listIn(node: Element, { head = false } = {}): () => TransitionConfig {
+ *  a group's heading fades in (groupIn), a sub-agent fades in after its
+ *  `delay` (childIn). */
+export function listIn(node: Element, { head = false, child = false, delay = 80 } = {}): TransitionConfig | (() => TransitionConfig) {
+	if (child) return childIn(node, { delay });
 	return head ? groupIn(node) : rowIn(node);
+}
+
+/** An item leaving the navigator's flat list: a sub-agent fades (childOut);
+ *  a row or a heading goes at once (the others move into its place). */
+export function listOut(node: Element, { child = false } = {}): TransitionConfig {
+	return child ? childOut(node) : { duration: 0 };
 }

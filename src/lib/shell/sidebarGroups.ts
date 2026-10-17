@@ -9,8 +9,9 @@
 // pointer is in the list or a row's menu is open, rows change their look
 // only and keep their places (`heldList`); the order catches up after.
 //
-// The list is flat (headings are items too), so one keyed each can move
-// every row and heading with `animate:` (moveRow in ui/motion.ts).
+// The list is flat (headings, and the sub-agents under a conversation, are
+// items too: sidebarSubagents.ts), so one keyed each can move every row and
+// heading with `animate:` (moveRow in ui/motion.ts).
 import type { SessionStatus } from '$lib/sessionStatus';
 
 export type StateGroup = 'waiting' | 'working' | 'done';
@@ -35,7 +36,28 @@ export interface ListHead {
 	group: StateGroup;
 	n: number;
 }
-export type ListItem<T> = ListRow<T> | ListHead;
+/** A sub-agent under its conversation (`parent`, the row's key), in the
+ *  conversation's group; `item` is the conversation's. */
+export interface ListChild<T, A = unknown> {
+	kind: 'child';
+	key: string;
+	group: StateGroup;
+	parent: string;
+	agent: A;
+	item: T;
+}
+/** The row after the first sub-agents: how many more there are. */
+export interface ListMore<T> {
+	kind: 'more';
+	key: string;
+	group: StateGroup;
+	parent: string;
+	n: number;
+	item: T;
+}
+export type ListItem<T, A = unknown> = ListRow<T> | ListHead | ListChild<T, A> | ListMore<T>;
+/** An item under a conversation's row (a sub-agent, or how many more). */
+export const isUnder = <T, A>(it: ListItem<T, A>): it is ListChild<T, A> | ListMore<T> => it.kind === 'child' || it.kind === 'more';
 
 /** What the list needs of a conversation. */
 export interface Entry<T> {
@@ -119,20 +141,24 @@ function cut<X extends { e: Entry<unknown> }>(rows: X[], limit: number, active: 
 
 /** The list while it is held: the rows in the places they show (with what
  *  they show now: their look, the headings' counts), new rows where the
- *  next order puts them, rows gone left out. A heading not shown yet waits
- *  for the hold to end. */
-export function heldList<T>(shown: readonly ListItem<T>[], next: readonly ListItem<T>[]): ListItem<T>[] {
+ *  next order puts them, rows gone left out. A heading or a sub-agent not
+ *  shown yet waits for the hold to end, and so does a sub-agent that folds
+ *  (while its conversation is listed): either would move the rows below. */
+export function heldList<T, A>(shown: readonly ListItem<T, A>[], next: readonly ListItem<T, A>[]): ListItem<T, A>[] {
 	const fresh = new Map(next.map((it) => [it.key, it]));
-	const out: ListItem<T>[] = [];
+	const out: ListItem<T, A>[] = [];
 	for (const it of shown) {
 		const now = fresh.get(it.key);
-		// A row keeps the group it shows in (its place) until the hold ends.
-		if (now) out.push(now.kind === 'row' && it.kind === 'row' ? { ...now, group: it.group } : now);
+		// A row (and what is under it) keeps the group it shows in (its
+		// place) until the hold ends.
+		if (now) out.push(now.kind !== 'head' && it.kind !== 'head' ? { ...now, group: it.group } : now);
 		else if (it.kind === 'head') out.push({ ...it, n: 0 });
+		else if (isUnder(it) && fresh.has(it.parent)) out.push(it);
 	}
 	// New rows: after the nearest row before them in the next order that shows.
 	const placed = new Set(out.map((it) => it.key));
 	next.forEach((it, i) => {
+		// (Only rows: a heading or a sub-agent waits.)
 		if (it.kind !== 'row' || placed.has(it.key)) return;
 		let at = 0;
 		for (let j = i - 1; j >= 0; j--) {
@@ -169,15 +195,16 @@ export function writeListOrder(store: Store, order: ListOrder): void {
 }
 
 /** The same items in the same places, with the same groups and counts (a
- *  row's look comes from its conversation, not from the list). */
-export function sameList<T>(a: readonly ListItem<T>[], b: readonly ListItem<T>[]): boolean {
+ *  row's look comes from its conversation, a sub-agent's from its
+ *  conversation's sub-agents, not from the list). */
+export function sameList<T, A>(a: readonly ListItem<T, A>[], b: readonly ListItem<T, A>[]): boolean {
 	return (
 		a.length === b.length &&
 		a.every((x, i) => {
 			const y = b[i];
-			if (x.key !== y.key || x.group !== y.group) return false;
-			if (x.kind === 'head' || y.kind === 'head') return x.kind === y.kind && (x as ListHead).n === (y as ListHead).n;
-			return same(x.item, y.item);
+			if (x.key !== y.key || x.group !== y.group || x.kind !== y.kind) return false;
+			if (x.kind === 'head' || x.kind === 'more') return x.n === (y as ListHead | ListMore<T>).n;
+			return same(x.item, (y as ListRow<T>).item);
 		})
 	);
 }
@@ -190,9 +217,9 @@ function same(a: unknown, b: unknown): boolean {
 	return Object.entries(a).every(([k, v]) => typeof v !== 'object' || v === (b as Record<string, unknown>)[k]);
 }
 
-/** The rows that changed group between two lists: they pass over the others
- *  while they move. */
-export function changedGroup<T>(before: readonly ListItem<T>[], after: readonly ListItem<T>[]): Set<string> {
-	const was = new Map(before.filter((it) => it.kind === 'row').map((it) => [it.key, it.group]));
-	return new Set(after.filter((it) => it.kind === 'row' && was.has(it.key) && was.get(it.key) !== it.group).map((it) => it.key));
+/** The rows that changed group between two lists, with the sub-agents
+ *  under them: they pass over the others while they move. */
+export function changedGroup<T, A>(before: readonly ListItem<T, A>[], after: readonly ListItem<T, A>[]): Set<string> {
+	const was = new Map(before.filter((it) => it.kind !== 'head').map((it) => [it.key, it.group]));
+	return new Set(after.filter((it) => it.kind !== 'head' && was.has(it.key) && was.get(it.key) !== it.group).map((it) => it.key));
 }

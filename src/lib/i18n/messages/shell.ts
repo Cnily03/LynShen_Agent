@@ -166,6 +166,7 @@ const shell = {
 		// 对话 by state (sidebarGroups.ts).
 		group: { waiting: '等你处理', working: '进行中', done: '已完成' },
 		groupByState: '对话按状态分组',
+		subagents: { more: '还有 {n} 个', moreLabel: '「{parent}」还有 {n} 个子智能体，打开对话查看', open: '「{parent}」的子智能体 {name}，{state}。打开它的会话' },
 		updateShort: '可更新',
 		newChat: '新对话',
 		home: {
@@ -1186,6 +1187,7 @@ const shell = {
 		status: { approve: 'Approve', answer: 'Answer', running: 'Running', failed: 'Failed', approveWhat: 'Waiting for your approval: {what}', answerWhat: 'Waiting for your answer: {what}' },
 		group: { waiting: 'Needs you', working: 'Working', done: 'Done' },
 		groupByState: 'Group conversations by state',
+		subagents: { more: '{n} more', moreLabel: '{n} more subagents of “{parent}”: open the conversation', open: 'Subagent {name} of “{parent}”, {state}. Open its conversation' },
 		updateShort: 'Update',
 		newChat: 'New chat',
 		home: {

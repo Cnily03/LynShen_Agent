@@ -27,8 +27,10 @@
 	import { allFolded, foldAll, readSidebarFold, toggleFolder, toggleSection, writeSidebarFold, type SidebarFold } from '$lib/shell/sidebarFold';
 	import mark from '$lib/aogiri-mark.svg?raw';
 	import { SIDEBAR_RAIL_WIDTH } from '$lib/shell/sidebarState';
-	import { T_ENTER, listIn, motionMs, moveRow, rowIn } from '$lib/ui/motion';
-	import { GroupPlaces, changedGroup, heldList, orderedList, readListOrder, sameList, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
+	import { T_ENTER, listIn, listOut, motionMs, moveRow, rowIn } from '$lib/ui/motion';
+	import { GroupPlaces, changedGroup, heldList, isUnder, orderedList, readListOrder, sameList, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
+	import { NO_SUBAGENTS, SUBAGENT_STAY_MS, arrivals, nextFold, subagentsOf, withSubagents, type Subagents } from '$lib/shell/sidebarSubagents';
+	import type { AgentRow } from '$lib/agentProgress';
 	import StackSimpleIcon from 'phosphor-svelte/lib/StackSimpleIcon';
 	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -86,6 +88,8 @@
 		onHome = () => {},
 		homeOpen = false,
 		holdOpen = false,
+		onOpenSubagent = () => {},
+		subagentStay = SUBAGENT_STAY_MS,
 		footer
 	}: {
 		projects: Project[];
@@ -141,6 +145,12 @@
 		/** A popover opened from the sidebar is showing (a row's right-click menu):
 		 *  a peeking rail stays open under it. */
 		holdOpen?: boolean;
+		/** A sub-agent listed under its conversation clicked: its page (a
+		 *  Workflow: the conversation's agent trace). */
+		onOpenSubagent?: (sessionId: string, agent: AgentRow) => void;
+		/** How long a conversation's sub-agents stay once its turn is over, ms
+		 *  (the browser fixture shortens it). */
+		subagentStay?: number;
 		/** The account row at the bottom. */
 		footer: Omit<ComponentProps<typeof SidebarFooter>, 'collapsed' | 'onCardOpenChange'>;
 	} = $props();
@@ -237,17 +247,38 @@
 	}
 	const places = new GroupPlaces();
 	type Recent = (typeof recent)[number];
-	const nextChats = $derived(
-		orderedList(
+	// Under a conversation whose turn runs sub-agents, its running and just
+	// finished ones (sidebarSubagents.ts): items of the same list, so they
+	// move with it. Not on the rail. `clock` moves on when the next of them
+	// folds.
+	let clock = $state(Date.now());
+	const subagents = $derived(new Map<string, Subagents>(railed ? [] : shownRecent.map((x) => [x.s.id, subagentsOf(x.s.chat, clock, subagentStay)])));
+	$effect(() => {
+		const at = nextFold(subagents.values());
+		if (!at) return;
+		const timer = setTimeout(() => (clock = Date.now()), Math.max(0, at - Date.now()) + 16);
+		return () => clearTimeout(timer);
+	});
+	const nextChats = $derived.by(() => {
+		const { items, hidden } = orderedList(
 			shownRecent.map((x) => ({ id: x.s.id, status: sessionStatus(x.s.chat), at: x.at, item: x })),
 			listOrder,
 			places,
 			{ limit: showAllRecent || query ? Infinity : RECENT_LIMIT, active: activeId, listed: recent.map((x) => x.s.id) }
-		)
-	);
+		);
+		return { items: withSubagents(items, (row) => subagents.get(row.key) ?? NO_SUBAGENTS), hidden };
+	});
+	/** A sub-agent as it is now (its look), or as it was listed (folding). */
+	const agentNow = (it: { parent: string; agent: AgentRow }) => subagents.get(it.parent)?.rows.find((a) => a.id === it.agent.id) ?? it.agent;
 	let pointerIn = $state(false);
 	const orderHeld = $derived(pointerIn || holdOpen);
-	let chatItems = $state<ListItem<Recent>[]>(untrack(() => nextChats.items));
+	let chatItems = $state<ListItem<Recent, AgentRow>[]>(untrack(() => nextChats.items));
+	// When each sub-agent that arrives fades in (arrivals): one after the
+	// other under its conversation; at once when the list fills in (more
+	// than two rows arrive with them) or the navigator opens from the rail.
+	const arriving = new Map<string, number>();
+	const fadeStarts = new Map<string, number>();
+	let wasRailed = untrack(() => railed);
 	// The rows that just changed group, until they land: they pass over the
 	// others (moveRow reads it when the list moves; nothing else depends on it).
 	const crossing = new Map<string, number>();
@@ -256,6 +287,8 @@
 		const next = nextChats.items;
 		const hold = orderHeld;
 		untrack(() => {
+			const reopened = wasRailed !== railed;
+			wasRailed = railed;
 			const shown = hold && chatItems.length ? heldList(chatItems, next) : next;
 			// Nothing to move or show anew (a running conversation's activity, a
 			// hold starting): the rows in flight keep going.
@@ -263,6 +296,10 @@
 			const until = performance.now() + motionMs(T_ENTER);
 			for (const key of changedGroup(chatItems, shown)) crossing.set(key, until);
 			for (const [key, t] of crossing) if (t < performance.now()) crossing.delete(key);
+			const had = new Set(chatItems.map((it) => it.key));
+			const filling = reopened || shown.filter((it) => !isUnder(it) && !had.has(it.key)).length > 2;
+			arriving.clear();
+			for (const [key, delay] of arrivals(chatItems, shown, performance.now(), fadeStarts)) arriving.set(key, filling ? -1 : delay);
 			chatItems = shown;
 		});
 	});
@@ -525,6 +562,28 @@
 	     It is the row's only "running" mark, also for screen readers. -->
 	{#snippet veil()}<i class="veil" role="img" aria-label={t('shell.status.running')} use:shimmer></i>{/snippet}
 
+	<!-- A sub-agent under its conversation (26px, 14px in, on the tree line):
+	     at work, its name is --dim and the light sweeps it like a running
+	     title; done, it is --text at 500; failed, the --err dot. A click opens
+	     its page. -->
+	{#snippet subRow(s: Session, a: AgentRow)}
+		{@const ended = a.state === 'done' || a.state === 'failed'}
+		{@const state = t(`dock.agents.state.${a.state}`)}
+		<button
+			class="sub"
+			class:working={a.state === 'running'}
+			class:ended
+			class:stopped={a.state === 'stopped'}
+			data-agent={a.id}
+			onclick={() => (onOpenSubagent(s.id, a), endPeek())}
+			aria-label={t('shell.subagents.open', { name: a.label, state, parent: shownTitle(s.chat.title) })}
+			title={[a.label, a.activity].filter(Boolean).join('\n')}
+		>
+			<span class="st">{#if a.state === 'failed'}<SessionMark status={{ kind: 'failed', message: a.error }} />{/if}</span>
+			<span class="sess-title sub-title" class:running={a.state === 'running'}>{a.label}{#if a.state === 'running'}{@render veil()}{/if}</span>
+		</button>
+	{/snippet}
+
 	{#snippet sessRow(s: Session, nested = false, selectable = false, p?: Project, where?: string)}
 		{@const status = sessionStatus(s.chat)}
 		{@const req = s.chat.sessionId ? reqs.bySession.get(s.chat.sessionId) : undefined}
@@ -778,11 +837,23 @@
 					<button class="head-act" onclick={() => onNewChat()} aria-label={t('shell.newChat')} title={t('shell.newChat')}><PlusIcon size={16} /></button>
 				</div>
 				<Collapse open={chatsOpen}>
-					<!-- One flat keyed list, headings included, so every item can move. -->
+					<!-- One flat keyed list, headings and sub-agents included, so every item can move. -->
 					{#each chatItems as it (it.key)}
-						<div class="item" animate:moveRow={{ over: crosses(it.key), fill: 'var(--list-fill)' }} in:listIn={{ head: it.kind === 'head' }}>
+						<div
+							class="item"
+							class:under={isUnder(it)}
+							animate:moveRow={{ over: crosses(it.key), fill: 'var(--list-fill)' }}
+							in:listIn={{ head: it.kind === 'head', child: isUnder(it), delay: arriving.get(it.key) }}
+							out:listOut={{ child: isUnder(it) }}
+						>
 							{#if it.kind === 'head'}
 								<div class="ghead">{t(`shell.group.${it.group}`)}<span class="gcount">{it.n}</span></div>
+							{:else if it.kind === 'child'}
+								{@render subRow(it.item.s, agentNow(it))}
+							{:else if it.kind === 'more'}
+								<button class="sub more-subs" onclick={() => (onSelect(it.item.s.id), endPeek())} aria-label={t('shell.subagents.moreLabel', { n: it.n, parent: shownTitle(it.item.s.chat.title) })}
+									><span class="st"></span><span class="sub-title">{t('shell.subagents.more', { n: it.n })}</span></button
+								>
 							{:else}
 								{@render sessRow(it.item.s, false, false, it.item.p.home ? it.item.p : undefined, it.item.p.home ? undefined : it.item.p.name)}
 							{/if}
@@ -1243,6 +1314,7 @@
 	   --r-sm; the selected row has a --surface2 fill and --text. */
 	.row,
 	.sess,
+	.sub,
 	.more,
 	.folder-row {
 		display: flex;
@@ -1271,6 +1343,7 @@
 	/* Keyboard focus is drawn inside the row, not over its neighbours. */
 	.row:focus-visible,
 	.sess:focus-visible,
+	.sub:focus-visible,
 	.more:focus-visible,
 	.folder-row:focus-visible {
 		outline-offset: -2px;
@@ -1283,6 +1356,7 @@
 	}
 	.row:hover,
 	.sess:hover,
+	.sub:hover,
 	.more:hover,
 	.folder-row:hover {
 		background: var(--surface2);
@@ -1600,14 +1674,17 @@
 	   title reads as --dim), with a clear window that the sweep moves across.
 	   It must match the row's fill exactly, so it follows hover and
 	   selection with an opaque copy of --surface2 over --sidebar. */
-	.sess {
+	.sess,
+	.sub {
 		--row-bg: var(--sidebar);
 		--veil: 30%;
 	}
-	:global([data-theme='light']) .sess {
+	:global([data-theme='light']) .sess,
+	:global([data-theme='light']) .sub {
 		--veil: 22%;
 	}
 	.sess:hover,
+	.sub:hover,
 	.sess.on {
 		--row-bg: color-mix(in srgb, var(--text) 6%, var(--sidebar));
 	}
@@ -1713,6 +1790,42 @@
 	}
 	:global(:root[data-canvas-bg]) .list {
 		--list-fill: color-mix(in oklab, var(--sidebar) var(--chrome-tint), transparent);
+	}
+	/* A sub-agent under its conversation (sidebarSubagents.ts): 26px, 14px
+	   in, on a 1px --border-strong tree line that hangs from the
+	   conversation's status slot. At work its name sweeps like a running
+	   title (--text under the veil); queued, --dim; done or failed, --text
+	   at 500; stopped, --dim2. The look changes at once: no colour
+	   transition. */
+	.sub {
+		min-height: 26px;
+		margin-left: 14px;
+		width: calc(100% - 14px);
+		color: var(--dim);
+		transition: background var(--t-fast) var(--ease-base);
+	}
+	.sub.working,
+	.sub.ended {
+		color: var(--text);
+	}
+	.sub.ended .sub-title {
+		font-weight: 500;
+	}
+	.sub.stopped {
+		color: var(--dim2);
+	}
+	.more-subs {
+		font-size: var(--fs-xs);
+	}
+	.item.under::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 11px;
+		width: 1px;
+		background: var(--border-strong);
+		pointer-events: none;
 	}
 	/* A group of 对话 (by state): a plain heading with its count. */
 	.ghead {
