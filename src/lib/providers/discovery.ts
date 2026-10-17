@@ -125,8 +125,9 @@ export function modelLookup(sources: { gateway?: (id: string) => CatalogModel | 
 
 /** The entry for a listed model: what the endpoint says, then what the
  *  catalog knows, then the form's defaults for a new model. A model that no
- *  source says anything about thinking for thinks, with the default tiers. */
-export function modelFromListed(listed: ListedModel, known?: KnownModel): ProviderModel {
+ *  source states tiers for thinks with `fallback` (the default tiers;
+ *  SAFE_EFFORTS on a built-in provider). */
+export function modelFromListed(listed: ListedModel, known?: KnownModel, fallback: string[] = DEFAULT_EFFORTS): ProviderModel {
 	const k = mergeKnown([knownFromListed(listed), known]) ?? {};
 	const window = k.context_window || DEFAULT_CONTEXT;
 	const output = Math.min(k.max_output_tokens || DEFAULT_MAX_OUTPUT, window);
@@ -137,7 +138,7 @@ export function modelFromListed(listed: ListedModel, known?: KnownModel): Provid
 		context_window: window,
 		max_output_tokens: output,
 		reasoning: thinks,
-		reasoning_efforts: thinks ? (offersThinking(k.reasoning_efforts) ? [...k.reasoning_efforts] : [...DEFAULT_EFFORTS]) : ['none'],
+		reasoning_efforts: thinks ? (offersThinking(k.reasoning_efforts) ? [...k.reasoning_efforts] : [...fallback]) : ['none'],
 		input_modalities: kinds?.length ? kinds : [...MODALITIES]
 	};
 	const label = listed.display_name || k.display_name;
@@ -147,9 +148,10 @@ export function modelFromListed(listed: ListedModel, known?: KnownModel): Provid
 
 /** 自动配置: the catalog's values over a model already in the list (its name
  *  and display name stay); null when nothing changes. Thinking is turned on
- *  (with the stated tiers) when a source says the model thinks, and never
- *  turned off: a model set to think keeps thinking (see `staysThinking`). */
-export function configureModel(model: ProviderModel, known: KnownModel): ProviderModel | null {
+ *  (with the stated tiers, else the model's own, else `fallback`) when a
+ *  source says the model thinks, and never turned off: a model set to think
+ *  keeps thinking (see `staysThinking`). */
+export function configureModel(model: ProviderModel, known: KnownModel, fallback: string[] = DEFAULT_EFFORTS): ProviderModel | null {
 	const next: ProviderModel = { ...model };
 	if (known.context_window) next.context_window = known.context_window;
 	if (known.max_output_tokens) next.max_output_tokens = Math.min(known.max_output_tokens, next.context_window || known.max_output_tokens);
@@ -159,7 +161,7 @@ export function configureModel(model: ProviderModel, known: KnownModel): Provide
 			? [...known.reasoning_efforts]
 			: offersThinking(model.reasoning_efforts) && model.reasoning !== false
 				? model.reasoning_efforts
-				: [...DEFAULT_EFFORTS];
+				: [...fallback];
 	}
 	if (known.input_modalities?.length) next.input_modalities = MODALITIES.filter((k) => known.input_modalities!.includes(k));
 	return JSON.stringify(next) === JSON.stringify(model) ? null : next;

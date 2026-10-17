@@ -16,8 +16,10 @@
 	import { configureModel, knownFromListed, mergeKnown, modelFromListed, staysThinking, type KnownModel } from '$lib/providers/discovery';
 	import type { ListedModel } from '$lib/protocol';
 	import {
+		DEFAULT_EFFORTS,
 		EFFORT_TIERS,
 		MODALITIES,
+		SAFE_EFFORTS,
 		draftFromModel,
 		formatTokens,
 		modelEfforts,
@@ -84,6 +86,11 @@
 	} = $props();
 
 	const builtin = $derived(mode === 'builtin');
+	/** Tiers for a model that thinks and has none stated. A built-in Chat
+	 *  Completions provider gets its default or off, never the generic list:
+	 *  the engine lists the tiers each such endpoint documents, and a setting
+	 *  it does not take can be a 400. */
+	const fallbackTiers = $derived(builtin && form.format === 'chat' ? SAFE_EFFORTS : DEFAULT_EFFORTS);
 	/** The built-in version of a model; none for a model the user added. */
 	const builtinModel = (name: string) => (builtin ? builtinDefaults?.models.find((m) => m.name === name) : undefined);
 	/** A built-in model whose fields the user changed. */
@@ -166,7 +173,7 @@
 	function addFound() {
 		if (!found) return;
 		const picked = found.models.filter((m) => found!.picked.includes(m.id) && !inList(m.id));
-		form.models = [...form.models, ...picked.map((m) => modelFromListed(m, knownAbout(m.id, m)))];
+		form.models = [...form.models, ...picked.map((m) => modelFromListed(m, knownAbout(m.id, m), fallbackTiers))];
 		note = t('settings.discover.added', { n: picked.length });
 		keptNote = '';
 		found = null;
@@ -183,7 +190,7 @@
 			const known = knownAbout(m.name);
 			if (known) knownCount++;
 			if (staysThinking(m, known)) keptCount++;
-			const next = known ? configureModel(m, known) : null;
+			const next = known ? configureModel(m, known, fallbackTiers) : null;
 			if (next) changedCount++;
 			return next ?? m;
 		});
@@ -200,11 +207,12 @@
 		if (inList(m.id)) return t('settings.discover.inList');
 		const known = knownAbout(m.id, m);
 		if (!known) return t('settings.discover.unknown');
-		return summary(modelFromListed(m, known));
+		return summary(modelFromListed(m, known, fallbackTiers));
 	}
 
 	const err = (key?: string) => (key ? t(`settings.custom.error.${key}`) : '');
-	const tierLabel = (tier: string) => (tier === 'none' ? t('settings.custom.effortNone') : effortLabel(tier));
+	const tierLabel = (tier: string) =>
+		tier === 'none' ? t('settings.custom.effortNone') : tier === 'default' ? t('settings.custom.effortDefault') : effortLabel(tier);
 
 	/** The quiet second line of a model row: window · output · thinking · input,
 	 *  after 已修改 / 自己添加 on a built-in provider. */
@@ -230,7 +238,7 @@
 
 	function editModel(i: number) {
 		editAt = i;
-		draft = draftFromModel(form.models[i]);
+		draft = draftFromModel(form.models[i], fallbackTiers);
 		modelErrors = {};
 	}
 	function resetEditor() {

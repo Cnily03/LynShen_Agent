@@ -11,6 +11,7 @@ import {
 	newModelDraft,
 	orderTiers,
 	parseTokens,
+	SAFE_EFFORTS,
 	validateModel,
 	validateProvider,
 	validBaseUrl
@@ -103,6 +104,19 @@ describe('model drafts', () => {
 	it('orders known tiers and keeps unknown ones', () => {
 		expect(orderTiers(['max', 'none', 'ultra', 'low', 'minimal'])).toEqual(['none', 'minimal', 'low', 'max', 'ultra']);
 		expect(orderTiers(['turbo', 'high', 'none'])).toEqual(['none', 'high', 'turbo']);
+		// "default" (the provider's own setting, CLI 0.7.1) stays first.
+		expect(orderTiers(['high', 'none', 'default', 'low'])).toEqual(['default', 'none', 'low', 'high']);
+	});
+
+	it('a model of a built-in provider the engine says does not think offers the provider default or off', () => {
+		const off = { name: 'minimax-m1', reasoning: false, reasoning_efforts: ['none'] };
+		expect(draftFromModel(off, SAFE_EFFORTS)).toMatchObject({ reasoning: false, efforts: ['default', 'none'] });
+		const on = modelFromDraft({ ...draftFromModel(off, SAFE_EFFORTS), reasoning: true }, off);
+		expect(on).toMatchObject({ reasoning: true, reasoning_efforts: ['default', 'none'] });
+		// The engine's own list (CLI 0.7.1) is kept as it is.
+		const deepseek = { name: 'deepseek-v4-pro', reasoning: true, reasoning_efforts: ['default', 'none', 'low', 'high', 'max'] };
+		expect(draftFromModel(deepseek, SAFE_EFFORTS).efforts).toEqual(['default', 'none', 'low', 'high', 'max']);
+		expect(validateModel({ ...draftFromModel({ name: 'minimax-m2', reasoning: true, reasoning_efforts: ['default'] }), name: 'minimax-m2' }, [])).toEqual({});
 	});
 
 	it('validates names, token counts, tiers and modalities', () => {

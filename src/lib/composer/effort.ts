@@ -1,12 +1,14 @@
 // Pure helpers for the composer's reasoning-effort slider.
 
-/** The effort the engine falls back to for a model (config.rs
- *  read_reasoning_effort): "medium" when offered, else the first tier. */
+/** The effort the engine starts a model at (agent-core config.rs
+ *  `default_effort`): "default" (the provider's own setting) when offered,
+ *  else "medium", else the first tier. */
 export function defaultEffort(efforts: string[]): string {
-	return efforts.includes('medium') ? 'medium' : (efforts[0] ?? '');
+	return (['default', 'medium'].find((effort) => efforts.includes(effort)) ?? efforts[0]) || '';
 }
 
-/** Display label: "high" → "High", "xhigh" → "XHigh". */
+/** Display label: "high" → "High", "xhigh" → "XHigh", "default" (send no
+ *  thinking setting, LynShen CLI 0.7.1) → "Default". */
 export function effortLabel(effort: string): string {
 	if (effort === 'xhigh') return 'XHigh';
 	return effort ? effort[0].toUpperCase() + effort.slice(1) : effort;

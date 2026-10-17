@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SAMPLE_CATALOG } from '$lib/models/catalogSample';
 import { catalogIndex, parseCatalog } from '$lib/models/gatewayCatalog';
 import { configureModel, knownFromCatalog, knownFromListed, knownFromTable, mergeKnown, modelFromListed, modelLookup, staysThinking } from './discovery';
+import { SAFE_EFFORTS } from '$lib/settings/providerFields';
 
 const index = catalogIndex(parseCatalog(SAMPLE_CATALOG));
 const gateway = (id: string) => index.get(id.toLowerCase());
@@ -151,6 +152,28 @@ describe('model discovery', () => {
 			reasoning: false,
 			reasoning_efforts: ['none']
 		});
+	});
+
+	// CLI 0.7.1 lists each built-in Chat Completions endpoint's documented
+	// tiers, "default" (the provider's own setting) first.
+	it('takes the engine\'s tiers with "default" first, and no generic tiers on a built-in Chat Completions provider', () => {
+		const engine071 = [
+			{ name: 'deepseek-v4-pro', reasoning: true, reasoning_efforts: ['default', 'none', 'low', 'high', 'max'] },
+			{ name: 'minimax-m2.5', reasoning: true, reasoning_efforts: ['default'] },
+			{ name: 'abab-7', reasoning: false, reasoning_efforts: ['none'] }
+		];
+		const find = modelLookup({ tables: [engine071] });
+		expect(find('deepseek-v4-pro')).toEqual({ reasoning: true, reasoning_efforts: ['default', 'none', 'low', 'high', 'max'] });
+		expect(modelFromListed({ id: 'minimax-m2.5' }, find('minimax-m2.5'), SAFE_EFFORTS)).toMatchObject({ reasoning: true, reasoning_efforts: ['default'] });
+		expect(modelFromListed({ id: 'abab-7' }, find('abab-7'), SAFE_EFFORTS)).toMatchObject({ reasoning: false, reasoning_efforts: ['none'] });
+		// A listed model no source states tiers for: the provider's default or off.
+		expect(modelFromListed({ id: 'minimax-m3', reasoning: true }, undefined, SAFE_EFFORTS)).toMatchObject({ reasoning: true, reasoning_efforts: ['default', 'none'] });
+		expect(configureModel({ name: 'minimax-m3', reasoning: false, reasoning_efforts: ['none'] }, { reasoning: true }, SAFE_EFFORTS)).toMatchObject({
+			reasoning: true,
+			reasoning_efforts: ['default', 'none']
+		});
+		// A listed "default" tier is kept (it is a known tier now).
+		expect(knownFromListed({ id: 'a', reasoning_efforts: ['high', 'default'] })).toEqual({ reasoning: true, reasoning_efforts: ['default', 'high'] });
 	});
 
 	it('reads the thinking and tiers an endpoint states', () => {

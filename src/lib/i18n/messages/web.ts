@@ -84,6 +84,7 @@ const web = {
 			untitled: '新对话'
 		},
 		effort: {
+			default: '默认',
 			none: '关闭',
 			minimal: '极简',
 			low: '低',
@@ -179,6 +180,7 @@ const web = {
 			untitled: 'New chat'
 		},
 		effort: {
+			default: 'Default',
 			none: 'Off',
 			minimal: 'Minimal',
 			low: 'Low',
