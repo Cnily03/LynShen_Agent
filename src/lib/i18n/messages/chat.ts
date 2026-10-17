@@ -473,13 +473,31 @@ const chat = {
 			cancelRevise: '取消修改',
 			status: { approved: '已批准', revising: '修改中', drafting: '撰写中' }
 		},
-		// Indicator
-		phaseConnecting: '连接中',
-		phaseWaiting: '等待响应',
-		phaseFirstToken: '等待首字',
-		phaseGenerating: '生成中',
-		phaseTool: '执行工具',
-		phaseCompacting: '压缩上下文',
+		// The work status line: what the turn is doing now, then what on
+		// (a file, a command), how long, and › for the call's details.
+		work: {
+			connecting: '正在连接模型',
+			thinking: '正在思考',
+			writing: '正在写回复',
+			compacting: '正在压缩上下文',
+			reading: '正在读取',
+			writingFile: '正在写入',
+			editing: '正在编辑',
+			running: '正在运行',
+			searching: '正在搜索',
+			listing: '正在查看目录',
+			outlining: '正在读取结构',
+			searchingWeb: '正在搜索网页',
+			fetching: '正在打开网页',
+			image: '正在生成图片',
+			agents: '正在安排子智能体',
+			waitingAgents: '正在等子智能体',
+			planning: '正在更新计划',
+			sessions: '正在联系其他对话',
+			browser: '正在操作浏览器',
+			tool: '正在调用',
+			details: '查看这一步'
+		},
 		compaction: {
 			running: '正在压缩上下文',
 			folding: '把 {n} tokens 的对话折叠成摘要',
@@ -958,13 +976,30 @@ const chat = {
 			cancelRevise: 'Cancel revising',
 			status: { approved: 'Approved', revising: 'Revising', drafting: 'Writing' }
 		},
-		// Indicator
-		phaseConnecting: 'Connecting',
-		phaseWaiting: 'Awaiting response',
-		phaseFirstToken: 'Waiting for the first token',
-		phaseGenerating: 'Generating',
-		phaseTool: 'Running tool',
-		phaseCompacting: 'Compacting context',
+		// The work status line.
+		work: {
+			connecting: 'Connecting to the model',
+			thinking: 'Thinking',
+			writing: 'Writing the reply',
+			compacting: 'Compacting the context',
+			reading: 'Reading',
+			writingFile: 'Writing',
+			editing: 'Editing',
+			running: 'Running',
+			searching: 'Searching',
+			listing: 'Listing',
+			outlining: 'Reading the outline of',
+			searchingWeb: 'Searching the web for',
+			fetching: 'Opening',
+			image: 'Generating an image',
+			agents: 'Directing subagents',
+			waitingAgents: 'Waiting for subagents',
+			planning: 'Updating the plan',
+			sessions: 'Reaching other conversations',
+			browser: 'Using the browser',
+			tool: 'Calling',
+			details: 'Show this step'
+		},
 		compaction: {
 			running: 'Compacting context',
 			folding: 'Folding {n} tokens of conversation into a summary',

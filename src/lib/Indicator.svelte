@@ -1,43 +1,70 @@
 <script lang="ts">
+	// The work status line under the transcript: one sign, what the turn is
+	// doing in words ("正在运行 pnpm vitest run"), how long this step has
+	// taken, and "›" to the running tool call's details (workStatus.ts). The
+	// words change at once when the step does; only the sign moves.
+	import AsteriskSimpleIcon from 'phosphor-svelte/lib/AsteriskSimpleIcon';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
+	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n';
-	import CallTimer from '$lib/CallTimer.svelte';
-	import type { CallTiming } from '$lib/chat.svelte';
+	import type { CallTiming, Msg } from '$lib/chat.svelte';
+	import { workElapsed, workStep, type WorkPhase } from '$lib/workStatus';
 
-	let { phase, tokens = 0, call = null }: { phase: string | null; tokens?: number; call?: CallTiming | null } = $props();
+	let {
+		phase,
+		tokens = 0,
+		call = null,
+		messages = [],
+		onDetails
+	}: {
+		/** ChatState.phase. */
+		phase: WorkPhase | (string & {}) | null;
+		/** What a running compaction has written. */
+		tokens?: number;
+		/** The model request in flight. */
+		call?: CallTiming | null;
+		messages?: readonly Msg[];
+		/** Show a tool call's details (its card in the transcript). */
+		onDetails?: (call: Extract<Msg, { kind: 'tool' }>) => void;
+	} = $props();
 
-	// While a model request is in flight its own stage (connecting, waiting for
-	// the first token, streaming) replaces the coarser phase, with a timer.
-	const CALL_PHASE = { connect: 'connecting', ttft: 'firstToken', output: 'generating' } as const;
-	const timed = $derived(call !== null && (phase === 'connecting' || phase === 'waiting' || phase === 'generating'));
-	const shown = $derived(timed && call ? CALL_PHASE[call.phase] : phase);
-
-	const LABEL = $derived<Record<string, string>>({
-		connecting: t('chat.phaseConnecting'),
-		waiting: t('chat.phaseWaiting'),
-		firstToken: t('chat.phaseFirstToken'),
-		generating: t('chat.phaseGenerating'),
-		tool: t('chat.phaseTool'),
-		compacting: t('chat.phaseCompacting')
-	});
+	const step = $derived(workStep(phase, call, messages));
 	const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+	const object = $derived(step?.verb === 'compacting' && tokens > 0 ? t('chat.tokens', { n: fmt(tokens) }) : (step?.object ?? ''));
+
+	// When this step began: a tool call's own start; otherwise the request
+	// stage's start for the first step this line shows, and the moment the
+	// words changed for the next ones (a stage can hold two steps: thinking,
+	// then writing).
+	let anchor = $state<{ key: string; since: number } | null>(null);
+	$effect.pre(() => {
+		const s = step;
+		untrack(() => {
+			if (!s) anchor = null;
+			else if (anchor?.key !== s.key) anchor = { key: s.key, since: s.exact || !anchor ? (s.since ?? Date.now()) : Date.now() };
+		});
+	});
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!anchor) return;
+		now = Date.now();
+		const timer = setInterval(() => (now = Date.now()), 500);
+		return () => clearInterval(timer);
+	});
 </script>
 
-{#if shown}
+{#if step}
 	<div class="ind">
-		{#if shown === 'generating'}
-			<span class="glyph dots"><i></i><i></i><i></i></span>
-		{:else if shown === 'waiting' || shown === 'firstToken'}
-			<span class="glyph breathe"></span>
-		{:else if shown === 'connecting'}
-			<span class="glyph ring"></span>
-		{:else if shown === 'tool'}
-			<span class="glyph scan"></span>
-		{:else if shown === 'compacting'}
-			<span class="glyph compress"><i></i><i></i></span>
+		<span class="sign" aria-hidden="true"><AsteriskSimpleIcon size={12} weight="bold" /></span>
+		<span class="verb">{t(`chat.work.${step.verb}`)}</span>
+		{#if object}<span class="obj" title={object}>{object}</span>{/if}
+		{#if anchor}<span class="time">· {workElapsed(now - anchor.since)}</span>{/if}
+		{#if step.call && onDetails}
+			{@const running = step.call}
+			<button class="more" onclick={() => onDetails(running)} aria-label={t('chat.work.details')} title={t('chat.work.details')}>
+				<CaretRightIcon size={12} />
+			</button>
 		{/if}
-		<span class="label">{LABEL[shown] ?? shown}</span>
-		{#if timed && call}<CallTimer since={call.since} />{/if}
-		{#if shown === 'compacting' && tokens > 0}<span class="ctok">{t('chat.tokens', { n: fmt(tokens) })}</span>{/if}
 	</div>
 {/if}
 
@@ -45,174 +72,61 @@
 	.ind {
 		display: flex;
 		align-items: center;
-		gap: 9px;
-		padding: 4px 2px;
+		gap: 6px;
+		min-width: 0;
+		height: 24px;
+		padding: 0 2px;
 		color: var(--dim);
-		font-size: var(--fs-sm);
+		font-size: var(--fs-xs);
+		line-height: 16px;
 	}
-	.glyph {
+	/* The one sign: it turns slowly while the turn works (still under
+	   reduced motion, app.css). */
+	.sign {
+		display: inline-flex;
+		flex-shrink: 0;
+		color: var(--dim);
+		animation: spin calc(2.4s * var(--time-scale)) linear infinite;
+	}
+	.verb {
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
+	.obj {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+	}
+	.time {
+		flex-shrink: 0;
+		color: var(--dim2);
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.more {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 18px;
-		height: 14px;
 		flex-shrink: 0;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		border: none;
+		border-radius: var(--r-sm);
+		background: none;
+		color: var(--dim2);
+		cursor: pointer;
+		transition:
+			background var(--t-fast) var(--ease-base),
+			color var(--t-fast) var(--ease-base);
 	}
-	.label {
-		font-weight: 500;
-	}
-	.ctok {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--accent-bright);
-		background: var(--accent-soft);
-		border-radius: var(--r-full);
-		padding: 1px 8px;
-	}
-
-	/* generating — three dots bouncing in sequence */
-	.dots {
-		gap: 4px;
-	}
-	.dots i {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: var(--accent-bright);
-		animation: bounce 1s ease-in-out infinite;
-	}
-	.dots i:nth-child(2) {
-		animation-delay: 0.15s;
-	}
-	.dots i:nth-child(3) {
-		animation-delay: 0.3s;
-	}
-	@keyframes bounce {
-		0%,
-		100% {
-			opacity: 0.3;
-			transform: translateY(1.5px);
-		}
-		50% {
-			opacity: 1;
-			transform: translateY(-2.5px);
-		}
-	}
-
-	/* waiting — one dot breathing */
-	.breathe {
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		background: var(--accent-bright);
-		animation: breathe 1.6s ease-in-out infinite;
-	}
-	@keyframes breathe {
-		0%,
-		100% {
-			opacity: 0.35;
-			transform: scale(0.7);
-		}
-		50% {
-			opacity: 1;
-			transform: scale(1);
-		}
-	}
-
-	/* connecting — a dot emitting an expanding ring */
-	.ring {
-		position: relative;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--accent-bright);
-	}
-	.ring::after {
-		content: '';
-		position: absolute;
-		inset: 0;
-		border-radius: 50%;
-		border: 1.5px solid var(--accent-bright);
-		animation: ring 1.3s ease-out infinite;
-	}
-	@keyframes ring {
-		0% {
-			transform: scale(1);
-			opacity: 0.7;
-		}
-		100% {
-			transform: scale(2.6);
-			opacity: 0;
-		}
-	}
-
-	/* tool — a bar with a sliding highlight, like a scan */
-	.scan {
-		width: 18px;
-		height: 4px;
-		border-radius: var(--r-full);
+	.more:hover {
 		background: var(--surface2);
-		overflow: hidden;
-		position: relative;
-	}
-	/* The highlight moves by transform (its own width at a time), which the
-	   compositor runs; moving `left` laid the bar out again every frame. */
-	.scan::after {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 40%;
-		height: 100%;
-		border-radius: var(--r-full);
-		background: var(--accent-bright);
-		animation: scan 1.1s ease-in-out infinite;
-	}
-	@keyframes scan {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(250%);
-		}
-	}
-
-	/* compacting — two bars converging toward the center */
-	.compress {
-		gap: 3px;
-	}
-	.compress i {
-		width: 5px;
-		height: 11px;
-		border-radius: var(--r-xs);
-		background: var(--accent-bright);
-	}
-	.compress i:first-child {
-		animation: push-right 1.1s ease-in-out infinite;
-	}
-	.compress i:last-child {
-		animation: push-left 1.1s ease-in-out infinite;
-	}
-	@keyframes push-right {
-		0%,
-		100% {
-			transform: translateX(0);
-			opacity: 0.5;
-		}
-		50% {
-			transform: translateX(2px);
-			opacity: 1;
-		}
-	}
-	@keyframes push-left {
-		0%,
-		100% {
-			transform: translateX(0);
-			opacity: 0.5;
-		}
-		50% {
-			transform: translateX(-2px);
-			opacity: 1;
-		}
+		color: var(--text);
 	}
 </style>
