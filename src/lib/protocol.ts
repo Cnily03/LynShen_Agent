@@ -1041,6 +1041,20 @@ export interface ProviderInfo {
 export function listProviders(): Promise<ProviderInfo[]> {
 	return invoke('list_providers');
 }
+/** A model a provider's endpoint lists (GET …/models), with what the answer
+ *  says about it. */
+export interface ListedModel {
+	id: string;
+	display_name?: string;
+	context_window?: number;
+	max_output_tokens?: number;
+	input_modalities?: string[];
+}
+/** The model list of a provider's endpoint, read by the app (provider_models.rs):
+ *  with `key` (typed, not saved yet), else the key saved for `provider`. */
+export function fetchProviderModels(provider: string, baseUrl: string, format: string, key?: string): Promise<{ url: string; models: ListedModel[] }> {
+	return invoke('provider_models', { provider, baseUrl, format, key: key || null });
+}
 export function git(args: string[], cwd?: string): Promise<string> {
 	return invoke('git', { args, cwd });
 }

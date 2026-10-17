@@ -667,6 +667,25 @@ const settings = {
 			reset: '恢复默认',
 			tokensHint: '单位 token，可写 k 或 M，例如 200k、1M。留空时使用内置的值。'
 		},
+		discover: {
+			fetch: '获取可用模型',
+			title: '可用模型',
+			auto: '自动配置',
+			autoHint: '按模型目录填好已列模型的上下文窗口、最大输出、思考档位和输入',
+			count: '找到 {n} 个模型，其中 {m} 个在模型目录里有参数。',
+			none: '这个地址没有列出模型。',
+			filter: '筛选模型…',
+			pickAll: '全选',
+			pickNone: '全不选',
+			add: '添加所选（{n}）',
+			inList: '已在列表中',
+			unknown: '模型目录里没有它，按默认值添加',
+			added: '已添加 {n} 个模型。',
+			configured: '已按模型目录更新 {n} 个模型。',
+			nothingKnown: '模型目录里没有列表中的模型。',
+			upToDate: '列表中的模型已和模型目录一致。',
+			failed: '获取失败：{msg}'
+		},
 		catalog: {
 			title: '选择 Provider',
 			search: '搜索 Provider 或模型…',
@@ -1759,6 +1778,25 @@ const settings = {
 			resetModel: 'Restore the defaults of {model}',
 			reset: 'Restore defaults',
 			tokensHint: 'In tokens; k and M work, e.g. 200k, 1M. Empty: the built-in value.'
+		},
+		discover: {
+			fetch: 'Fetch available models',
+			title: 'Available models',
+			auto: 'Auto-configure',
+			autoHint: 'Fill in the context window, max output, effort levels and input of the listed models from the model catalog',
+			count: '{n} models found; the model catalog has the parameters of {m}.',
+			none: 'This address lists no models.',
+			filter: 'Filter models…',
+			pickAll: 'Select all',
+			pickNone: 'Select none',
+			add: 'Add selected ({n})',
+			inList: 'Already in the list',
+			unknown: 'Not in the model catalog: added with the defaults',
+			added: '{n} models added.',
+			configured: '{n} models updated from the model catalog.',
+			nothingKnown: 'The model catalog has none of the listed models.',
+			upToDate: 'The listed models already match the model catalog.',
+			failed: 'Could not fetch the models: {msg}'
 		},
 		catalog: {
 			title: 'Choose a provider',

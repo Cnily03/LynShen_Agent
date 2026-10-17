@@ -2,6 +2,7 @@
 	import XIcon from 'phosphor-svelte/lib/XIcon';
 	import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimpleIcon';
 	import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwiseIcon';
+	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
 	import { t } from '$lib/i18n';
 	import Button from '$lib/ui/Button.svelte';
 	import Checkbox from '$lib/ui/Checkbox.svelte';
@@ -12,6 +13,8 @@
 	import { effortLabel } from '$lib/composer/effort';
 	import { anthropicV1Suggestion, requestUrl } from '$lib/providers/endpoint';
 	import { diffModel } from '$lib/providers/overrides';
+	import { configureModel, modelFromListed, type KnownModel } from '$lib/providers/discovery';
+	import type { ListedModel } from '$lib/protocol';
 	import {
 		EFFORT_TIERS,
 		MODALITIES,
@@ -55,6 +58,8 @@
 		keyed = false,
 		builtinDefaults,
 		showKey = true,
+		discover,
+		lookup,
 		onSubmit
 	}: {
 		form: FormState;
@@ -70,6 +75,11 @@
 		builtinDefaults?: { base_url: string; models: ProviderModel[] };
 		/** False when the key field is elsewhere (the add dialog's key step). */
 		showKey?: boolean;
+		/** 获取可用模型: the models the endpoint lists (the page reads them
+		 *  through the app, with the typed or the saved key). */
+		discover?: (request: { id: string; base_url: string; format: string; key: string }) => Promise<{ models: ListedModel[] }>;
+		/** What the model catalogs know about a model name (自动配置). */
+		lookup?: (name: string) => KnownModel | undefined;
 		onSubmit: (form: FormState) => void;
 	} = $props();
 
@@ -99,6 +109,85 @@
 	const baseUrl = $derived(form.base_url.trim() || (builtin ? (builtinDefaults?.base_url ?? '') : ''));
 	const shownUrl = $derived(validBaseUrl(baseUrl) ? requestUrl(form.format, baseUrl) : '');
 	const v1Url = $derived(shownUrl ? anthropicV1Suggestion(form.format, baseUrl) : null);
+
+	// 获取可用模型: the endpoint's list, the names picked to add, and a
+	// filter for long lists. `note`: what the last 添加 / 自动配置 did.
+	let found = $state<{ models: ListedModel[]; picked: string[] } | null>(null);
+	let finding = $state(false);
+	let findError = $state('');
+	let findFilter = $state('');
+	let note = $state('');
+	const inList = (id: string) => form.models.some((m) => m.name === id);
+	const shownFound = $derived(
+		(found?.models ?? []).filter((m) => !findFilter.trim() || m.id.toLowerCase().includes(findFilter.trim().toLowerCase()))
+	);
+	const fresh = $derived(shownFound.filter((m) => !inList(m.id)));
+	const allPicked = $derived(fresh.length > 0 && fresh.every((m) => found?.picked.includes(m.id)));
+
+	async function findModels() {
+		if (!discover || finding) return;
+		note = '';
+		findError = '';
+		if (!validBaseUrl(baseUrl)) {
+			findError = t('settings.custom.error.url');
+			return;
+		}
+		finding = true;
+		try {
+			const { models } = await discover({ id: form.id.trim(), base_url: baseUrl, format: form.format, key: form.key.trim() });
+			const add = models.filter((m) => !inList(m.id));
+			// A short list is picked whole; a long one (OpenRouter) is chosen from.
+			found = { models, picked: add.length <= 20 ? add.map((m) => m.id) : [] };
+			findFilter = '';
+		} catch (e) {
+			findError = t('settings.discover.failed', { msg: String(e) });
+			found = null;
+		} finally {
+			finding = false;
+		}
+	}
+	function pick(id: string, on: boolean) {
+		if (!found) return;
+		found.picked = on ? [...found.picked.filter((p) => p !== id), id] : found.picked.filter((p) => p !== id);
+	}
+	function pickAll() {
+		if (!found) return;
+		const ids = fresh.map((m) => m.id);
+		found.picked = allPicked ? found.picked.filter((p) => !ids.includes(p)) : [...new Set([...found.picked, ...ids])];
+	}
+	function addFound() {
+		if (!found) return;
+		const picked = found.models.filter((m) => found!.picked.includes(m.id) && !inList(m.id));
+		form.models = [...form.models, ...picked.map((m) => modelFromListed(m, lookup?.(m.id)))];
+		note = t('settings.discover.added', { n: picked.length });
+		found = null;
+	}
+	/** 自动配置: the catalogs' values over every listed model they know. */
+	function autoConfigure() {
+		if (!lookup) return;
+		let knownCount = 0;
+		let changedCount = 0;
+		form.models = form.models.map((m) => {
+			const known = lookup(m.name);
+			if (known) knownCount++;
+			const next = known ? configureModel(m, known) : null;
+			if (next) changedCount++;
+			return next ?? m;
+		});
+		if (changedCount && editAt !== null) resetEditor();
+		note = changedCount
+			? t('settings.discover.configured', { n: changedCount })
+			: knownCount
+				? t('settings.discover.upToDate')
+				: t('settings.discover.nothingKnown');
+	}
+	/** The second line of a listed model: what adding it would give. */
+	function foundDesc(m: ListedModel): string {
+		if (inList(m.id)) return t('settings.discover.inList');
+		const known = lookup?.(m.id);
+		if (!known && !m.context_window) return t('settings.discover.unknown');
+		return summary(modelFromListed(m, known));
+	}
 
 	const err = (key?: string) => (key ? t(`settings.custom.error.${key}`) : '');
 	const tierLabel = (tier: string) => (tier === 'none' ? t('settings.custom.effortNone') : effortLabel(tier));
@@ -222,7 +311,53 @@
 	{/if}
 
 	<div class="np-models">
-		<span class="np-label">{t('settings.custom.models')}</span>
+		<div class="mhead">
+			<span class="np-label">{t('settings.custom.models')}</span>
+			{#if lookup && form.models.length}
+				<Button variant="ghost" size="sm" title={t('settings.discover.autoHint')} onclick={autoConfigure}>{t('settings.discover.auto')}</Button>
+			{/if}
+			{#if discover}
+				<Button variant="ghost" size="sm" disabled={finding} onclick={findModels}>
+					{#if finding}<CircleNotchIcon size={13} class="spin" />{/if}
+					{t('settings.discover.fetch')}
+				</Button>
+			{/if}
+		</div>
+		{#if findError}<span class="np-err" role="alert">{findError}</span>{/if}
+		{#if note}<span class="np-hint" role="status">{note}</span>{/if}
+		{#if found}
+			<section class="found" aria-label={t('settings.discover.title')}>
+				<span class="np-hint">
+					{found.models.length
+						? t('settings.discover.count', { n: found.models.length, m: found.models.filter((m) => !!lookup?.(m.id)).length })
+						: t('settings.discover.none')}
+				</span>
+				{#if found.models.length > 12}
+					<TextField bind:value={findFilter} placeholder={t('settings.discover.filter')} />
+				{/if}
+				{#if shownFound.length}
+					<ul class="flist">
+						{#each shownFound as m (m.id)}
+							<li class="frow">
+								<Checkbox checked={inList(m.id) || found.picked.includes(m.id)} disabled={inList(m.id)} onchange={(on) => pick(m.id, on)}>
+									<span class="mname">{m.id}</span>
+								</Checkbox>
+								<span class="mdesc">{foundDesc(m)}</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<div class="ed-foot">
+					<Button variant="ghost" size="sm" onclick={() => (found = null)}>{t('common.cancel')}</Button>
+					{#if fresh.length}
+						<Button variant="ghost" size="sm" onclick={pickAll}>{allPicked ? t('settings.discover.pickNone') : t('settings.discover.pickAll')}</Button>
+					{/if}
+					<Button variant="secondary" size="sm" disabled={!found.picked.some((id) => !inList(id))} onclick={addFound}>
+						{t('settings.discover.add', { n: found.picked.filter((id) => !inList(id)).length })}
+					</Button>
+				</div>
+			</section>
+		{/if}
 		{#if form.models.length}
 			<ul class="mlist">
 				{#each form.models as m, i (`${i}:${m.name}`)}
@@ -416,6 +551,45 @@
 		font-size: var(--fs-xs);
 		color: var(--dim);
 		line-height: 16px;
+	}
+	.mhead {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-height: 28px;
+	}
+	.mhead .np-label {
+		flex: 1;
+	}
+	.found {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 12px;
+		border-radius: var(--r-md);
+		background: var(--surface);
+	}
+	.flist {
+		display: flex;
+		flex-direction: column;
+		max-height: 260px;
+		margin: 0;
+		padding: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		list-style: none;
+	}
+	.frow {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 6px 4px;
+	}
+	.frow + .frow {
+		border-top: 1px solid var(--hairline);
+	}
+	.frow .mdesc {
+		padding-left: 26px;
 	}
 	.editor {
 		display: flex;

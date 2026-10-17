@@ -53,6 +53,7 @@
 		setAuthKey,
 		removeAuthKey,
 		listProviders,
+		fetchProviderModels,
 		fetchAccountInfo,
 		fetchDeepseekBalance,
 		fetchMonoizeBalance,
@@ -126,6 +127,7 @@
 	import ProviderCatalogPicker from './ProviderCatalogPicker.svelte';
 	import CustomProviderForm from './CustomProviderForm.svelte';
 	import { applyOverride, isCustomized, overrideFromEdit, readOverrides, setOverride, writeOverrides, type ProviderOverrides } from '$lib/providers/overrides';
+	import { modelLookup } from '$lib/providers/discovery';
 	import Modal from '$lib/ui/Modal.svelte';
 	import { GROUPS, resolveSection, searchRows, type SearchRow, type SectionKey } from './nav';
 
@@ -327,6 +329,23 @@
 			})),
 		...custom
 	]);
+	// 获取可用模型 and 自动配置 in the provider form: the endpoint's list,
+	// read by the app with the typed key, else the key saved for the provider
+	// (the key step's key is typed above the form); and what the gateway's
+	// model catalog, the engine's tables and the vendored catalog know.
+	async function discoverModels(r: { id: string; base_url: string; format: string; key: string }) {
+		const [listed] = await Promise.all([
+			fetchProviderModels(r.id, r.base_url, r.format, r.key || (editing === '__key__' ? keyInput.trim() : '')),
+			gatewayCatalog.refreshIfStale().catch(() => null)
+		]);
+		return listed;
+	}
+	const knownModel = $derived(
+		modelLookup({
+			gateway: gatewayCatalog.lookup,
+			tables: [...builtin.map((b) => b.models), ...PROVIDER_CATALOG.providers.map((p) => p.models)]
+		})
+	);
 	/** A built-in provider as the engine lists it, without the user's settings. */
 	function builtinDefaults(id: string): { base_url: string; models: ModelCfg[] } | undefined {
 		const b = builtin.find((x) => x.id === id);
@@ -1291,6 +1310,8 @@
 												mode="builtin"
 												builtinDefaults={builtinDefaults(keyTarget.id)}
 												showKey={false}
+												discover={discoverModels}
+												lookup={knownModel}
 												onSubmit={(f) => {
 													if (!keyTarget) return;
 													saveBuiltinSettings(keyTarget.id, f);
@@ -1319,6 +1340,8 @@
 									formats={FORMATS}
 									mode={editing === '__edit__' ? (editTarget?.builtin ? 'builtin' : 'edit') : 'create'}
 									builtinDefaults={editTarget?.builtin ? builtinDefaults(editTarget.id) : undefined}
+									discover={discoverModels}
+									lookup={knownModel}
 									taken={allProviders.map((p) => p.id)}
 									keyRequired={editing === '__new__' && !!selectedCatalog}
 									keyed={!!editTarget && keyed.includes(editTarget.id)}

@@ -29,6 +29,7 @@ mod native_import;
 mod plugins;
 mod preview;
 mod provider_auth;
+mod provider_models;
 #[cfg(desktop)]
 mod renamed;
 mod secrets;
@@ -3903,6 +3904,7 @@ pub fn run() {
             default_workspace_dir,
             create_chat_dir,
             list_providers,
+            provider_models::provider_models,
             list_dir,
             list_files,
             resolve_file_ref,
