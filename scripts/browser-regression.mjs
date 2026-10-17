@@ -549,6 +549,19 @@ try {
   await page.mouse.click(1200, 700);
   await expect(page.getByRole('menu')).toHaveCount(0);
   await page.evaluate(() => window.__paneChat().handle({ type: 'approval_request', call_id: 'c1', name: 'shell', summary: 'pnpm build', scopes: ['session', 'project', 'user'] }));
+  // The card waits for the reader: it fades in (180 ms, --ease-enter, fill
+  // backwards) and does not move while it does.
+  const entering = await page.locator('.approval').evaluate((el) => new Promise((done) => {
+    const seen = new Set();
+    const t0 = performance.now();
+    const tick = () => {
+      seen.add(getComputedStyle(el).transform);
+      if (performance.now() - t0 < 300) requestAnimationFrame(tick);
+      else { const cs = getComputedStyle(el); done([cs.animationName, cs.animationDuration, cs.animationTimingFunction, cs.animationFillMode, [...seen]]); }
+    };
+    tick();
+  }));
+  assert.deepEqual(entering, ['fade', '0.18s', 'cubic-bezier(0, 0, 0.2, 1)', 'backwards', ['none']]);
   await settled('.approval');
   await page.getByRole('button',{name:'始终允许…'}).click();
   await expect(page.getByRole('menu')).toBeVisible();
