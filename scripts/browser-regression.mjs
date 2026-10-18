@@ -1353,8 +1353,8 @@ try {
   // the plan says it is. One to do: a 9px hollow circle and --dim text. The
   // one in progress: a 6px --accent dot and --text at 400, and while the turn
   // works the running light sweeps its words (ui/shimmer.ts; not under
-  // reduced motion, and not once the turn is over). A done one: a check and
-  // --dim text, not struck through. Each mark is an image named for its
+  // reduced motion, and not once the turn is over). A done one: a filled
+  // circle with a check, its --dim words struck through. Each mark is an image named for its
   // state. The title line names the step in progress and counts the done
   // ones. A plan the model set once and left alone shows just that (step 1
   // in progress, "0/6"). The veil matches the fill under the list: the
@@ -1400,7 +1400,7 @@ try {
       const sweeping = (p, list) => p.locator(`${list} .steps .veil`).evaluateAll((vs) => vs.map((v) => ({display: getComputedStyle(v).display, running: v.getAnimations().filter((a) => a.playState === 'running').length})));
       const check = (got, k) => {
         const want = {
-          done: {role: 'img', label: '已完成', shape: 'check', color: k['--dim'], weight: 400, strike: 'none', veils: 0},
+          done: {role: 'img', label: '已完成', shape: 'tick', size: '12px×12px', color: k['--dim'], weight: 400, strike: 'line-through', veils: 0},
           active: {role: 'img', label: '进行中', shape: 'dot', size: '6px×6px', fill: k['--accent'], color: k['--text'], weight: 400, strike: 'none'},
           pending: {role: 'img', label: '待开始', shape: 'ring', size: '9px×9px', ring: k['--dim2'], color: k['--dim'], weight: 400, strike: 'none', veils: 0}
         }[got.state];
@@ -1441,9 +1441,11 @@ try {
           assert.deepEqual(m.map((s) => s.state), ['active', 'pending', 'pending', 'pending', 'pending', 'pending'], engine);
           m.forEach((s) => check(s, k));
           if (shots) await card.screenshot({path: `${shots}/${engine.toLowerCase()}-${theme}-beside-stale-0of6.png`});
-          // Kept current: the title line names the step in progress.
+          // Kept current: the title line names the step in progress (the
+          // steps done play their completion first).
           await p.evaluate((SIX) => window.__shellChat.handle({type: 'plan', plan: SIX.map((step, i) => ({step, status: i < 3 ? 'completed' : i === 3 ? 'in_progress' : 'pending'}))}), SIX);
           await expect(card.locator('.head')).toHaveText(/计划\s*3\/6\s*·\s*并行 subagents/);
+          await expect(card.locator('.completing, .lighting')).toHaveCount(0, {timeout: 3000});
           m = await marks(p, '.card.plan');
           assert.deepEqual(m.map((s) => s.state), ['done', 'done', 'done', 'active', 'pending', 'pending'], engine);
           m.forEach((s) => check(s, k));
@@ -1516,6 +1518,133 @@ try {
     }
   }
   // END BLOCK plan-step-marks
+
+  // BLOCK plan-step-motion
+  // A step done while the plan card is on screen (0.10.2), in Chromium and
+  // WebKit: its circle fills and the check draws, a line sweeps its words
+  // left to right and stays, the words dim, then the next step's dot lights
+  // up. Steps done together play in turn. Nothing moves the layout, and
+  // only transform, opacity, clip-path and stroke-dashoffset animate. Its
+  // end state is a done step's static one. A card that comes on screen (the
+  // collapsed card opened again, the page reloaded) plays nothing. Reduced
+  // motion: the end state at once.
+  {
+    const shots = globalThis.__shots || '';
+    const wk = await webkit.launch();
+    try {
+      const C = 'completed', A = 'in_progress', P = 'pending';
+      // The fixture's plan with other statuses (its owners and files kept).
+      const plan = (p, states) => p.evaluate((states) => {
+        const c = window.__shellChat;
+        c.handle({type: 'plan', plan: c.plan.map((s, i) => ({...s, status: states[i]}))});
+      }, states);
+      // What runs in the card: each animation's name, delay and duration
+      // (the CSS property it moves is checked through its keyframes).
+      const running = (p) => p.evaluate(() => document.getAnimations()
+        .filter((a) => a.animationName?.includes('step-') && document.querySelector('.card.plan')?.contains(a.effect?.target))
+        .map((a) => {
+          const step = a.effect.target.closest('.step');
+          const t = a.effect.getTiming();
+          return {step: [...step.parentElement.children].indexOf(step), name: a.animationName.replace(/^.*step-/, ''), delay: Math.round(t.delay), props: [...new Set(a.effect.getKeyframes().flatMap((k) => Object.keys(k)).filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)))]};
+        }));
+      // A done step as it is drawn at rest: the disc, the check drawn, the
+      // line through the words, the words dim; no copies over them.
+      const doneLook = (p, i) => p.locator('.card.plan .step').nth(i).evaluate((li) => {
+        const text = li.querySelector('.text');
+        return {
+          cls: [...li.classList].filter((c) => ['completing', 'lighting', 'recolour'].includes(c)),
+          disc: getComputedStyle(li.querySelector('.disc')).opacity, check: getComputedStyle(li.querySelector('.check')).strokeDashoffset,
+          line: getComputedStyle(text).textDecorationLine, color: getComputedStyle(text).color,
+          copies: ['::before', '::after'].map((at) => getComputedStyle(text, at).content).filter((c) => c !== 'none'),
+          was: li.querySelectorAll('.was').length
+        };
+      });
+      // Each row's top and height, and where its words' glyphs are.
+      const geometry = (p) => p.locator('.card.plan .step').evaluateAll((lis) => lis.map((li) => {
+        const r = li.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(li.querySelector('.words'));
+        const g = [...range.getClientRects()].map((q) => [Math.round(q.left), Math.round(q.top), Math.round(q.right)].join(','));
+        return [Math.round(r.top), Math.round(r.height), g.join(' ')];
+      }));
+      for (const [engine, b] of [['Chromium', browser], ['WebKit', wk]]) {
+        const p = await b.newPage({viewport: {width: 1440, height: 900}});
+        p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+        await p.goto(base + '?shell&cards');
+        await expect(p.locator('.card.plan .step')).toHaveCount(7, {timeout: 60000});
+        // The fixture's turn has no start time; the app's has one, so a
+        // plan changed in it stays on screen once done.
+        await p.evaluate(() => (window.__shellChat.turnStartedAt = Date.now() - 60_000));
+        const dim = await p.evaluate(() => { const el = document.createElement('i'); el.style.color = 'var(--dim)'; document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; });
+        // The page as loaded: nothing plays, done steps are drawn at rest.
+        assert.deepEqual(await running(p), [], `${engine}: a loaded plan plays`);
+        assert.deepEqual(await doneLook(p, 0), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, engine);
+        const before = await geometry(p);
+        // Step 4 done, step 5 lit: they play, the light after the line.
+        await plan(p, [C, C, C, C, A, P, P]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(1);
+        const one = await running(p);
+        const of = (step, name) => one.find((a) => a.step === step && a.name === name);
+        for (const [step, name] of [[3, 'fill'], [3, 'draw'], [3, 'strike'], [3, 'fade'], [4, 'light']]) assert.ok(of(step, name), `${engine}: no ${name} on step ${step + 1}: ${JSON.stringify(one)}`);
+        assert.ok(of(4, 'light').delay > of(3, 'strike').delay, `${engine}: the next step lights before the line`);
+        const allowed = new Set(['transform', 'opacity', 'clipPath', 'clip-path', 'strokeDashoffset', 'stroke-dashoffset']);
+        const moved = one.flatMap((a) => a.props).filter((k) => !allowed.has(k));
+        assert.deepEqual(moved, [], `${engine}: an animation moves ${moved}`);
+        // No layout shift while it plays.
+        assert.deepEqual(await geometry(p), before, `${engine}: the steps moved or resized`);
+        // Its end: the static done step; the next one lit, the light sweeping.
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        assert.deepEqual(await doneLook(p, 3), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, `${engine}: the end state`);
+        await expect(p.locator('.card.plan .step').nth(4)).toHaveClass(/active/);
+        await expect(p.locator('.card.plan .step').nth(4).locator('.veil')).toHaveCount(1);
+        assert.deepEqual(await geometry(p), before, `${engine}: the steps moved or resized after`);
+        // Two done at once play in turn; the last step lights after both.
+        await plan(p, [C, C, C, C, C, C, A]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(2);
+        const two = await running(p);
+        const strikes = two.filter((a) => a.name === 'strike').sort((x, y) => x.step - y.step);
+        assert.deepEqual(strikes.map((a) => a.step), [4, 5], engine);
+        assert.ok(strikes[1].delay - strikes[0].delay >= 100, `${engine}: the second starts with the first`);
+        assert.ok(two.find((a) => a.name === 'light').delay > strikes[1].delay, `${engine}: the light before the last line`);
+        if (shots && engine === 'Chromium') await p.locator('.card.plan').screenshot({path: `${shots}/anim-chromium-two-at-once-start.png`});
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        // Collapsed and opened again: drawn as it is, nothing replays. (The
+        // turn still runs: a plan with steps to do stays on screen.)
+        await plan(p, [C, C, C, C, C, A, P]);
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        const head = p.locator('.card.plan .head');
+        await head.click();
+        await expect(p.locator('.card.plan .step')).toHaveCount(0);
+        await head.click();
+        await expect(p.locator('.card.plan .step')).toHaveCount(7);
+        assert.deepEqual(await running(p), [], `${engine}: the card opened again replays`);
+        for (let i = 0; i < 5; i++) assert.deepEqual((await doneLook(p, i)).cls, [], engine);
+        if (shots) await p.locator('.card.plan').screenshot({path: `${shots}/anim-${engine.toLowerCase()}-reopened.png`});
+        // The last steps done: the card stays for the rest of the turn, and
+        // the last completion plays.
+        await plan(p, [C, C, C, C, C, C, C]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(2);
+        await expect(p.locator('.card.plan .completing')).toHaveCount(0, {timeout: 3000});
+        await p.close();
+        // Reduced motion: the end state at once.
+        const ctx = await b.newContext({viewport: {width: 1440, height: 900}, reducedMotion: 'reduce'});
+        const r = await ctx.newPage();
+        r.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+        await r.goto(base + '?shell&cards');
+        await expect(r.locator('.card.plan .step')).toHaveCount(7, {timeout: 60000});
+        await plan(r, [C, C, C, C, A, P, P]);
+        await expect(r.locator('.card.plan .step').nth(3)).toHaveClass(/done/);
+        assert.deepEqual(await running(r), [], `${engine}: it plays under reduced motion`);
+        // (app.css gives every transition 0.01ms there: one frame.)
+        await r.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+        assert.deepEqual(await doneLook(r, 3), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, `${engine}: reduced motion`);
+        await ctx.close();
+      }
+    } finally {
+      await wk.close();
+    }
+  }
+  // END BLOCK plan-step-motion
 
   // The phone page: the cards' title lines as chips under the header; a tap
   // opens one as a sheet from the bottom, closed by Escape or the scrim; a

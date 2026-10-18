@@ -15,6 +15,10 @@ import {
 	planCard,
 	planTitle,
 	saveCards,
+	STEP_LIGHT_AFTER,
+	STEP_STAGGER,
+	stepMotions,
+	stepStates,
 	type CardsState,
 	type PlanCardInput
 } from './progressCards';
@@ -185,6 +189,54 @@ describe('the plan card', () => {
 		expect(sub.steps[1].reason).toEqual({ kind: 'question' });
 		// The turn is over: nothing waits.
 		expect(planCard(input({ busy: false, wait: { kind: 'approval', agent: '' } })).attention).toBe(-1);
+	});
+});
+
+describe('a step done while the checklist is on screen', () => {
+	const view = (states: string[]) => planCard({ plan: planSummary(states.map((status, i) => ({ step: `s${i + 1}`, status }))), rows: [], busy: true, wait: null, error: '' }).steps;
+	const before = view(['completed', 'in_progress', 'pending', 'pending']);
+
+	it('plays the step done, then lights the next one', () => {
+		const after = view(['completed', 'completed', 'in_progress', 'pending']);
+		expect(stepMotions(stepStates(before), after)).toEqual([
+			{ index: 1, kind: 'complete', from: 'active', delay: 0 },
+			{ index: 2, kind: 'light', from: 'pending', delay: STEP_LIGHT_AFTER }
+		]);
+	});
+
+	it('plays several steps done at once one after another, the light after the last', () => {
+		const after = view(['completed', 'completed', 'completed', 'in_progress']);
+		expect(stepMotions(stepStates(before), after)).toEqual([
+			{ index: 1, kind: 'complete', from: 'active', delay: 0 },
+			{ index: 2, kind: 'complete', from: 'pending', delay: STEP_STAGGER },
+			{ index: 3, kind: 'light', from: 'pending', delay: STEP_STAGGER + STEP_LIGHT_AFTER }
+		]);
+	});
+
+	it('plays nothing for a checklist that comes on screen, or an update that changes no step', () => {
+		const done = view(['completed', 'completed', 'completed', 'completed']);
+		// Shown for the first time (a plan loaded, a card opened again).
+		expect(stepMotions(null, done)).toEqual([]);
+		expect(stepMotions(stepStates(done), done)).toEqual([]);
+		// A step done before stays still; a step that came back is drawn as it is.
+		expect(stepMotions(stepStates(done), before)).toEqual([]);
+		// A new plan with other steps.
+		const other = planCard({ plan: planSummary([{ step: 'x', status: 'completed' }]), rows: [], busy: true, wait: null, error: '' }).steps;
+		expect(stepMotions(stepStates(before), other)).toEqual([]);
+	});
+
+	it('plays a step done from any state but done, and lights only a step that was to do', () => {
+		const failed = new Map([
+			['s1', 'failed' as const],
+			['s2', 'waiting' as const],
+			['s3', 'skipped' as const],
+			['s4', 'active' as const]
+		]);
+		const after = view(['completed', 'completed', 'completed', 'in_progress']);
+		expect(stepMotions(failed, after).map((m) => [m.index, m.kind, m.from])).toEqual([
+			[0, 'complete', 'failed'],
+			[1, 'complete', 'waiting']
+		]);
 	});
 });
 
