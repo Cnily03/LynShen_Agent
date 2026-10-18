@@ -2187,10 +2187,13 @@ try {
   await recapPage.evaluate(() => window.__shellChat.handle({type: 'approval_request', call_id: 'c9', name: 'shell', summary: 'git push', scopes: ['session']}));
   await expect(recapPage.locator('.approval')).toBeVisible();
   await expect(recapCard).toHaveCount(0);
-  // Reduced motion: no fade.
+  // Reduced motion: no fade. app.css keeps every animation and transition
+  // at 0.01 ms (so animationend still fires) rather than removing it, and
+  // one can still be pending the moment the card shows (its fade, a theme
+  // colour settling), so check how long they last, not that none is left.
   await recapPage.emulateMedia({reducedMotion: 'reduce'});
   await openRecap('?shell&recap');
-  assert.equal(await recapCard.evaluate((el) => el.getAnimations().length), 0);
+  assert.deepEqual(await recapCard.evaluate((el) => el.getAnimations().filter((a) => a.effect.getComputedTiming().duration > 1).map((a) => a.animationName ?? a.transitionProperty)), []);
   await recapPage.close();
   // A card under the list that closes (the recap card's button, an answered
   // approval) leaves the view following the end: the list grows, the
