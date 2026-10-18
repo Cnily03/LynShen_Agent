@@ -95,6 +95,9 @@ export interface PlanCard {
 	steps: StepView[];
 	done: number;
 	total: number;
+	/** The turn is at work: the step in progress shows it (PlanBody). The
+	 *  card shows only what the plan says; it never marks a step itself. */
+	live: boolean;
 	/** The step being worked on; -1 for none. */
 	current: number;
 	/** The first step that failed or waits for the reader; -1 for none. */
@@ -127,6 +130,7 @@ export function planCard({ plan, rows, busy, wait, error }: PlanCardInput): Plan
 		steps,
 		done: plan.done,
 		total: plan.total,
+		live: busy,
 		current: plan.current,
 		attention: steps.findIndex((s) => s.state === 'failed' || s.state === 'waiting')
 	};

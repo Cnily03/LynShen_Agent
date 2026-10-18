@@ -150,6 +150,7 @@
 		animation: scrim-in var(--t-fast) var(--ease-enter);
 	}
 	.sheet {
+		--plan-fill: var(--panel);
 		position: fixed;
 		left: 0;
 		right: 0;

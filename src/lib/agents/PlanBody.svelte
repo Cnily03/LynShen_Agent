@@ -1,11 +1,16 @@
 <script lang="ts">
-	// The plan card's checklist: a done step shows a check, the current one
-	// is bold, a failed one shows in the error color and one that waits for
-	// the reader has a 6px caution dot, with the reason on the line below.
-	// In LynShen's agent team a step names the subagent it belongs to, a
-	// click away from its conversation.
+	// The plan card's checklist, each step as the plan says it is (design.md,
+	// "Status, attention and emphasis"): one to do has a hollow circle and
+	// --dim text; the one in progress a 6px --accent dot and --text, with the
+	// running light sweeping its words while the turn works (ui/shimmer.ts,
+	// on the navigator's clock; none under reduced motion); a done one a
+	// check and --dim text; a failed one shows in the error color and one
+	// that waits for the reader has a 6px caution dot, with the reason on the
+	// line below. In LynShen's agent team a step names the subagent it
+	// belongs to, a click away from its conversation.
 	import CheckIcon from 'phosphor-svelte/lib/CheckIcon';
 	import { t } from '$lib/i18n';
+	import { shimmer } from '$lib/ui/shimmer';
 	import { shortPath, type AgentRow } from '$lib/agentProgress';
 	import type { OpenHow } from './subagentPages.svelte';
 	import type { PlanCard, StepReason } from './progressCards';
@@ -54,13 +59,18 @@
 <ol class="steps" bind:this={list}>
 	{#each card.steps as s, i (i)}
 		{@const owner = ownerRow(s.agent)}
+		{@const sweep = card.live && s.state === 'active'}
 		<li class="step {s.state}" class:current={s.current} data-step={i} aria-current={s.current ? 'step' : undefined}>
-			<span class="mark" role={s.state === 'pending' || s.state === 'active' ? undefined : 'img'} aria-label={s.state === 'pending' || s.state === 'active' ? undefined : t(`chat.progress.step.${s.state}`)}>
+			<span class="mark" role="img" aria-label={t(`chat.progress.step.${s.state}`)}>
 				{#if s.state === 'done'}<CheckIcon size={12} weight="bold" />
-				{:else if s.state === 'failed' || s.state === 'waiting'}<span class="dot"></span>{/if}
+				{:else if s.state === 'pending'}<span class="ring"></span>
+				{:else if s.state === 'skipped'}<span class="dash"></span>
+				{:else}<span class="dot"></span>{/if}
 			</span>
 			<span class="body">
-				<span class="text" title={s.files.length ? s.files.join('\n') : undefined}>{s.text}</span>
+				<span class="text" class:sweep title={s.files.length ? s.files.join('\n') : undefined}
+					>{s.text}{#if sweep}<i class="veil" aria-hidden="true" use:shimmer></i>{/if}</span
+				>
 				{#if s.reason}<span class="why">{reasonText(s.reason)}</span>{/if}
 			</span>
 			{#if s.agent}
@@ -77,10 +87,17 @@
 </ol>
 
 <style>
+	/* The running light's veil matches the fill under the list: the card's
+	   --bg, or the --plan-fill a popover or sheet sets (--panel). */
 	.steps {
+		--step-bg: var(--plan-fill, var(--bg));
+		--step-veil: 24%;
 		list-style: none;
 		margin: 0;
 		padding: 0;
+	}
+	:global([data-theme='light']) .steps {
+		--step-veil: 18%;
 	}
 	.step {
 		display: grid;
@@ -104,6 +121,22 @@
 		height: 6px;
 		border-radius: var(--r-full);
 	}
+	.ring {
+		box-sizing: border-box;
+		width: 9px;
+		height: 9px;
+		border: 1.5px solid var(--dim2);
+		border-radius: var(--r-full);
+	}
+	.dash {
+		width: 8px;
+		height: 1.5px;
+		border-radius: var(--r-full);
+		background: var(--dim2);
+	}
+	.step.active .dot {
+		background: var(--accent);
+	}
 	.step.waiting .dot {
 		background: var(--warn);
 	}
@@ -118,12 +151,46 @@
 	.text {
 		overflow-wrap: anywhere;
 	}
-	/* 500, not 600: 600 is for page, section and group titles (design.md §4 "Type"). */
-	.step.current .text {
-		font-weight: 500;
-	}
+	.step.pending .text,
 	.step.done .text {
 		color: var(--dim);
+	}
+	/* The step in progress while the turn works: the words hug their text,
+	   so the light crosses them, not the empty row. */
+	.text.sweep {
+		position: relative;
+		align-self: flex-start;
+		max-width: 100%;
+		overflow: hidden;
+	}
+	/* The navigator's veil (Sidebar.svelte), lighter: the list's own fill
+	   over the words, with a clear window the sweep moves across. */
+	.veil {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: 300%;
+		pointer-events: none;
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--step-bg) var(--step-veil), transparent) 0%,
+			color-mix(in srgb, var(--step-bg) var(--step-veil), transparent) 42%,
+			transparent 50%,
+			color-mix(in srgb, var(--step-bg) var(--step-veil), transparent) 58%,
+			color-mix(in srgb, var(--step-bg) var(--step-veil), transparent) 100%
+		);
+		transform: translateX(-60%);
+	}
+	/* Where the light does not sweep (ui/shimmer.ts), the words stay --text. */
+	:global(:root[data-vibrancy]) .veil,
+	:global(:root[data-canvas-bg]) .veil {
+		display: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.veil {
+			display: none;
+		}
 	}
 	.step.skipped .text {
 		color: var(--dim2);

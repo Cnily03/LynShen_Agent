@@ -139,6 +139,25 @@ describe('the plan card', () => {
 		expect(planTitle(planCard(input({ plan: done, busy: false })))).toMatchObject({ count: '4/4', allDone: true });
 	});
 
+	it('shows each step as the plan says, the one in progress live while the turn works', () => {
+		// One update_plan call, then a long turn: the card says what the plan
+		// says (step 1 in progress), nothing more.
+		const six = ['设计文档 + 仓库脚手架', '核心引擎', '元系统', '并行 subagents', '合并、全量校验', '浏览器端到端截图验证'];
+		const stale = planCard(input({ plan: planSummary(six.map((step, i) => ({ step, status: i === 0 ? 'in_progress' : 'pending' }))) }));
+		expect(stale.steps.map((s) => s.state)).toEqual(['active', 'pending', 'pending', 'pending', 'pending', 'pending']);
+		expect(planTitle(stale)).toMatchObject({ count: '0/6', step: '设计文档 + 仓库脚手架' });
+		expect(stale.live).toBe(true);
+		// Kept current: the title line names the step in progress, not the first.
+		const kept = planCard(
+			input({ plan: planSummary(six.map((step, i) => ({ step, status: i < 3 ? 'completed' : i === 3 ? 'in_progress' : 'pending' }))) })
+		);
+		expect(kept.steps.map((s) => s.state)).toEqual(['done', 'done', 'done', 'active', 'pending', 'pending']);
+		expect(kept.current).toBe(3);
+		expect(planTitle(kept)).toMatchObject({ count: '3/6', step: '并行 subagents' });
+		// The turn is over: the step is still in progress, but nothing runs.
+		expect(planCard(input({ busy: false })).live).toBe(false);
+	});
+
 	it('marks the step whose subagent failed', () => {
 		const card = planCard(input({ rows: [row({ state: 'failed', error: 'tests failed\nat line 3' })] }));
 		expect(card.steps[1]).toMatchObject({ state: 'failed', reason: { kind: 'agent', name: 'worker-1', error: 'tests failed' } });
