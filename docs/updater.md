@@ -77,7 +77,8 @@ CLI 来源固定在 `src-tauri/lynshen-cli.ref` 的提交，版本必须匹配
 
 1. 同步 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和 Cargo.lock 的版本。
 2. 需要升级 CLI 时更新 ref 和 version。
-3. 推送版本 tag。所有平台先上传到同一个 draft Release。
+3. 推送版本 tag。`draft` job 为这个 tag 创建或找到唯一的 draft Release，所有平台上传到这个 draft，
+   `latest.json` 合并为一个文件。同一 tag 有多个 Release 时，发布失败。
 4. 完整性检查要求 Windows、Apple Silicon、Intel 的安装包和签名更新包全部存在。
 5. 生成 `desktop-distribution` artifact，再公开 Release，并同步 Monoize。
 

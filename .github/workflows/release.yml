@@ -3,6 +3,8 @@ name: Release
 # Build and publish a GitHub Release with installers for macOS, Linux and
 # Windows whenever a version tag is pushed. Manual runs build without
 # publishing unless an existing release tag is supplied for recovery.
+# The draft job makes the one release for the tag; every build leg uploads
+# to it and publish refuses a tag with more than one release.
 #
 # Repo secrets used:
 #   TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) — updater artifact signing (required
@@ -39,7 +41,58 @@ env:
   RELEASE_TAG: ${{ inputs.release_tag || (github.event_name == 'push' && github.ref_name) || '' }}
 
 jobs:
+  # tauri-action creates a release when its lookup by tag finds none, and each
+  # build leg looks on its own: legs that reach the upload together each create
+  # a draft (v0.10.2 got two drafts, each with half the files and its own
+  # latest.json). This job is the only place that creates the release.
+  draft:
+    name: Create or find the release
+    runs-on: ubuntu-latest
+    # Two runs for one tag must not both create a draft.
+    concurrency:
+      group: release-draft-${{ inputs.release_tag || (github.event_name == 'push' && github.ref_name) || github.run_id }}
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.RELEASE_TAG != ''
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      # A manual build without a tag skips this: release_id stays empty and
+      # the legs upload nothing.
+      - name: Create or find the one release for the tag
+        id: draft
+        if: env.RELEASE_TAG != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/check-release-version.mjs "$RELEASE_TAG"
+          version=$(node -p "require('./package.json').version")
+          notes="release-notes/$version.md"
+          test -s "$notes" || { echo "missing $notes"; exit 1; }
+          # The list includes drafts; a lookup by tag does not.
+          ids=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.RELEASE_TAG) | .id')
+          count=$(grep -c . <<< "$ids" || true)
+          if [ "$count" -eq 0 ]; then
+            # The body is the notes file without its final newline, as the
+            # notes step below passes it to tauri-action.
+            id=$(jq -n --arg tag "$RELEASE_TAG" --arg sha "$(git rev-parse HEAD)" --rawfile body "$notes" \
+              '{tag_name: $tag, name: $tag, body: ($body | rtrimstr("\n")), draft: true, prerelease: false, target_commitish: $sha}' |
+              gh api "repos/$GITHUB_REPOSITORY/releases" --input - --jq .id)
+            echo "Created draft release $id for $RELEASE_TAG"
+          elif [ "$count" -eq 1 ]; then
+            id=$ids
+            echo "Using the existing release $id for $RELEASE_TAG"
+          else
+            echo "::error::$count releases exist for $RELEASE_TAG ($(echo $ids)). Keep one, delete the others, then run again."
+            exit 1
+          fi
+          test -n "$id"
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -161,10 +214,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # tauri-action runs beforeBuildCommand (pnpm build), bundles the app with
-      # the lynshen sidecar and uploads the installers to a release named after
-      # the tag. With TAURI_SIGNING_PRIVATE_KEY set it additionally signs the
-      # updater bundles (.sig) and generates latest.json, which installed
-      # clients poll (plugins.updater in tauri.conf.json).
+      # the lynshen sidecar and uploads the installers to the release from the
+      # draft job. With TAURI_SIGNING_PRIVATE_KEY set it additionally signs the
+      # updater bundles (.sig) and adds this leg's platforms to the release's
+      # latest.json, which installed clients poll (plugins.updater in
+      # tauri.conf.json).
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -172,11 +226,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ (runner.os == 'macOS' && env.APPLE_CERTIFICATE != '') && 'LynShen Self-Signed' || '-' }}
         with:
-          # A manual run publishes only when it explicitly targets an existing tag.
+          # A manual run publishes only when it explicitly targets an existing
+          # tag. With releaseId set tauri-action creates no release (and
+          # without releaseName it cannot); tagName only sets the download
+          # URLs in latest.json, and releaseBody its notes.
+          releaseId: ${{ needs.draft.outputs.release_id }}
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: ${{ env.RELEASE_TAG }}
-          releaseDraft: true
-          prerelease: false
           args: --target ${{ matrix.target }} --config src-tauri/tauri.bundle.conf.json
           releaseBody: ${{ steps.notes.outputs.body }}
 
@@ -188,7 +243,7 @@ jobs:
           path: src-tauri/target/${{ matrix.target }}/release/bundle/
 
   publish:
-    needs: release
+    needs: [draft, release]
     if: github.event_name == 'push' || inputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
@@ -198,13 +253,55 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Validate the complete release and prepare the Monoize mirror
+      # gh release download takes the first release it finds for the tag, so a
+      # second release would publish half the files.
+      - name: Check that the tag has one release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PUBLIC_ORIGIN: ${{ vars.DESKTOP_PUBLIC_ORIGIN || 'https://www.lynshen.org' }}
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
         run: |
-          gh release download "$RELEASE_TAG" --dir release-assets
-          node scripts/prepare-desktop-release.mjs release-assets distribution "$PUBLIC_ORIGIN"
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.RELEASE_TAG) | "\(.id) draft=\(.draft) assets=\(.assets | length) created=\(.created_at)"')
+          count=$(grep -c . <<< "$releases" || true)
+          if [ "$count" -gt 1 ]; then
+            echo "::error::$count releases exist for $RELEASE_TAG; publishing needs exactly one. Keep release $RELEASE_ID (the build legs uploaded to it): move any missing files into it, merge the latest.json files, delete the other releases, then rerun this job."
+            echo "$releases"
+            exit 1
+          fi
+          test "$count" -eq 1 || { echo "::error::No release exists for $RELEASE_TAG."; exit 1; }
+          echo "$releases"
+      - name: Download the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --dir release-assets
+      # Each leg merges its platforms into latest.json by download, edit and
+      # upload, with no lock: a leg that writes at the same time as another
+      # can drop that leg's platforms. prepare-desktop-release.mjs requires
+      # only Windows and the two macOS platforms, so check every leg here.
+      - name: Check that latest.json lists every platform
+        shell: bash
+        run: |
+          # The platform keys each leg writes, by the leg's runner.
+          expected='{
+            "macos-15": ["darwin-aarch64", "darwin-aarch64-app"],
+            "macos-15-intel": ["darwin-x86_64", "darwin-x86_64-app"],
+            "ubuntu-22.04": ["linux-x86_64", "linux-x86_64-appimage", "linux-x86_64-deb", "linux-x86_64-rpm"],
+            "windows-latest": ["windows-x86_64", "windows-x86_64-msi", "windows-x86_64-nsis"]
+          }'
+          legs=$(jq -r --argjson expected "$expected" \
+            '.platforms as $have | $expected | to_entries[] | select(any(.value[]; $have[.] == null)) | .key' \
+            release-assets/latest.json)
+          if [ -n "$legs" ]; then
+            missing=$(jq -r --argjson expected "$expected" \
+              '.platforms as $have | [$expected[][] | select($have[.] == null)] | join(" ")' release-assets/latest.json)
+            echo "::error::latest.json of $RELEASE_TAG lacks $missing. Rerun the build leg(s) $(echo $legs) of this run (each adds its platforms to the same latest.json), then rerun this job."
+            exit 1
+          fi
+          echo "latest.json lists all $(jq '.platforms | length' release-assets/latest.json) platforms"
+      - name: Validate the complete release and prepare the Monoize mirror
+        env:
+          PUBLIC_ORIGIN: ${{ vars.DESKTOP_PUBLIC_ORIGIN || 'https://www.lynshen.org' }}
+        run: node scripts/prepare-desktop-release.mjs release-assets distribution "$PUBLIC_ORIGIN"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-distribution
