@@ -3,7 +3,7 @@
 
 [package]
 name = "desktop"
-version = "0.10.0"
+version = "0.10.1"
 description = "Aogiri desktop app"
 authors = ["LynShen Innovations INC."]
 license = "Apache-2.0"
