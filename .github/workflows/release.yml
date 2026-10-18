@@ -270,13 +270,38 @@ jobs:
           fi
           test "$count" -eq 1 || { echo "::error::No release exists for $RELEASE_TAG."; exit 1; }
           echo "$releases"
-      - name: Validate the complete release and prepare the Monoize mirror
+      - name: Download the release
         env:
           GH_TOKEN: ${{ github.token }}
-          PUBLIC_ORIGIN: ${{ vars.DESKTOP_PUBLIC_ORIGIN || 'https://www.lynshen.org' }}
+        run: gh release download "$RELEASE_TAG" --dir release-assets
+      # Each leg merges its platforms into latest.json by download, edit and
+      # upload, with no lock: a leg that writes at the same time as another
+      # can drop that leg's platforms. prepare-desktop-release.mjs requires
+      # only Windows and the two macOS platforms, so check every leg here.
+      - name: Check that latest.json lists every platform
+        shell: bash
         run: |
-          gh release download "$RELEASE_TAG" --dir release-assets
-          node scripts/prepare-desktop-release.mjs release-assets distribution "$PUBLIC_ORIGIN"
+          # The platform keys each leg writes, by the leg's runner.
+          expected='{
+            "macos-15": ["darwin-aarch64", "darwin-aarch64-app"],
+            "macos-15-intel": ["darwin-x86_64", "darwin-x86_64-app"],
+            "ubuntu-22.04": ["linux-x86_64", "linux-x86_64-appimage", "linux-x86_64-deb", "linux-x86_64-rpm"],
+            "windows-latest": ["windows-x86_64", "windows-x86_64-msi", "windows-x86_64-nsis"]
+          }'
+          legs=$(jq -r --argjson expected "$expected" \
+            '.platforms as $have | $expected | to_entries[] | select(any(.value[]; $have[.] == null)) | .key' \
+            release-assets/latest.json)
+          if [ -n "$legs" ]; then
+            missing=$(jq -r --argjson expected "$expected" \
+              '.platforms as $have | [$expected[][] | select($have[.] == null)] | join(" ")' release-assets/latest.json)
+            echo "::error::latest.json of $RELEASE_TAG lacks $missing. Rerun the build leg(s) $(echo $legs) of this run (each adds its platforms to the same latest.json), then rerun this job."
+            exit 1
+          fi
+          echo "latest.json lists all $(jq '.platforms | length' release-assets/latest.json) platforms"
+      - name: Validate the complete release and prepare the Monoize mirror
+        env:
+          PUBLIC_ORIGIN: ${{ vars.DESKTOP_PUBLIC_ORIGIN || 'https://www.lynshen.org' }}
+        run: node scripts/prepare-desktop-release.mjs release-assets distribution "$PUBLIC_ORIGIN"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-distribution
