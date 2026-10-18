@@ -70,6 +70,7 @@ $Desktop = [Environment]::GetFolderPath('Desktop')
 $CommonStartMenu = [Environment]::GetFolderPath('CommonPrograms')
 $CommonDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
 $TaskbarPins = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+$ShellIconsRecord = Join-Path $env:APPDATA 'com.lynshen.desktop\shell-icons.txt'
 $DefaultOldDir = Join-Path $env:LOCALAPPDATA $OldName
 $DefaultNewDir = Join-Path $env:LOCALAPPDATA $NewName
 $TestRoot = 'C:\RenameTest'
@@ -190,6 +191,132 @@ namespace RenameCheck {
       link.SetPath(target);
       ((IPersistFile)link).Save(path, true);
     }
+
+    // The file a shortcut takes its icon from; "" when it is the target's.
+    public static string Icon(string path) {
+      var link = (IShellLinkW)new ShellLink();
+      ((IPersistFile)link).Load(path, 0);
+      var icon = new StringBuilder(32768);
+      int index;
+      link.GetIconLocation(icon, icon.Capacity, out index);
+      return icon.ToString();
+    }
+
+    public static void SetIcon(string path, string icon) {
+      var link = (IShellLinkW)new ShellLink();
+      ((IPersistFile)link).Load(path, 2);
+      link.SetIconLocation(icon, 0);
+      ((IPersistFile)link).Save(path, true);
+    }
+  }
+}
+'@
+
+# What the shell is told while an installer runs (SHChangeNotify). The
+# installers say icons changed (SHCNE_ASSOCCHANGED) so that Explorer drops the
+# icons it cached from the old executable (src-tauri/windows/hooks.nsh,
+# src-tauri/src/shell_icons.rs). A hidden window registered for shell-level
+# events, with a message loop on a thread of its own.
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace RenameCheck {
+  public static class ShellWatch {
+    delegate IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct WindowClass {
+      public uint Size; public uint Style; public WndProc Proc; public int ClassExtra; public int WindowExtra;
+      public IntPtr Instance; public IntPtr Icon; public IntPtr Cursor; public IntPtr Background;
+      public string Menu; public string Name; public IntPtr SmallIcon;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Msg { public IntPtr Hwnd; public uint Message; public IntPtr WParam; public IntPtr LParam; public uint Time; public int X; public int Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Entry { public IntPtr Pidl; public int Recursive; }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern ushort RegisterClassExW(ref WindowClass cls);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateWindowExW(uint exStyle, string cls, string name, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+    [DllImport("user32.dll")] static extern IntPtr DefWindowProcW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern int GetMessageW(out Msg msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] static extern bool TranslateMessage(ref Msg msg);
+    [DllImport("user32.dll")] static extern IntPtr DispatchMessageW(ref Msg msg);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandleW(string name);
+    [DllImport("shell32.dll")] static extern int SHGetSpecialFolderLocation(IntPtr hwnd, int folder, out IntPtr pidl);
+    [DllImport("shell32.dll")] static extern uint SHChangeNotifyRegister(IntPtr hwnd, int sources, int events, uint msg, int count, ref Entry entry);
+    [DllImport("shell32.dll")] static extern IntPtr SHChangeNotification_Lock(IntPtr change, uint processId, out IntPtr pidls, out int eventId);
+    [DllImport("shell32.dll")] static extern bool SHChangeNotification_Unlock(IntPtr handle);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern bool SHGetPathFromIDListW(IntPtr pidl, StringBuilder path);
+    [DllImport("shell32.dll")] public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+
+    public const int AssocChanged = 0x08000000;
+    public const int UpdateItem = 0x00002000;
+    const int ShellLevel = 0x0002;
+    const int NewDelivery = 0x8000;
+    const uint Notify = 0x0400 + 0x2C1;
+
+    static readonly List<string> seen = new List<string>();
+    static WndProc proc;
+    static bool started;
+    static bool working;
+
+    static IntPtr Receive(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam) {
+      if (msg != Notify) return DefWindowProcW(hwnd, msg, wParam, lParam);
+      IntPtr pidls;
+      int eventId;
+      IntPtr locked = SHChangeNotification_Lock(wParam, (uint)lParam.ToInt64(), out pidls, out eventId);
+      if (locked != IntPtr.Zero) {
+        string path = "";
+        IntPtr first = pidls == IntPtr.Zero ? IntPtr.Zero : Marshal.ReadIntPtr(pidls);
+        var buffer = new StringBuilder(32768);
+        if (first != IntPtr.Zero && SHGetPathFromIDListW(first, buffer)) path = buffer.ToString();
+        SHChangeNotification_Unlock(locked);
+        string kind = (eventId & AssocChanged) != 0 ? "assoc" : (eventId & UpdateItem) != 0 ? "update" : eventId.ToString("x");
+        lock (seen) seen.Add(kind + "|" + path);
+      }
+      return IntPtr.Zero;
+    }
+
+    // Starts listening, once; whether the shell takes the registration.
+    public static bool Start() {
+      if (started) return working;
+      started = true;
+      var ready = new ManualResetEvent(false);
+      var thread = new Thread(() => {
+        proc = Receive;
+        var cls = new WindowClass { Proc = proc, Instance = GetModuleHandleW(null), Name = "RenameCheckShellWatch" };
+        cls.Size = (uint)Marshal.SizeOf(typeof(WindowClass));
+        RegisterClassExW(ref cls);
+        IntPtr hwnd = CreateWindowExW(0, cls.Name, "", 0, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, cls.Instance, IntPtr.Zero);
+        IntPtr desktop;
+        if (SHGetSpecialFolderLocation(IntPtr.Zero, 0, out desktop) != 0) desktop = IntPtr.Zero;
+        var entry = new Entry { Pidl = desktop, Recursive = 1 };
+        uint id = hwnd == IntPtr.Zero ? 0 : SHChangeNotifyRegister(hwnd, ShellLevel | NewDelivery, AssocChanged | UpdateItem, Notify, 1, ref entry);
+        working = id != 0;
+        ready.Set();
+        if (!working) return;
+        Msg msg;
+        while (GetMessageW(out msg, IntPtr.Zero, 0, 0) > 0) {
+          TranslateMessage(ref msg);
+          DispatchMessageW(ref msg);
+        }
+      });
+      thread.IsBackground = true;
+      thread.SetApartmentState(ApartmentState.STA);
+      thread.Start();
+      ready.WaitOne();
+      return working;
+    }
+
+    public static void Clear() { lock (seen) seen.Clear(); }
+
+    public static string[] Seen() { lock (seen) return seen.ToArray(); }
   }
 }
 '@
@@ -456,6 +583,57 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds = 60) {
   return [bool](& $Condition)
 }
 
+# Starts collecting shell events afresh. False when the shell delivers none
+# here: the watcher first checks itself with an event of its own.
+$script:ShellWatch = $null
+function Start-ShellWatch {
+  if ($null -eq $script:ShellWatch) {
+    $script:ShellWatch = $false
+    if ([RenameCheck.ShellWatch]::Start()) {
+      # SHCNF_IDLIST | SHCNF_FLUSH
+      [RenameCheck.ShellWatch]::SHChangeNotify([RenameCheck.ShellWatch]::AssocChanged, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
+      $script:ShellWatch = Wait-Until { (Get-AssocChangedCount) -gt 0 } 10
+    }
+    if (-not $script:ShellWatch) { Note 'the shell delivers no change notifications here: what the installers tell it is not checked' }
+  }
+  [RenameCheck.ShellWatch]::Clear()
+  return $script:ShellWatch
+}
+
+# How often the shell was told that icons changed (SHCNE_ASSOCCHANGED).
+function Get-AssocChangedCount {
+  return @([RenameCheck.ShellWatch]::Seen() | Where-Object { $_ -like 'assoc|*' }).Count
+}
+
+# When each of these shortcuts that is there was last written.
+function Get-WriteTimes([string[]]$Links) {
+  $times = @{}
+  foreach ($link in $Links) {
+    if (Test-Path -LiteralPath $link) { $times[$link] = (Get-Item -LiteralPath $link).LastWriteTimeUtc }
+  }
+  return $times
+}
+
+# After an update over the same name: the app's shortcuts that were there are
+# there still, saved again, and the shell was told that icons changed, so that
+# Explorer drops the icon it cached from the old executable (ticket #38;
+# src-tauri/windows/hooks.nsh, ICONS_REFRESH).
+function Check-IconRefresh([hashtable]$Before, [bool]$Watching, [string]$Label) {
+  foreach ($link in $Before.Keys) {
+    $name = Split-Path $link -Leaf
+    $there = Test-Path -LiteralPath $link
+    Check $there "$($Label): '$name' is still there"
+    if ($there) {
+      $after = (Get-Item -LiteralPath $link).LastWriteTimeUtc
+      Check ($after -gt $Before[$link]) "$($Label): '$name' was saved again"
+    }
+  }
+  if ($Watching) {
+    foreach ($seen in @([RenameCheck.ShellWatch]::Seen() | Where-Object { $_ -like 'assoc|*' -or $_ -like '*.lnk' })) { Note "shell event $seen" }
+    Check ((Get-AssocChangedCount) -ge 1) "$($Label): the shell was told that icons changed"
+  }
+}
+
 # Files standing in for what a user has: the installers must leave them alone.
 $UserData = @(
   (Join-Path $HOME '.lynshen\rename-check.txt'),
@@ -514,6 +692,8 @@ function Reset-Machine {
   }
   # What the app records once it has tidied up after the rename (renamed.rs).
   Remove-Item -LiteralPath (Join-Path $env:APPDATA 'com.lynshen.desktop\rename-cleanup.json') -Force -ErrorAction SilentlyContinue
+  # And what it records once it has told the shell after an MSI install (shell_icons.rs).
+  Remove-Item -LiteralPath $ShellIconsRecord -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath 'HKCU:\Software\Classes\lynshen' -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $TestRoot -Recurse -Force -ErrorAction SilentlyContinue
   $left = @(Get-AppEntries)
@@ -654,14 +834,25 @@ Scenario 'update-default' {
     Check ($path -eq (Join-Path $DefaultNewDir "$NewName.exe")) "it runs from the new directory (is '$path')"
   }
   Check (@(Get-Process -Name $OldName -ErrorAction SilentlyContinue).Count -eq 0) "no $OldName.exe is running"
+  if ($running) {
+    Start-Sleep -Seconds 5
+    Check (-not (Test-Path -LiteralPath $ShellIconsRecord)) "the app leaves the icons to the setup.exe (no shell-icons.txt)"
+  }
   Stop-App
 
-  # The next update (new name over new name) must change nothing.
+  # The next update (new name over new name) must change nothing, and must
+  # tell the shell that icons changed. With a taskbar pin made from the app.
+  $newPin = Join-Path $TaskbarPins "$NewName.lnk"
+  New-Shortcut $newPin (Join-Path $DefaultNewDir "$NewName.exe")
+  $times = Get-WriteTimes @((Join-Path $Desktop "$NewName.lnk"), (Join-Path $StartMenu "$NewName.lnk"), $newPin, (Join-Path $TaskbarPins "$OldName.lnk"))
+  Start-Sleep -Seconds 2
+  $watching = Start-ShellWatch
   $code = Invoke-Program $NewSetup @('/P', '/UPDATE')
   Check ($code -eq 0) "second update: exit code 0 (is $code)"
   Check-Installed $DefaultNewDir
   Check-Shortcut $StartMenu $DefaultNewDir 'second update: Start-menu'
   Check-Shortcut $Desktop $DefaultNewDir 'second update: desktop'
+  Check-IconRefresh $times $watching 'second update'
   Check-Autostart $DefaultNewDir
 
   # Uninstalling leaves nothing but the user's data.
@@ -727,8 +918,11 @@ if ($MidSetup -and $NewSetupSig -and $NewVersion) {
     $oldExe = Join-Path $old "$OldName.exe"
     Enable-OldAutostart $old
     New-Shortcut (Join-Path $TaskbarPins "$OldName.lnk") $oldExe
+    $watching = Start-ShellWatch
     $code = Invoke-Program $MidSetup @('/P', '/UPDATE')
     if ($code -ne 0) { throw "the 0.6.0 setup.exe returned $code" }
+    # For comparison: a setup.exe from before ticket #38.
+    if ($watching) { Note "the 0.6.0 setup.exe told the shell that icons changed $(Get-AssocChangedCount) time(s)" }
     $newExe = Join-Path $DefaultNewDir "$NewName.exe"
     if (-not (Test-Path -LiteralPath $newExe)) { throw "0.6.0 did not install to $DefaultNewDir" }
     New-Shortcut (Join-Path $Desktop "$OldName.lnk") $newExe
@@ -806,6 +1000,7 @@ Scenario 'update-custom-location' {
   Check ($code -eq 0) "second update: exit code 0 (is $code)"
   Check-Installed $expected
   Check (-not (Test-Path -LiteralPath $DefaultNewDir)) "second update: still nothing in the default location"
+  Check (-not (Test-Path -LiteralPath (Join-Path $Desktop "$NewName.lnk"))) "second update: still no desktop shortcut"
 }
 
 # --- A chosen directory that is not named after the product is reused as it
@@ -851,12 +1046,19 @@ if ($OldMsi -and $NewMsi) {
     $old = Join-Path $programFiles $OldName
     if (-not (Test-Path -LiteralPath (Join-Path $old "$OldName.exe"))) { throw "$OldName MSI did not install to $old" }
     Enable-OldAutostart $old
+    # A taskbar pin made from the MSI's Start-menu shortcut takes its icon from
+    # the copy the MSI keeps under its product code; the next MSI removes it.
+    $new = Join-Path $programFiles $NewName
+    $newExe = Join-Path $new "$NewName.exe"
+    $msiPin = Join-Path $TaskbarPins "$NewName.lnk"
+    New-Shortcut $msiPin $newExe
+    [RenameCheck.Lnk]::SetIcon($msiPin, (Join-Path $env:SystemRoot 'Installer\{00000000-0000-0000-0000-000000000000}\ProductIcon'))
+    $watching = Start-ShellWatch
 
     # As the updater runs it: msiexec /i <msi> /passive /promptrestart AUTOLAUNCHAPP=True LAUNCHAPPARGS=""
     $code = Invoke-Program 'msiexec.exe' @('/i', "`"$NewMsi`"", '/passive', '/promptrestart', 'AUTOLAUNCHAPP=True', 'LAUNCHAPPARGS=""')
     Check ($code -eq 0) "msiexec exit code 0 (is $code)"
 
-    $new = Join-Path $programFiles $NewName
     Check-Installed $new 'HKEY_LOCAL_MACHINE'
     Check (-not (Test-Path -LiteralPath $old)) "old install directory gone: $old"
     Check (-not (Test-Path -LiteralPath (Join-Path $CommonDesktop "$OldName.lnk"))) "old desktop shortcut gone"
@@ -875,6 +1077,13 @@ if ($OldMsi -and $NewMsi) {
       $moved = Wait-Until { ($null -eq (Get-RegValue $RunKey $OldName)) -and ($null -ne (Get-RegValue $RunKey $NewName)) } 30
       Check $moved "the running app moved the autostart value to its own name"
       if ($moved) { Check-Autostart $new }
+      # The MSI cannot tell the shell that icons changed; the app does it at
+      # its first start of a version (src-tauri/src/shell_icons.rs).
+      $told = Wait-Until { (Test-Path -LiteralPath $ShellIconsRecord) -and ((Get-Content -LiteralPath $ShellIconsRecord -Raw).Trim() -eq $NewVersion) } 30
+      Check $told "the app recorded that it told the shell, for $NewVersion (shell-icons.txt)"
+      if ($watching) { Check ((Get-AssocChangedCount) -ge 1) "the shell was told that icons changed" }
+      $icon = [RenameCheck.Lnk]::Icon($msiPin)
+      Check ($icon -eq $newExe) "the pin whose icon file was gone takes its icon from the new executable (is '$icon')"
     }
   }
 

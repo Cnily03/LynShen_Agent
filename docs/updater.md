@@ -23,6 +23,28 @@ GitHub 仓库现已公开；客户端仍以官网作为下载与更新源。
 0.4.16 及以前的错误更新源不能自动找到本次修复，需从官网下载一次新安装包。
 后续版本通过官网更新。
 
+## Windows：更新后的图标
+
+Windows 资源管理器按「图标所在文件的路径 + 序号」缓存图标，不看文件内容。
+更新在原位置替换 `Aogiri.exe`，路径不变，所以桌面快捷方式、开始菜单、任务栏固定项
+会继续显示缓存里的旧图标，直到系统收到「图标已变化」的通知（`SHChangeNotify` 的
+`SHCNE_ASSOCCHANGED`）。0.10.0 换了新 Logo，就出现了这个问题（工单 #38）。
+
+- 更新器在 Windows 上运行安装器：NSIS 安装的用 `setup.exe /P /UPDATE`，
+  MSI 安装的用 `msiexec /i … /passive`（按程序里记录的安装包类型选择）。
+- NSIS（官网下载页提供的安装包）：`src-tauri/windows/hooks.nsh` 的 `ICONS_REFRESH`
+  在安装结束时把现有的桌面、开始菜单快捷方式和指向本程序的任务栏固定项原地重新保存，
+  然后通知系统。用户删掉的快捷方式不会重新创建。Tauri 模板在更新模式下只改写已有快捷方式的
+  目标，不通知系统。
+- MSI（官网下载页不提供，GitHub Release 里有）：没有自定义 DLL 时 MSI 无法通知系统。
+  MSI 安装的程序在每个版本第一次启动时自己通知（`src-tauri/src/shell_icons.rs`，
+  记录在 `<app config dir>/shell-icons.txt`），并修复图标文件已不存在的任务栏固定项
+  （从 MSI 开始菜单快捷方式固定的项，图标指向旧产品代码下的副本，升级后被删除）。
+- 已经出现旧图标的用户：更新到带此修复的版本即可；当前可按 Win + R 运行
+  `ie4uinit.exe -show`（Windows 10 / 11）刷新图标缓存。
+- `Rename upgrade` 工作流（`scripts/windows-rename-upgrade-check.ps1`）检查：
+  更新后快捷方式仍在并被重新保存、系统收到通知、MSI 路径的记录和固定项修复。
+
 ## Monoize 接口和存储
 
 Monoize 仓库的 `spec/desktop-distribution.spec.md` 定义接口。
