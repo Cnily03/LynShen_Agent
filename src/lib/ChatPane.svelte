@@ -1391,20 +1391,26 @@
 	let lastTop = 0;
 	// The reader scrolling by hand (a pointer held in the list, a scroll key):
 	// only then does a move up stop following.
-	const reader = new ReaderInput();
+	const reader = new ReaderInput(() => scroller);
+	// The content's and the view's size at the last scroll event or pin: a
+	// move up without a change since is the reader's.
+	let seen = [0, 0];
 	function onScroll() {
 		if (!scroller) return;
 		const top = scroller.scrollTop;
+		const resized = scroller.scrollHeight !== seen[0] || scroller.clientHeight !== seen[1];
 		// The scroll event of our own pin says nothing about the reader; with
-		// nothing left to scroll it is the end all the same. A move up the
-		// reader did not make leaves following as it was, and pins the end
-		// again while following (chatFollow followAfterScroll).
+		// nothing left to scroll it is the end all the same. A move up with a
+		// size change and no hand on the list is the layout's: it leaves
+		// following as it was, and pins the end again while following
+		// (chatFollow followAfterScroll).
 		if (top !== pinnedTop || scroller.scrollHeight <= scroller.clientHeight) {
-			const follows = followAfterScroll(scroller, top, lastTop, reader.active);
+			const follows = followAfterScroll(scroller, top, lastTop, reader.active, resized);
 			if (follows !== null) atBottom = follows;
 			else if (atBottom) requestAnimationFrame(follow);
 		}
 		lastTop = top;
+		seen = [scroller.scrollHeight, scroller.clientHeight];
 	}
 	/** Wheel up leaves the end. Caught at the input: WebKit applies the
 	 *  scroll a frame later, and while a reply streams the next pin would
@@ -1426,6 +1432,7 @@
 		if (!scroller) return;
 		scroller.scrollTop = scroller.scrollHeight;
 		pinnedTop = scroller.scrollTop;
+		seen = [scroller.scrollHeight, scroller.clientHeight];
 	}
 	// Follow the content as it grows. The smoothed reveal changes height every
 	// frame, which a scroll-event listener can't see, so observe the content's
@@ -1448,6 +1455,7 @@
 		const top = followTop(scroller, contentEl, chat.busy);
 		scroller.scrollTop = top;
 		pinnedTop = scroller.scrollTop;
+		seen = [scroller.scrollHeight, scroller.clientHeight];
 		if (shortOfEnd(scroller, top)) atBottom = false;
 	}
 	// The app's own moves away from the end, on the reader's request (a find
