@@ -3,9 +3,12 @@
 // entrance in CSS from the first frame (the main window of the desktop app,
 // at /); this module decides when it leaves:
 //
-// - as soon as the app is ready (launchReady, once the canvas is built): it
-//   never adds a wait;
-// - a first run (nothing under SEEN_KEY yet) shows the whole entrance once;
+// - on every cold start, once the whole entrance has played and the finished
+//   logo has held (LAUNCH.sequenceMs + LAUNCH.holdMs after the entrance
+//   started), or when the app is ready (launchReady, once the canvas is
+//   built), whichever is later;
+// - with reduced motion (no entrance, the still logo) as soon as the app is
+//   ready;
 // - at LAUNCH.capMs after the page started, ready or not;
 // - at once on a click or a key.
 //
@@ -15,14 +18,14 @@
 /** The timing, in ms. The entrance's keyframes are in app.html (brand.test.ts
  *  holds the two together). */
 export const LAUNCH = {
-	/** The entrance ends: both trunks up, the light in, the wordmark in. */
-	sequenceMs: 1220,
-	/** A first run holds the finished logo this long before it leaves. */
-	firstRunHoldMs: 160,
+	/** The entrance ends: both trunks up, the light in, its glow gone, the wordmark in. */
+	sequenceMs: 2050,
+	/** The finished logo holds this long before it leaves. */
+	holdMs: 450,
 	/** The screen leaves by then, from navigation start, ready or not. */
-	capMs: 2200,
+	capMs: 3400,
 	/** The crossfade into the app. */
-	fadeMs: 220,
+	fadeMs: 320,
 	/** After a click or a key. */
 	skipFadeMs: 140,
 	/** With reduced motion: the still logo fades this fast. */
@@ -32,17 +35,14 @@ export const LAUNCH = {
 /** --ease-base (app.css), which app.css has not brought yet at this point. */
 export const LAUNCH_EASE = 'cubic-bezier(0.24, 0.42, 0.42, 0.92)';
 
-/** Set once the launch screen has left; its absence makes a first run. */
-export const SEEN_KEY = 'aogiri-launch-seen';
-
 export type LaunchExit = 'ready' | 'cap' | 'skip';
 
 /** When the screen starts to leave, in ms from navigation start: when the app
- *  is ready, but not before a first run's whole entrance, and never after
- *  the cap. `readyAt` null: not ready yet. */
-export function exitAt(readyAt: number | null, firstRun: boolean, reduced: boolean): number {
+ *  is ready, but not before the whole entrance (started at `entranceAt`) and
+ *  its hold, and never after the cap. `readyAt` null: not ready yet. */
+export function exitAt(readyAt: number | null, reduced: boolean, entranceAt = 0): number {
 	if (readyAt == null) return LAUNCH.capMs;
-	const floor = firstRun && !reduced ? LAUNCH.sequenceMs + LAUNCH.firstRunHoldMs : 0;
+	const floor = reduced ? 0 : entranceAt + LAUNCH.sequenceMs + LAUNCH.holdMs;
 	return Math.min(LAUNCH.capMs, Math.max(readyAt, floor));
 }
 
@@ -60,7 +60,9 @@ export interface LaunchEnv {
 	root: { classList: { contains(c: string): boolean; remove(c: string): void } };
 	/** ms since navigation start. */
 	now(): number;
-	storage: Pick<Storage, 'getItem' | 'setItem'> | null;
+	/** When the entrance started on screen (its first frame), on now()'s
+	 *  clock; null while that is not known. */
+	entranceAt(): number | null;
 	reduced: boolean;
 	setTimer(run: () => void, ms: number): unknown;
 	clearTimer(timer: unknown): void;
@@ -72,20 +74,14 @@ export class LaunchScreen {
 	left: LaunchExit | null = null;
 	/** When it started to leave (ms from navigation start). */
 	leftAt: number | null = null;
-	readonly firstRun: boolean;
+	/** When the entrance started, once known (ms from navigation start). */
+	entranceAt: number | null = null;
 	#env: LaunchEnv;
 	#timers: unknown[] = [];
 	#unlisten: Array<() => void> = [];
 
 	constructor(env: LaunchEnv) {
 		this.#env = env;
-		let seen: string | null = null;
-		try {
-			seen = env.storage?.getItem(SEEN_KEY) ?? null;
-		} catch {
-			seen = '1';
-		}
-		this.firstRun = seen == null;
 	}
 
 	/** Whether app.html is showing the screen. */
@@ -97,18 +93,25 @@ export class LaunchScreen {
 	start(): void {
 		if (!this.shown || this.left) return;
 		const env = this.#env;
+		this.#entrance();
 		this.#timers.push(env.setTimer(() => this.leave('cap'), Math.max(0, LAUNCH.capMs - env.now())));
 		for (const type of ['pointerdown', 'keydown'] as const) this.#unlisten.push(env.listen(type, () => this.leave('skip')));
 	}
 
-	/** The app is ready: leave now, or when a first run's entrance is over. */
+	/** The app is ready: leave now, or once the entrance has played and held. */
 	ready(): void {
 		if (!this.shown || this.left) return;
 		const env = this.#env;
 		const now = env.now();
-		const wait = exitAt(now, this.firstRun, env.reduced) - now;
+		const wait = exitAt(now, env.reduced, this.#entrance() ?? 0) - now;
 		if (wait <= 0) this.leave('ready');
 		else this.#timers.push(env.setTimer(() => this.leave('ready'), wait));
+	}
+
+	/** The entrance's start, read once it is known. */
+	#entrance(): number | null {
+		this.entranceAt ??= this.#env.entranceAt();
+		return this.entranceAt;
 	}
 
 	leave(why: LaunchExit): void {
@@ -120,11 +123,6 @@ export class LaunchScreen {
 		for (const off of this.#unlisten) off();
 		this.#timers = [];
 		this.#unlisten = [];
-		try {
-			env.storage?.setItem(SEEN_KEY, '1');
-		} catch {
-			// private mode or a full storage: a first run again next time
-		}
 		const el = env.el;
 		if (!el) return;
 		el.style.pointerEvents = 'none';
@@ -141,20 +139,26 @@ export class LaunchScreen {
 	}
 }
 
-/** The page's own: #launch, <html>, the clock, storage, timers, the window's
- *  pointer and key events. `clock`: ms since navigation start. */
+/** The page's own: #launch, <html>, the clock, timers, the window's pointer
+ *  and key events. `clock`: ms since navigation start. */
 export function pageEnv(clock: () => number = () => performance.now()): LaunchEnv {
+	const el = document.getElementById('launch');
 	return {
-		el: document.getElementById('launch'),
+		el,
 		root: document.documentElement,
 		now: clock,
-		storage: (() => {
+		// The entrance's CSS animations all start on the first frame that
+		// draws the screen; their start time is on the document's timeline,
+		// whose origin performance.now() shares. Null before that frame, after
+		// the entrance, and where the webview cannot tell.
+		entranceAt: () => {
 			try {
-				return localStorage;
+				const starts = (el?.getAnimations({ subtree: true }) ?? []).map((a) => a.startTime).filter((t) => typeof t === 'number');
+				return starts.length ? clock() - (performance.now() - Math.min(...starts)) : null;
 			} catch {
 				return null;
 			}
-		})(),
+		},
 		reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
 		setTimer: (run, ms) => setTimeout(run, ms),
 		clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),

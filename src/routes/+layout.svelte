@@ -19,7 +19,8 @@
 	// This computer's shortcut changes, before anything shows a key.
 	if (browser) initShortcuts();
 	// The launch screen app.html shows on a cold start: it leaves on the first
-	// click or key, when +page.svelte says the app is ready, or at its cap.
+	// click or key, once its entrance has played and +page.svelte says the app
+	// is ready, or at its cap.
 	if (browser) initLaunch();
 
 	let { children } = $props();
