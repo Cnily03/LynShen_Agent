@@ -175,6 +175,38 @@ describe('agent team state', () => {
 		]);
 	});
 
+	it('keeps a run’s failure past the next turn, a reopened session and the discard of its worktree', () => {
+		// 0.10.0: four agents failed at once (HTTP 403); the session reopened
+		// (its agents restored without their errors, "Done"), the next turn
+		// started and the model discarded their worktrees. They read as done.
+		const c = new ChatState();
+		const P = '/root/cards_ironclad';
+		const ERR = 'LLM API returned HTTP 403 Forbidden: model not in plan';
+		const trace = (state: string, error = '', activity = '') => ({
+			type: 'agent_runs',
+			workflows: [],
+			agents: [{ id: P, label: '临川', model: 'claude-sonnet-5', state, error, activity, started_at: 1000, duration_ms: 430, type: 'subagent', isolation: 'worktree', workdir: WORKDIR }]
+		});
+		const rows = () => agentRows({ runs: c.agentRuns, subagents: c.subagents, team: c.team, failed: c.failedAgents, since: c.turnStartedAt || Number.MAX_SAFE_INTEGER });
+		c.handle({ type: 'connecting' });
+		c.handle({ type: 'subagent_lifecycle', path: P, status: 'running', message: 'started' });
+		c.handle(trace('running', '', 'Starting'));
+		c.handle({ type: 'subagent_lifecycle', path: P, status: 'errored', message: ERR });
+		c.handle(trace('errored', ERR, 'Failed'));
+		expect(rows().map((r) => [r.state, r.error])).toEqual([['failed', ERR]]);
+		c.handle({ type: 'status', message: 'ready' });
+		c.handle(trace('errored', '', 'Done'));
+		c.handle({ type: 'connecting' });
+		c.handle({ type: 'subagent_lifecycle', path: P, status: 'discarded', message: 'worktree discarded' });
+		c.handle(trace('discarded', '', 'Done'));
+		const [row] = rows();
+		expect(row).toMatchObject({ id: P, state: 'failed', status: 'discarded', error: ERR, activity: ERR });
+		expect(teamSummary(planSummary([]), rows(), null, false)).toMatchObject({ agents: 1, running: 0 });
+		// It runs again: no longer failed.
+		c.handle({ type: 'subagent_lifecycle', path: P, status: 'pending', message: 'resumed' });
+		expect(c.failedAgents).toEqual({});
+	});
+
 	it('reads plan steps with their owner and files', () => {
 		const c = new ChatState();
 		c.handle(frames.plan);

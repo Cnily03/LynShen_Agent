@@ -4,7 +4,7 @@
 // opens by itself. Pure: ChatPane and the cards pass in the chat's state.
 
 import { CHAT_W_MIN } from '$lib/chatWidth';
-import { isLive, planShown, type AgentRow, type PlanSummary, type StepState } from '$lib/agentProgress';
+import { discardedRun, isLive, planShown, type AgentRow, type PlanSummary, type StepState } from '$lib/agentProgress';
 
 /** The room the cards take to the right of the transcript column: 16px of
  *  gap, the card (248px) and 16px to the leaf's edge. */
@@ -174,11 +174,13 @@ export function agentsTitle(rows: AgentRow[]): AgentsTitle {
 }
 
 /** A subagent's 6px state dot: running pulses; a state the team words
- *  beyond the five (a conflict, its budget used up) is a caution. */
+ *  beyond the five (a conflict, its budget used up) is a caution; one whose
+ *  worktree was discarded is grey. */
 export type DotTone = 'live' | 'idle' | 'ok' | 'err' | 'warn';
 
 export function dotTone(row: Pick<AgentRow, 'state' | 'status'>): DotTone {
 	if (row.status === 'conflict' || row.status === 'budget_exhausted') return 'warn';
+	if (discardedRun(row)) return 'idle';
 	switch (row.state) {
 		case 'running':
 			return 'live';

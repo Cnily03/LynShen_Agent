@@ -4,7 +4,7 @@
 // in the chat's state and a clock.
 
 import type { AgentRun, BoardTask, PlanStep, SubagentInfo, TaskStatus, TeamAgent, TeamBudget, WorkflowRun } from './chat.svelte';
-import { runState, type RunState } from './agentTrace';
+import { AFTER_RUN, runState, type RunState } from './agentTrace';
 
 export type StepState = 'pending' | 'active' | 'done' | 'skipped';
 
@@ -117,12 +117,27 @@ export interface RowInput {
 	team?: Record<string, TeamAgent>;
 	/** Agents asked to stop, by path (ChatState.stopRequested). */
 	stopping?: Record<string, unknown>;
+	/** Agents whose last run failed, by path, with its error
+	 *  (ChatState.failedAgents). */
+	failed?: Record<string, string>;
+}
+
+/** How an agent's run ended, as every view shows it, and its error. One
+ *  whose run failed stays failed once its worktree is merged, discarded or
+ *  conflicts: the engine then reports that word in place of the failure.
+ *  `word` is the engine's state word, `error` the error it reports with it,
+ *  `failure` the error ChatState.failedAgents kept of its last run that
+ *  failed (undefined: none). */
+export function agentOutcome(word: string, error: string, failure?: string): { state: RunState; error: string } {
+	const state = runState(word);
+	if (state === 'failed' || (AFTER_RUN.has(word) && (error || failure !== undefined))) return { state: 'failed', error: error || failure || '' };
+	return { state, error };
 }
 
 /** The subagents to show, oldest first: the agent trace's runs (when the engine
  *  sends one), joined with what their lifecycle events say, then the
  *  subagents only the lifecycle (or a spawn call) reports. */
-export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, stopping = {} }: RowInput): AgentRow[] {
+export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, stopping = {}, failed = {} }: RowInput): AgentRow[] {
 	const rows: AgentRow[] = [];
 	const seen = new Set<string>();
 	// A few seconds of slack: the engine stamps a run with its own clock.
@@ -156,7 +171,7 @@ export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, sto
 	}
 	for (const a of runs.agents) {
 		const life = subagents[a.id];
-		const state = runState(a.state || life?.status || '');
+		const { state, error } = agentOutcome(a.state || life?.status || '', a.error, failed[a.id]);
 		if (!a.id || !recent(state, a.startedAt, a.id)) continue;
 		seen.add(a.id);
 		const label = a.label || life?.label || a.id;
@@ -169,11 +184,11 @@ export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, sto
 			startedAt: a.startedAt || life?.startedAt || 0,
 			durationMs: a.durationMs,
 			endedAt: life?.endedAt ?? 0,
-			activity: activityOf(state, a.activity, lastTool?.(label) ?? '', life?.message ?? '', a.result, a.error, a.prompt),
+			activity: activityOf(state, a.activity, lastTool?.(label) ?? '', life?.message ?? '', a.result, error, a.prompt),
 			toolUseId: a.toolUseId || life?.toolUseId || '',
 			prompt: a.prompt,
 			result: a.result,
-			error: a.error,
+			error,
 			type: a.type,
 			tokens: a.tokens,
 			toolCalls: a.toolCalls
@@ -181,7 +196,7 @@ export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, sto
 	}
 	for (const [id, life] of Object.entries(subagents)) {
 		if (seen.has(id)) continue;
-		const state = runState(life.status);
+		const { state, error } = agentOutcome(life.status, runState(life.status) === 'failed' ? life.message : '', failed[id]);
 		const label = life.label || id;
 		rows.push({
 			id,
@@ -192,11 +207,11 @@ export function agentRows({ runs, subagents, lastTool, since = 0, team = {}, sto
 			startedAt: life.startedAt ?? 0,
 			durationMs: life.endedAt && life.startedAt ? life.endedAt - life.startedAt : 0,
 			endedAt: life.endedAt ?? 0,
-			activity: activityOf(state, '', lastTool?.(label) ?? '', life.message, '', state === 'failed' ? life.message : '', ''),
+			activity: activityOf(state, '', lastTool?.(label) ?? '', life.message, '', error, ''),
 			toolUseId: life.toolUseId ?? '',
 			prompt: '',
 			result: '',
-			error: state === 'failed' ? life.message : '',
+			error,
 			type: '',
 			tokens: 0,
 			toolCalls: 0
@@ -231,6 +246,11 @@ function teamOf(
 	};
 }
 
+/** A finished agent whose worktree was discarded and whose run did not
+ *  fail: its changes are gone, so it is no success, and the views show it
+ *  in grey rather than done. */
+export const discardedRun = (row: Pick<AgentRow, 'state' | 'status'>) => row.state === 'done' && row.status === 'discarded';
+
 /** Still at work: running, or queued to run. */
 export const isLive = (row: Pick<AgentRow, 'state'>) => row.state === 'running' || row.state === 'queued';
 
@@ -258,7 +278,10 @@ function activityOf(
 	error: string,
 	prompt: string
 ): string {
-	if (state === 'failed' && error) return firstLine(error);
+	// A failed one by its error only: its last action, or the word an engine
+	// that reopened the session gives every agent it restores ("Done"), says
+	// nothing of the failure (the views show the state word instead).
+	if (state === 'failed') return firstLine(error);
 	if (state === 'done' && result) return firstLine(result);
 	const said = QUIET.has(message) ? '' : message;
 	return firstLine(activity) || tool || firstLine(said) || (state === 'running' || state === 'queued' ? firstLine(prompt) : '');

@@ -141,8 +141,8 @@
 	import { dropPreviewTabs, previewOf, previewPanel } from '$lib/preview/kinds';
 	import { fileName } from '$lib/attachments';
 	import StateIcon from '$lib/agents/StateIcon.svelte';
-	import { runState } from '$lib/agentTrace';
-	import { shortPath, type AgentRow } from '$lib/agentProgress';
+	import type { RunState } from '$lib/agentTrace';
+	import { agentOutcome, discardedRun, shortPath, type AgentRow } from '$lib/agentProgress';
 	import type { ApprovalMode } from '$lib/approval';
 	import GoalPanel from '$lib/GoalPanel.svelte';
 	import ChangesPanel from '$lib/ChangesPanel.svelte';
@@ -825,8 +825,10 @@
 		untrack(() => openAgentChanges(request.sessionId, request.agent));
 	});
 
-	/** A subagent of a session, for its tab: its name and state. */
-	function subagentInfo(sessionId: string, agentId: string): { label: string; state: ReturnType<typeof runState> | 'unknown' } {
+	/** A subagent of a session, for its tab: its name and state (a run that
+	 *  failed stays failed past a merge or discard of its worktree; one whose
+	 *  worktree was discarded is grey, as a skipped step). */
+	function subagentInfo(sessionId: string, agentId: string): { label: string; state: RunState | 'skipped' | 'unknown' } {
 		const chat = sessionMap.get(sessionId)?.chat;
 		const run =
 			chat?.agentRuns.agents.find((a) => a.id === agentId) ??
@@ -835,9 +837,10 @@
 		const status = run?.state || life?.status;
 		return {
 			label: run?.label || shortPath(life?.label || agentId),
-			state: status ? runState(status) : 'unknown'
+			state: status ? shownState(status, agentOutcome(status, run?.error ?? '', chat?.failedAgents[agentId]).state) : 'unknown'
 		};
 	}
+	const shownState = (word: string, state: RunState) => (discardedRun({ state, status: word }) ? 'skipped' : state);
 	/** A subagent's page: shown again if open; else beside the chat (one
 	 *  column, a tab per subagent) or as a tab next to the chat. */
 	function openSubagentPage(sessionId: string, agentId: string, place: SubagentPlace) {

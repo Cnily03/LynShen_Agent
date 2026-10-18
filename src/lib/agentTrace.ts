@@ -41,6 +41,11 @@ export function runState(state: string): RunState {
 	}
 }
 
+/** The agent team's words for what became of a finished agent's worktree
+ *  (merged, discarded, or a merge that conflicted). runState reads them as
+ *  done, but they say nothing of how its run ended (agentOutcome). */
+export const AFTER_RUN = new Set(['conflict', 'merged', 'discarded']);
+
 /** Elapsed time of a run: its reported duration, or (running) since it started. */
 export function elapsed(run: { startedAt: number; durationMs: number }, state: RunState, now: number): number {
 	if (state === 'running' && run.startedAt > 0) return Math.max(run.durationMs, now - run.startedAt);

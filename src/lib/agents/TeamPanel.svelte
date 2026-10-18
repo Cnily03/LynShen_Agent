@@ -8,7 +8,7 @@
 	import { t } from '$lib/i18n';
 	import type { BoardTask, ChatState, TaskStatus } from '$lib/chat.svelte';
 	import type { Op } from '$lib/protocol';
-	import { agentRows, boardGroups, boardProgress, canStop, isLive, shortPath, waitingOn, type AgentRow } from '$lib/agentProgress';
+	import { agentRows, boardGroups, boardProgress, canStop, discardedRun, isLive, shortPath, waitingOn, type AgentRow } from '$lib/agentProgress';
 	import StateIcon from './StateIcon.svelte';
 	import Elapsed from './Elapsed.svelte';
 	import StopAgent from './StopAgent.svelte';
@@ -21,7 +21,14 @@
 
 	// The subagents of the turn (and any still at work), as the subagents card lists them.
 	const rows = $derived(
-		agentRows({ runs: chat.agentRuns, subagents: chat.subagents, team: chat.team, stopping: chat.stopRequested, since: chat.turnStartedAt })
+		agentRows({
+			runs: chat.agentRuns,
+			subagents: chat.subagents,
+			team: chat.team,
+			stopping: chat.stopRequested,
+			failed: chat.failedAgents,
+			since: chat.turnStartedAt
+		})
 	);
 	const board = $derived(chat.taskBoard ?? []);
 	const groups = $derived(boardGroups(board));
@@ -54,6 +61,9 @@
 		return t(task.status === 'blocked' ? 'dock.team.waitsFor' : 'dock.team.dependsOn', { list });
 	}
 	let openResults = $state<Record<string, boolean>>({});
+	// A failed agent's error line opens its whole error (the engine sends the
+	// model, the address and the provider's answer).
+	let openErrors = $state<Record<string, boolean>>({});
 </script>
 
 <div class="panel">
@@ -127,9 +137,22 @@
 				<h4 class="sec">{t('dock.team.agents')}<span class="num">{rows.length}</span></h4>
 				<ul class="agents">
 					{#each rows as r (r.id)}
+						{@const failed = r.state === 'failed'}
+						{@const dropped = discardedRun(r)}
+						{@const error = failed && !teamNote(r) ? r.error : ''}
+						{@const open = !!error && !!openErrors[r.id]}
+						{@const line = teamNote(r) || (dropped ? t('chat.team.discarded') : '') || r.activity || (failed ? t('dock.agents.state.failed') : '')}
 						<li class="arow">
-							<button class="agent" disabled={!onOpenAgent || r.workflow} onclick={() => onOpenAgent?.(r.id)} aria-label={t('chat.progress.open', { name: r.label })}>
-								<StateIcon state={r.state} size={14} label={t(`dock.agents.state.${r.state}`)} />
+							<!-- A failed one: its whole error on hover, and its error line opens it below. -->
+							<button
+								class="agent"
+								disabled={!onOpenAgent || r.workflow}
+								onclick={() => onOpenAgent?.(r.id)}
+								aria-label={t('chat.progress.open', { name: r.label })}
+								title={error && !open ? error : undefined}
+							>
+								<!-- A discarded worktree: grey, not done. -->
+								<StateIcon state={dropped ? 'skipped' : r.state} size={14} label={dropped ? t('chat.team.discarded') : t(`dock.agents.state.${r.state}`)} />
 								<span class="acol">
 									<span class="aline">
 										<span class="aname">{r.label}</span>
@@ -140,10 +163,17 @@
 										<span class="grow"></span>
 										<Elapsed row={r} />
 									</span>
-									{#if teamNote(r) || r.activity}<span class="act" class:err={r.state === 'failed'} class:warn={!!teamNote(r)}>{teamNote(r) || r.activity}</span>{/if}
+									{#if line && !error}<span class="act" class:err={failed} class:warn={!!teamNote(r)}>{line}</span>{/if}
 								</span>
 							</button>
 							{#if teamSwitch.on && (r.stopping || canStop(r))}<span class="stop" class:held={r.stopping}><StopAgent row={r} onStop={stop} /></span>{/if}
+							{#if error}
+								<button class="etoggle" aria-expanded={open} onclick={() => (openErrors[r.id] = !open)}>
+									<span class="caret" class:open aria-hidden="true"><CaretRightIcon size={11} /></span>
+									<span class="etext">{line}</span>
+								</button>
+								{#if open}<div class="tres err efull">{error}</div>{/if}
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -386,8 +416,50 @@
 	}
 	.arow {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: flex-start;
 		gap: 2px;
+	}
+	/* A failed agent's error line, under its name where the action line is
+	   (28px: the row's padding, its icon and the gap), and its whole error. */
+	.etoggle {
+		display: flex;
+		flex-basis: 100%;
+		align-items: center;
+		gap: 2px;
+		min-width: 0;
+		margin-top: -6px;
+		padding: 0 6px 6px 14px;
+		border: none;
+		border-radius: var(--r-md);
+		background: none;
+		color: var(--err);
+		font: inherit;
+		font-size: var(--fs-xs);
+		text-align: left;
+		cursor: pointer;
+	}
+	.etoggle:focus-visible {
+		outline-offset: -2px;
+	}
+	.etoggle .caret {
+		justify-content: center;
+		width: 12px;
+	}
+	.etoggle .caret.open {
+		transform: rotate(90deg);
+	}
+	.etext {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.efull {
+		flex-basis: 100%;
+		margin: 0 6px 6px 28px;
+		overscroll-behavior: contain;
+		user-select: text;
 	}
 	.agent {
 		display: flex;

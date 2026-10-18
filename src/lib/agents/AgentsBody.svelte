@@ -10,10 +10,11 @@
 	import StopIcon from 'phosphor-svelte/lib/StopIcon';
 	import SquareSplitHorizontalIcon from 'phosphor-svelte/lib/SquareSplitHorizontalIcon';
 	import AppWindowIcon from 'phosphor-svelte/lib/AppWindowIcon';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRightIcon';
 	import UsersThreeIcon from 'phosphor-svelte/lib/UsersThreeIcon';
 	import { t } from '$lib/i18n';
 	import IconButton from '$lib/ui/IconButton.svelte';
-	import { boardProgress, canStop, planSummary, teamSummary, type AgentRow } from '$lib/agentProgress';
+	import { boardProgress, canStop, discardedRun, planSummary, teamSummary, type AgentRow } from '$lib/agentProgress';
 	import { formatCount, shortModel } from '$lib/agentTrace';
 	import type { ChatState } from '$lib/chat.svelte';
 	import type { OpenHow } from './subagentPages.svelte';
@@ -61,11 +62,18 @@
 		]
 			.filter(Boolean)
 			.join(' · ');
-	/** The team's word for its state wins over its latest action. */
-	const activity = (r: AgentRow) => teamNote(r) || r.activity || (r.state === 'queued' ? t('chat.progress.waiting') : t('chat.progress.noActivity'));
-	/** The tooltip: its task, then model, tokens and tool calls. */
+	/** The team's word for its state wins over its latest action (a
+	 *  discarded worktree too); a failed one with no error says it failed. */
+	const activity = (r: AgentRow) =>
+		teamNote(r) ||
+		(discardedRun(r) ? t('chat.team.discarded') : '') ||
+		r.activity ||
+		(r.state === 'queued' ? t('chat.progress.waiting') : r.state === 'failed' ? t('dock.agents.state.failed') : t('chat.progress.noActivity'));
+	/** The tooltip: a failed one's whole error, its task, then model, tokens
+	 *  and tool calls. */
 	const tip = (r: AgentRow) =>
 		[
+			r.state === 'failed' ? r.error : '',
 			r.prompt || r.label,
 			[
 				r.model ? shortModel(r.model) : '',
@@ -77,6 +85,10 @@
 		]
 			.filter(Boolean)
 			.join('\n');
+	const stateLabel = (r: AgentRow) => (discardedRun(r) ? t('chat.team.discarded') : t(`dock.agents.state.${r.state}`));
+	// A failed one's error line opens the whole error under the row (the
+	// engine sends the model, the address and the provider's answer).
+	let openErrors = $state<Record<string, boolean>>({});
 </script>
 
 {#if budget || board || onOpenTeam}
@@ -98,17 +110,26 @@
 <ul class="agents">
 	{#each rows as r (r.id)}
 		{@const note = teamNote(r)}
-		<li class="agent" class:link={!!onOpen} data-agent={r.id}>
+		{@const error = r.state === 'failed' && !note ? r.error : ''}
+		{@const open = !!error && !!openErrors[r.id]}
+		<li class="agent" class:link={!!onOpen} class:haserr={!!error} data-agent={r.id}>
 			<button class="amain" disabled={!onOpen} onclick={(e) => onOpen?.(r, how(e))} title={tip(r)} aria-label={t('chat.progress.open', { name: r.label })}>
 				<span class="l1">
-					<span class="sdot {dotTone(r)}" class:pulse={r.state === 'running'} role="img" aria-label={t(`dock.agents.state.${r.state}`)}></span>
+					<span class="sdot {dotTone(r)}" class:pulse={r.state === 'running'} role="img" aria-label={stateLabel(r)}></span>
 					<span class="aname">{r.label}</span>
 					{#if facts(r)}<span class="facts">{facts(r)}</span>{/if}
 					<span class="grow"></span>
 					<Elapsed row={r} />
 				</span>
-				<span class="act" class:err={r.state === 'failed' && !note}>{activity(r)}</span>
+				{#if !error}<span class="act" class:err={r.state === 'failed' && !note}>{activity(r)}</span>{/if}
 			</button>
+			{#if error}
+				<button class="etoggle" aria-expanded={open} title={open ? undefined : error} onclick={() => (openErrors[r.id] = !open)}>
+					<span class="ecaret" class:open aria-hidden="true"><CaretRightIcon size={10} /></span>
+					<span class="etext">{r.activity || error}</span>
+				</button>
+				{#if open}<div class="efull">{error}</div>{/if}
+			{/if}
 			{#if hasActions(r)}
 				<span class="aacts" class:held={r.stopping}>
 					{#if teamStop(r)}<StopAgent row={r} onStop={(row) => onStopAgent?.(row)} size="xs" />{/if}
@@ -260,6 +281,60 @@
 	.act.err {
 		color: var(--err);
 	}
+	/* A failed one: its error line (where the activity line is) opens the
+	   whole error below it. */
+	.agent.haserr .amain {
+		padding-bottom: 2px;
+	}
+	.etoggle {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		width: 100%;
+		padding: 0 8px 5px;
+		border: none;
+		border-radius: inherit;
+		background: none;
+		color: var(--err);
+		font: inherit;
+		font-size: var(--fs-xs);
+		line-height: 16px;
+		text-align: left;
+		cursor: pointer;
+	}
+	.etoggle:focus-visible {
+		outline-offset: -2px;
+	}
+	.ecaret {
+		display: inline-flex;
+		flex: none;
+		width: 10px;
+		transition: transform var(--t-fast) var(--ease-base);
+	}
+	.ecaret.open {
+		transform: rotate(90deg);
+	}
+	.etext {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.efull {
+		max-height: 200px;
+		margin: 0 8px 6px 20px;
+		padding: 6px 8px;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		border-radius: var(--r-md);
+		background: color-mix(in oklab, var(--err) 10%, transparent);
+		color: var(--err);
+		font-size: var(--fs-xs);
+		line-height: 1.5;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		user-select: text;
+	}
 	/* Its actions: over the first line's right end, on hover and keyboard focus. */
 	/* Solid: the hovered row's fill over the card's (--bg; --panel in a
 	   popover or sheet, which set it there), so the time under it does not
@@ -294,6 +369,9 @@
 	@media (prefers-reduced-motion: reduce) {
 		.sdot.pulse {
 			animation: none;
+		}
+		.ecaret {
+			transition: none;
 		}
 	}
 </style>

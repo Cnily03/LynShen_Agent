@@ -72,7 +72,7 @@ describe('subagentsShown', () => {
 
 describe('subagentsOf', () => {
 	const life = (status: string, endedAt?: number): SubagentInfo => ({ status, message: '', startedAt: 1, ...(endedAt ? { endedAt } : {}) });
-	const chat = (o: Partial<SubagentSource>): SubagentSource => ({ agentRuns: { workflows: [], agents: [] }, subagents: {}, team: {}, turnStartedAt: 0, turnEndedAt: 0, busy: false, ...o });
+	const chat = (o: Partial<SubagentSource>): SubagentSource => ({ agentRuns: { workflows: [], agents: [] }, subagents: {}, team: {}, failedAgents: {}, turnStartedAt: 0, turnEndedAt: 0, busy: false, ...o });
 
 	it('lists the turn’s sub-agents, as the subagents card does', () => {
 		const c = chat({ turnStartedAt: 100, subagents: { '/root/a': life('running'), '/root/b': life('completed', 150) } });

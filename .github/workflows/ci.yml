@@ -20,7 +20,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install --with-deps chromium webkit
       - run: node scripts/browser-regression.mjs
       - run: node --test scripts/prepare-desktop-release.test.mjs
       - run: python3 scripts/test-receive-desktop-release.py

@@ -16,6 +16,7 @@
 	import { t } from '$lib/i18n';
 	import {
 		canStop,
+		discardedRun,
 		mergeView,
 		shortPath,
 		spawnAgentRow,
@@ -78,7 +79,13 @@
 	const merge = $derived<MergeView | null>(agent ? mergeView(agent) : null);
 	// A conflict shows under the card with its files, not in the activity line.
 	const note = $derived(agent && merge?.state !== 'conflict' ? teamNote(agent) : '');
-	const activity = $derived(isError ? errorLine(output) : running && !agent ? t('chat.subagentCard.starting') : note || agent?.activity || '');
+	const activity = $derived(
+		isError
+			? errorLine(output)
+			: running && !agent
+				? t('chat.subagentCard.starting')
+				: note || agent?.activity || (state === 'failed' ? t('dock.agents.state.failed') : '')
+	);
 	// A stop button takes the place of the open arrow while it works.
 	const stoppable = $derived(!!agent && !!onStop && (!!agent.stopping || canStop(agent)));
 	const fileCount = $derived(merge && merge.state !== 'none' ? merge.files.length : (agent?.team?.files.length ?? 0));
@@ -168,10 +175,12 @@
 						<span class="grow"></span>
 						{#if fileCount}<span class="files" title={t('chat.team.filesTitle')}>{t('chat.team.filesN', { n: fileCount })}</span>{/if}
 						{#if agent}<Elapsed row={agent} />{/if}
-						<StateIcon state={state} size={14} label={state === 'unknown' ? '' : t(`dock.agents.state.${state}`)} />
+						<!-- A discarded worktree: grey, not done (the line under the card says so). -->
+						{#if agent && discardedRun(agent)}<StateIcon state="skipped" size={14} label={t('chat.team.discarded')} />
+						{:else}<StateIcon state={state} size={14} label={state === 'unknown' ? '' : t(`dock.agents.state.${state}`)} />{/if}
 					</span>
 					{#if task}<span class="task">{task}</span>{/if}
-					{#if activity}<span class="act" class:err={state === 'failed'} class:warn={!!note}>{activity}</span>{/if}
+					{#if activity}<span class="act" class:err={state === 'failed'} class:warn={!!note} title={state === 'failed' && agent?.error ? agent.error : undefined}>{activity}</span>{/if}
 				</span>
 				{#if onOpen && agent && !stoppable}<span class="go"><CaretRightIcon size={13} /></span>{/if}
 			</button>

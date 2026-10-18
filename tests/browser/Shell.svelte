@@ -42,6 +42,7 @@
 	//                           (`{type: 'status', message: 'ready'}` ends the turn)
 	//   &stay=<ms>              how long they stay once the turn is over (30 s)
 	//   &tool                   a tool leaf (the plan panel) open beside the chat
+	//   &team                   the agent team's panel (工作组) open beside the chat
 	//   &work=<step>            a third turn at work, on one step: think, write,
 	//                           bash (lynshen: `started: <command>`), read or
 	//                           edit (a card naming the file, as claude's), mcp,
@@ -88,6 +89,7 @@
 	import { prefs } from '../../src/lib/prefs.svelte';
 	import { showWaiting } from '../../src/lib/shell/attention.svelte';
 	import PlanPanel from '../../src/lib/PlanPanel.svelte';
+	import TeamPanel from '../../src/lib/agents/TeamPanel.svelte';
 	import { subagentPages } from '../../src/lib/agents/subagentPages.svelte';
 	import { setLocale } from '../../src/lib/i18n';
 	import { fileName, withFiles, withVideo } from '../../src/lib/attachments';
@@ -393,10 +395,11 @@
 
 	// The canvas of ?shell&preview: the conversation, and a tab beside it
 	// for each file a chip opens (as +page.svelte places it). ?shell&tool:
-	// the plan panel open beside it.
+	// the plan panel open beside it; ?shell&team, the agent team's panel.
+	const toolPanel = mode.has('tool') ? 'plan' : mode.has('team') ? 'team' : '';
 	let tiles = $state<TileLayout>(
-		mode.has('tool')
-			? openElsewhere(singleLeafLayout([chatTab(session.id)]), { id: 'tool-plan', panel: 'plan' }, { place: 'side', chatLeaf: null })
+		toolPanel
+			? openElsewhere(singleLeafLayout([chatTab(session.id)]), { id: `tool-${toolPanel}`, panel: toolPanel }, { place: 'side', chatLeaf: null })
 			: singleLeafLayout([chatTab(session.id)])
 	);
 	$effect(() => {
@@ -489,18 +492,21 @@
 			<div class="canvas" data-testid="canvas">
 				{#if home}
 					<HomePage projects={store.userProjects} onStart={() => {}} onOpenSession={() => {}} onOpenProject={() => {}} onAddProject={() => {}} onOpenAgent={() => {}} />
-				{:else if mode.has('preview') || mode.has('tool')}
+				{:else if mode.has('preview') || toolPanel}
 					<Mosaic
 						hideSoloBar
 						layout={tiles}
 						onchange={(next) => (tiles = next)}
-						label={(tab) => (previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : tab.panel === 'plan' ? '任务计划' : session.chat.title || '对话')}
+						label={(tab) =>
+							previewOf(tab.panel) ? fileName(previewOf(tab.panel)!) : tab.panel === 'plan' ? '任务计划' : tab.panel === 'team' ? '工作组' : session.chat.title || '对话'}
 					>
 						{#snippet panel(tab)}
 							{#if previewOf(tab.panel)}
 								<FilePreview path={previewOf(tab.panel)!} root={first.path} />
 							{:else if tab.panel === 'plan'}
 								<PlanPanel plan={session.chat.plan} />
+							{:else if tab.panel === 'team'}
+								<TeamPanel chat={session.chat} onOp={(op) => sent.push(op)} onOpenAgent={(id) => opened.push(`agent:${id}`)} />
 							{:else}
 								{@render chat()}
 							{/if}

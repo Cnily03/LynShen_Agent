@@ -31,7 +31,7 @@
 	import { T_ENTER, listIn, listOut, motionMs, moveRow, rowIn } from '$lib/ui/motion';
 	import { GroupPlaces, changedGroup, heldList, isUnder, orderedList, readListOrder, sameList, writeListOrder, type ListItem, type ListOrder } from '$lib/shell/sidebarGroups';
 	import { NO_SUBAGENTS, SUBAGENT_STAY_MS, arrivals, nextFold, subagentsOf, withSubagents, type Subagents } from '$lib/shell/sidebarSubagents';
-	import type { AgentRow } from '$lib/agentProgress';
+	import { discardedRun, type AgentRow } from '$lib/agentProgress';
 	import StackSimpleIcon from 'phosphor-svelte/lib/StackSimpleIcon';
 	import { shimmer } from '$lib/ui/shimmer';
 	import Collapse from '$lib/ui/Collapse.svelte';
@@ -568,17 +568,19 @@
 	     running title; done, it is --text at 500; failed, the --err dot. A
 	     click opens its page. -->
 	{#snippet subRow(s: Session, a: AgentRow)}
-		{@const ended = a.state === 'done' || a.state === 'failed'}
-		{@const state = t(`dock.agents.state.${a.state}`)}
+		{@const dropped = discardedRun(a)}
+		{@const ended = (a.state === 'done' && !dropped) || a.state === 'failed'}
+		{@const state = dropped ? t('chat.team.discarded') : t(`dock.agents.state.${a.state}`)}
+		<!-- A discarded worktree reads as a stopped one: grey. -->
 		<button
 			class="sub"
 			class:working={a.state === 'running'}
 			class:ended
-			class:stopped={a.state === 'stopped'}
+			class:stopped={a.state === 'stopped' || dropped}
 			data-agent={a.id}
 			onclick={() => (onOpenSubagent(s.id, a), endPeek())}
 			aria-label={t('shell.subagents.open', { name: a.label, state, parent: shownTitle(s.chat.title) })}
-			title={[a.label, a.activity].filter(Boolean).join('\n')}
+			title={[a.label, a.state === 'failed' ? a.error || state : dropped ? state : a.activity].filter(Boolean).join('\n')}
 		>
 			<span class="st">{#if a.state === 'failed'}<SessionMark status={{ kind: 'failed', message: a.error }} />{/if}</span>
 			<span class="sess-title sub-title" class:running={a.state === 'running'}>{a.label}{#if a.state === 'running'}{@render veil()}{/if}</span>
@@ -1804,7 +1806,7 @@
 	   in, on a 1px --border-strong tree line that hangs from the
 	   conversation's status slot. At work its name sweeps like a running
 	   title (--text under the veil); queued, --dim; done or failed, --text
-	   at 500; stopped, --dim2. The look changes at once: no colour
+	   at 500; stopped, or its worktree discarded, --dim2. The look changes at once: no colour
 	   transition. */
 	.sub {
 		min-height: 26px;
