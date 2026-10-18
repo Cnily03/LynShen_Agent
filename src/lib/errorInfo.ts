@@ -86,6 +86,13 @@ export function describeError(raw: string, backend = '', provider = ''): ErrorIn
 		return info('providerMissing', undefined, /model provider `?([^`\s]+)`?/i.exec(text)?.[1]);
 
 	if (/not logged in to lynshen|lynshen session expired|run \/login/i.test(text)) return info('lynshenLogin', 'login');
+	// The gateway's hardware binding (gateway AD-H6, AD-L1): the device key
+	// belongs to another computer, the engine is too old to name this one, or
+	// the account has no free computer seat. The gateway's own text says it in
+	// Chinese; the card says what to do.
+	if (/device_hwid_mismatch/.test(text)) return info('deviceMismatch', ['login', 'devices']);
+	if (/device_client_outdated/.test(text)) return info('deviceOutdated', 'restart');
+	if (/device_limit_reached/.test(text)) return info('deviceLimit', 'devices');
 	if (status === 401 || /\bunauthori[sz]ed\b|invalid[_ ](api[_ ])?(key|token)|token (is )?expired|authentication_error/i.test(low)) {
 		// Through the LynShen gateway: the credential the session started with
 		// ran out (it is handed over once, at start); a restart takes a new one.

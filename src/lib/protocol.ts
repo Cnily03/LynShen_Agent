@@ -758,7 +758,24 @@ export const bindReferral = (code: string) => gatewayCall<ReferralOverview>('mon
 
 /** The account's authorized devices (gateway DA-10, AD-API-1); times in Unix ms. */
 export interface DeviceOverview {
-	devices: { id: string; name: string; api_key_id: string; created_at: number; last_used_at: string | null; expires_at: string | null; active: boolean; revokes_at: number }[];
+	devices: {
+		id: string;
+		name: string;
+		api_key_id: string;
+		created_at: number;
+		last_used_at: string | null;
+		expires_at: string | null;
+		active: boolean;
+		revokes_at: number;
+		/** AD-H9 (gateway G6+): the computer's name, platform and LynShen CLI version. */
+		device_name?: string | null;
+		device_os?: string | null;
+		client_version?: string | null;
+		/** AD-H5: bound to the computer's hardware. */
+		hwid_bound?: boolean;
+		/** AD-H4: equal numbers are one computer. */
+		machine?: number;
+	}[];
 	ips: { ip: string; first_seen_at: number; last_seen_at: number; active: boolean; expires_at: number }[];
 	seats: { id: string; kind: 'device' | 'ip'; starts_at: number; expires_at: number; price_nano_usd: string; source: string; active: boolean }[];
 	limits: { device: { used: number; limit: number }; ip: { used: number; limit: number } };
@@ -769,8 +786,10 @@ export interface DeviceOverview {
 	current_api_key_id: string;
 }
 export const fetchDevices = () => gatewayCall<DeviceOverview>('monoize_devices');
-export const buySeat = (kind: 'device' | 'ip', days: number, requestId: string) =>
+export const buySeat = (kind: 'device', days: number, requestId: string) =>
 	gatewayCall<{ balance_nano_usd: string }>('monoize_buy_seat', { kind, days, requestId });
+/** Removes another of the account's devices (AD-R1); answers the new overview. */
+export const removeDevice = (id: string) => gatewayCall<DeviceOverview>('monoize_remove_device', { id });
 
 /** Buying a plan or balance in the app (gateway desktop-purchase.spec.md;
  *  src/lib/purchase.ts reads the answers). A refusal is a GatewayError; 404

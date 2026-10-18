@@ -671,8 +671,8 @@ const settings = {
 		},
 		devices: {
 			loadFailed: '授权设备加载失败',
-			autoRemoval: '设备和 IP 地址不能手动移除：设备 {deviceDays} 天未使用、IP 地址 {ipDays} 天未使用会自动移除。',
-			deviceSeats: '设备',
+			autoRemoval: '每个账户包含 5 台电脑，同一台电脑重新登录不占新坐席。不用的电脑可以在这里移除；电脑 {deviceDays} 天未使用、IP 地址 {ipDays} 天未使用会自动移除。',
+			deviceSeats: '电脑',
 			ipSeats: 'IP 地址',
 			used: '已用 {used} / {limit}',
 			buy: '购买坐席',
@@ -699,7 +699,16 @@ const settings = {
 			cancel: '取消',
 			bought: '已购买坐席，有效 {n} 天',
 			insufficient: '充值余额不足，请先充值。',
-			topUp: '去充值'
+			topUp: '去充值',
+			full: '电脑坐席已用完。移除一台不用的电脑，或购买设备坐席后才能在新电脑上登录。',
+			ipsNote: 'IP 地址仅供查看，不限制数量。',
+			bound: '已绑定本机硬件',
+			unbound: '未绑定（旧版本）',
+			version: '版本 {version}',
+			remove: '移除',
+			removeTitle: '移除「{name}」？',
+			removeBody: '这台电脑会立即退出登录，坐席随即释放。需要时可以在那台电脑上重新登录。',
+			removed: '已移除这台电脑'
 		},
 		accountGate: {
 			emailUnverified: '你的账号需要先绑定并验证邮箱，才能继续使用 LynShen。',
@@ -1913,8 +1922,8 @@ const settings = {
 		},
 		devices: {
 			loadFailed: 'Could not load your devices',
-			autoRemoval: 'Devices and IP addresses cannot be removed by hand. A device is removed after {deviceDays} days without use, an IP address after {ipDays} days.',
-			deviceSeats: 'Devices',
+			autoRemoval: 'Each account includes 5 computers. Signing in again on the same computer uses no new seat. Remove a computer you no longer use here. A computer is removed after {deviceDays} days without use, an IP address after {ipDays} days.',
+			deviceSeats: 'Computers',
 			ipSeats: 'IP addresses',
 			used: '{used} of {limit} used',
 			buy: 'Buy a seat',
@@ -1941,7 +1950,16 @@ const settings = {
 			cancel: 'Cancel',
 			bought: 'Seat bought for {n} days',
 			insufficient: 'Your recharged balance is too low. Top up first.',
-			topUp: 'Top up'
+			topUp: 'Top up',
+			full: 'All computer seats are in use. Remove a computer you no longer use, or buy a device seat, to sign in on a new computer.',
+			ipsNote: 'IP addresses are shown for reference. They are not limited.',
+			bound: 'Bound to this hardware',
+			unbound: 'Not bound (older version)',
+			version: 'Version {version}',
+			remove: 'Remove',
+			removeTitle: 'Remove “{name}”?',
+			removeBody: 'That computer is signed out at once and its seat is freed. You can sign in on it again later.',
+			removed: 'Computer removed'
 		},
 		accountGate: {
 			emailUnverified: 'Your account needs a verified email before you can keep using LynShen.',

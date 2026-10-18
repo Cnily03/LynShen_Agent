@@ -21,6 +21,7 @@ mod browser;
 mod capture;
 mod file_preview;
 mod claude_history;
+mod device_header;
 mod device_id;
 mod installer;
 mod main_window;
@@ -1255,8 +1256,19 @@ fn monoize_devices() -> Result<serde_json::Value, String> {
     monoize_auth::gateway_key_call("GET", "/api/desktop/oauth/devices", None)
 }
 
-/// Buys a device or IP seat from the balance (AD-P1..AD-P3); `request_id`
-/// makes a retry safe.
+/// Removes another of the account's devices (AD-R1); the gateway refuses
+/// this computer's own device (signing out is `monoize_logout`).
+#[tauri::command(async)]
+fn monoize_remove_device(id: String) -> Result<serde_json::Value, String> {
+    let id: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    if id.is_empty() {
+        return Err(serde_json::json!({ "status": null, "code": "invalid_request", "message": "no device" }).to_string());
+    }
+    monoize_auth::gateway_key_call("DELETE", &format!("/api/desktop/oauth/devices/{id}"), None)
+}
+
+/// Buys a device seat from the balance (AD-P1..AD-P3); `request_id` makes a
+/// retry safe. The gateway no longer sells IP seats.
 #[tauri::command(async)]
 fn monoize_buy_seat(kind: String, days: u32, request_id: String) -> Result<serde_json::Value, String> {
     monoize_auth::gateway_key_call(
@@ -1599,6 +1611,9 @@ fn generate_text(
         let mut req = ureq::post(&format!("{base}/messages"))
             .timeout(std::time::Duration::from_secs(90))
             .set("anthropic-version", "2023-06-01");
+        if provider == "monoize" {
+            req = crate::device_header::apply(req);
+        }
         if !key.is_empty() {
             req = req.set("x-api-key", &key);
         }
@@ -1628,6 +1643,9 @@ fn generate_text(
     });
     let mut req =
         ureq::post(&format!("{base}/chat/completions")).timeout(std::time::Duration::from_secs(90));
+    if provider == "monoize" {
+        req = crate::device_header::apply(req);
+    }
     if !key.is_empty() {
         req = req.set("Authorization", &format!("Bearer {key}"));
     }
@@ -3894,6 +3912,7 @@ pub fn run() {
             monoize_referrals,
             monoize_bind_referral,
             monoize_devices,
+            monoize_remove_device,
             monoize_buy_seat,
             fetch_monoize_models,
             account_avatar::monoize_avatar_cached,

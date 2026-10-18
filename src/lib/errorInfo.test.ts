@@ -94,4 +94,21 @@ describe('describeError', () => {
 	it('leaves errors it does not know alone', () => {
 		expect(describeError('the tool crashed in an odd way')).toBeNull();
 	});
+
+	it('maps the gateway hardware binding refusals (AD-H6, AD-L1) to cards with a way on', () => {
+		const body = (code: string, message: string) => `HTTP 403: {"error":{"code":"${code}","message":"${message}"}}`;
+		expect(describeError(body('device_hwid_mismatch', '这个设备密钥是在另一台电脑上授权的'), 'lynshen', 'monoize')).toMatchObject({
+			kind: 'deviceMismatch',
+			actions: ['login', 'devices'],
+			status: 403
+		});
+		expect(describeError(body('device_client_outdated', '请把 Aogiri / LynShen CLI 更新到最新版本'), 'lynshen', 'monoize')).toMatchObject({
+			kind: 'deviceOutdated',
+			actions: ['restart']
+		});
+		expect(describeError(body('device_limit_reached', '这个账户已授权 5 台电脑'), 'lynshen', 'monoize')).toMatchObject({
+			kind: 'deviceLimit',
+			actions: ['devices']
+		});
+	});
 });
