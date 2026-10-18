@@ -1,0 +1,5 @@
+* text=auto
+
+# Tests read these as text and match on line breaks, so every checkout keeps LF.
+src/app.html text eol=lf
+src/lib/app.css text eol=lf

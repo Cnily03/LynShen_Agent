@@ -26,6 +26,22 @@ jobs:
       - run: python3 scripts/test-receive-desktop-release.py
       - run: pnpm build
 
+  # Release runs these tests on Windows before it builds; a Windows checkout has
+  # CRLF line endings and backslash paths, so run them here first.
+  frontend-windows:
+    name: Frontend on Windows (test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # tsconfig.json extends .svelte-kit/tsconfig.json; the other jobs get it from pnpm check.
+      - run: pnpm exec svelte-kit sync && pnpm test --testTimeout=15000
+
   rust:
     name: Rust (build · test)
     strategy:
