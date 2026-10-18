@@ -8,7 +8,8 @@ name: Rename upgrade
 # fresh Aogiri.app beside the old one. What it checks is in
 # scripts/windows-rename-upgrade-check.ps1, scripts/macos-rename-upgrade-check.sh
 # and scripts/linux-rename-upgrade-check.sh; the reasoning is in
-# docs/rename-aogiri-notes.md.
+# docs/rename-aogiri-notes.md. On Windows it also checks that an update tells
+# the shell its icons changed (docs/updater.md, "Windows：更新后的图标").
 #
 # With `new_release_tag` (e.g. v0.6.0) a manual run checks that published
 # release's installers instead of building: what users actually got.
@@ -28,6 +29,7 @@ on:
       - src-tauri/windows/**
       - src-tauri/src/renamed.rs
       - src-tauri/src/renamed/**
+      - src-tauri/src/shell_icons.rs
       - scripts/*rename*
       - .github/workflows/rename-upgrade.yml
 

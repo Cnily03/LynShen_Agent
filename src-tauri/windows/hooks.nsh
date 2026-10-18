@@ -256,6 +256,52 @@ Var LegacyDefaultDir  ; where LynShen installs for this user by default
   ${EndIf}
 !macroend
 
+; --- Icons after an update (ticket #38, the new logo of 0.10.0).
+;
+; Explorer caches an icon by the path of the file it comes from and its index,
+; not by what is in the file. An update replaces the executable in place, so
+; every shortcut to it (desktop, Start menu, taskbar pins, copies) goes on
+; showing the icon Explorer cached from the old executable. In update mode the
+; template only re-points the shortcuts it finds and tells the shell nothing
+; (0.9.x to 0.10.0 kept the old logo on the desktop that way). These macros
+; save the app's own shortcuts again and tell the shell that icons changed,
+; which makes Explorer drop its cached icons. The MSI cannot do this; the app
+; does it after an MSI install (src-tauri/src/shell_icons.rs). docs/updater.md.
+
+!define ICONS_SHCNE_UPDATEITEM 0x00002000
+!define ICONS_SHCNE_ASSOCCHANGED 0x08000000
+; SHCNF_PATHW (5) and SHCNF_IDLIST (0), each with SHCNF_FLUSHNOWAIT (0x3000):
+; the events go out before the installer exits, without waiting on anyone.
+!define ICONS_SHCNF_PATH 0x3005
+!define ICONS_SHCNF_IDLIST 0x3000
+
+; The shortcut ${lnk}, when it is there and starts this executable, is saved
+; again in place and the shell is told it changed. One the user removed is not
+; made again; one that is there keeps its file, so its place on the Desktop and
+; a pin Explorer finds by that file stay. Changes $0-$2, $R4.
+!macro ICONS_RESAVE_LNK lnk
+  !insertmacro RENAME_LNK_TARGET "${lnk}"
+  ${If} $R4 == "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetShortcutTarget "${lnk}" "$INSTDIR\${MAINBINARYNAME}.exe"
+    System::Call 'shell32::SHChangeNotify(i ${ICONS_SHCNE_UPDATEITEM}, i ${ICONS_SHCNF_PATH}, ws, p 0)' "${lnk}"
+  ${EndIf}
+!macroend
+
+!macro ICONS_REFRESH
+  !insertmacro ICONS_RESAVE_LNK "$DESKTOP\${PRODUCTNAME}.lnk"
+  !insertmacro ICONS_RESAVE_LNK "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+  ; Taskbar pins, whatever their file is called.
+  FindFirst $R6 $R7 "$APPDATA\${RENAME_TASKBARPINS}\*.lnk"
+  ${DoWhile} $R7 != ""
+    !insertmacro ICONS_RESAVE_LNK "$APPDATA\${RENAME_TASKBARPINS}\$R7"
+    FindNext $R6 $R7
+  ${Loop}
+  FindClose $R6
+  System::Call 'shell32::SHChangeNotify(i ${ICONS_SHCNE_UPDATEITEM}, i ${ICONS_SHCNF_PATH}, ws, p 0)' "$INSTDIR\${MAINBINARYNAME}.exe"
+  System::Call 'shell32::SHChangeNotify(i ${ICONS_SHCNE_ASSOCCHANGED}, i ${ICONS_SHCNF_IDLIST}, p 0, p 0)'
+  DetailPrint "Told the shell that the icons changed"
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   StrCpy $LegacyDefaultDir "$LOCALAPPDATA\${LEGACY_NAME}"
   ReadRegStr $LegacyDir SHCTX "${LEGACY_PRODUCTKEY}" ""
@@ -285,4 +331,5 @@ Var LegacyDefaultDir  ; where LynShen installs for this user by default
     WriteRegStr SHCTX "${MANUPRODUCTKEY}" "LegacyInstallDir" "$LegacyDir"
   ${EndIf}
   !insertmacro RENAME_MOVE_AUTOSTART
+  !insertmacro ICONS_REFRESH
 !macroend

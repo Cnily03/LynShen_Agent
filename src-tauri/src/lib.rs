@@ -34,6 +34,8 @@ mod provider_models;
 mod renamed;
 mod secrets;
 mod shell_env;
+#[cfg(any(windows, test))]
+mod shell_icons;
 mod tool_login;
 mod tool_path;
 mod tool_switch;
@@ -3797,6 +3799,10 @@ pub fn run() {
             // A login item registered under the product's old name moves to this one.
             #[cfg(desktop)]
             renamed::adopt(app.handle());
+            // After an MSI update, shortcuts show the new icon (the setup.exe does
+            // this itself, see shell_icons.rs).
+            #[cfg(windows)]
+            shell_icons::refresh_after_msi_install(app.handle());
             // 主窗口在这里创建（配置里是 `create: false`）：磨砂与否、底色用哪个主题，
             // 都要在创建之前定下来，见 main_window.rs。登录项以静默方式启动时窗口
             // 不显示，只留在托盘；托盘、Dock 图标、深链和二次启动仍走
