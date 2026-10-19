@@ -25,10 +25,12 @@
 	import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobileIcon';
 	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimpleIcon';
 	import BellIcon from 'phosphor-svelte/lib/BellIcon';
-	import { enablePush, pushOn, pushSupported } from '$lib/remote/push';
+	import { enablePush, pushOn, pushSupported, openTarget, type OpenTarget } from '$lib/remote/push';
+	import type { ShowRequest } from '$lib/remote/HostView.svelte';
 	import { forgetLists } from '$lib/remote/cache';
 	import { toast } from '$lib/ui/toast.svelte';
 	import HostView from '$lib/remote/HostView.svelte';
+	import PushSettings from '$lib/remote/PushSettings.svelte';
 	import { HostConnection, LAN_ID } from '$lib/remote/connection.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
@@ -80,22 +82,27 @@
 	let activeId = $state<string | null>(null);
 	const active = $derived(conns.find((c) => c.id === activeId) ?? conns[0] ?? null);
 
-	// A requirement a notification is about (`?requirement=`): shown on the
-	// computer that has it (the shown one first) once its list has arrived.
-	let wanted = $state<string | null>(null);
-	let showing = $state<{ conn: string; requirement: string; n: number } | null>(null);
+	// What a notification is about: a requirement (`?requirement=`), shown on
+	// the computer that has it (the shown one first) once its list has
+	// arrived, or a session (`?host=&session=`), opened on that computer with
+	// its approval card above the composer.
+	let wanted = $state<OpenTarget | null>(null);
+	let showing = $state<(ShowRequest & { conn: string }) | null>(null);
 	function want(url: string) {
-		const id = new URL(url, location.origin).searchParams.get('requirement');
-		if (id) wanted = id;
+		const target = openTarget(url);
+		if (target) wanted = target;
 	}
 	$effect(() => {
-		const id = wanted;
-		if (!id) return;
-		const conn = [active, ...conns].find((c) => c?.requirements.get(id));
+		const target = wanted;
+		if (!target) return;
+		const conn =
+			target.kind === 'requirement'
+				? [active, ...conns].find((c) => c?.requirements.get(target.requirement))
+				: conns.find((c) => c.id === target.host) ?? (target.host ? undefined : active);
 		if (!conn) return;
 		wanted = null;
 		select(conn.id);
-		showing = { conn: conn.id, requirement: id, n: (showing?.n ?? 0) + 1 };
+		showing = { conn: conn.id, ...target, n: (showing?.n ?? 0) + 1 };
 	});
 
 	let mounted = $state(false);
@@ -160,6 +167,8 @@
 			toast.error(/requires session/.test(message) ? t('shell.remote.pushOld') : message);
 		}
 	}
+	/** 通知: this phone's notifications and the shown computer's rules. */
+	let pushSettings = $state(false);
 	/** Pairing another computer, opened from the switcher. */
 	let adding = $state(false);
 	/** LAN pairing with a code, asked for while other computers are paired. */
@@ -517,9 +526,9 @@
 							<span class="pop-txt"><span class="pop-label">{t('shell.remote.install')}</span></span>
 						</button>
 					{/if}
-					<button class="pop-row" role="menuitem" onclick={testPush}>
+					<button class="pop-row" role="menuitem" onclick={() => ((switchMenu = false), (pushSettings = true))}>
 						<span class="pop-ico"><BellIcon size={18} /></span>
-						<span class="pop-txt"><span class="pop-label">{t('shell.remote.pushTest')}</span></span>
+						<span class="pop-txt"><span class="pop-label">{t('shell.remote.push.menu')}</span></span>
 					</button>
 					<button class="pop-row" role="menuitem" onclick={openLicenses}>
 						<span class="pop-ico"><ScrollIcon size={18} /></span>
@@ -637,6 +646,9 @@
 		/>
 	{/each}
 </div>
+{#if pushSettings && active && view === 'app'}
+	<PushSettings conn={active} {conns} name={nameOf(active)} onTest={testPush} onClose={() => (pushSettings = false)} />
+{/if}
 <Toaster />
 <ConfirmHost />
 
