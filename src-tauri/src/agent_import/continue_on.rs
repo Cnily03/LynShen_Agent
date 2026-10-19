@@ -271,14 +271,12 @@ pub fn continue_on_lynshen(
     if !turns.iter().any(|(_, t)| matches!(t, Turn::User(_))) {
         return Err("this conversation has no messages to carry over".to_string());
     }
-    let title = truncate_chars(
-        if title.trim().is_empty() {
-            &first_prompt(&turns)
-        } else {
-            title.trim()
-        },
-        MAX_TITLE_CHARS,
-    );
+    let title = if title.trim().is_empty() {
+        first_prompt(&turns)
+    } else {
+        title.trim().to_string()
+    };
+    let title = truncate_chars(&title, MAX_TITLE_CHARS);
     let cwd = folder_key(cwd);
     let updated = turns
         .iter()

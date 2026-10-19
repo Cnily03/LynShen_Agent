@@ -13,7 +13,7 @@
 //!   adds them through the daemon (`mcp_set`), as Settings → MCP does, so
 //!   open sessions pick them up.
 
-mod continue_on;
+pub mod continue_on;
 mod dsh;
 mod mcp;
 mod opencode;
@@ -22,7 +22,6 @@ mod skills;
 
 use crate::claude_history::{process_env, user_home, Env};
 use crate::native_import::{self, Homes};
-pub use continue_on::continue_on_lynshen_cmd;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
