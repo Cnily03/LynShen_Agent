@@ -31,6 +31,7 @@
 	import DispatchComposer from './DispatchComposer.svelte';
 	import DispatchScreen from './DispatchScreen.svelte';
 	import DeskList from './DeskList.svelte';
+	import Workbench from './Workbench.svelte';
 	import DeskHome from './DeskHome.svelte';
 	import DeskItemScreen from './DeskItemScreen.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -101,6 +102,33 @@
 
 	type Tab = 'projects' | 'requirements' | 'dispatch' | 'desk';
 	const TABS: Tab[] = ['projects', 'requirements', 'dispatch', 'desk'];
+	/** The phone's bar: the dispatches live in 工作台, a new one starts from
+	 *  the round button. */
+	const PHONE_TABS: Tab[] = ['projects', 'desk', 'requirements'];
+	const TAB_ICONS = { projects: ListIcon, requirements: ListChecksIcon, dispatch: PaperPlaneTiltIcon, desk: TrayIcon } as const;
+	function badgeOf(name: Tab): number {
+		if (name === 'requirements') return conn.requirements.pending;
+		if (name === 'dispatch') return conn.dispatches.pending;
+		if (name === 'desk') return conn.agents.pending + (wide ? 0 : conn.dispatches.pending);
+		return 0;
+	}
+	/** A tab again (its own button) goes back to its list. */
+	function pickTab(name: Tab) {
+		if (tab === name && stacks[name].length && !wide) {
+			stacks[name] = [];
+			return;
+		}
+		tab = name;
+	}
+	/** 派一件事: the dispatch composer, over whatever tab is shown. */
+	function dispatchNew() {
+		if (wide) {
+			tab = 'dispatch';
+			stacks.dispatch = [];
+			return;
+		}
+		push({ kind: 'compose' });
+	}
 	let tab = $state<Tab>('projects');
 	const TAB_TITLES = {
 		projects: 'shell.remote.sessions',
@@ -299,25 +327,27 @@
 						<span class="label">{t('shell.remote.backToChat')}</span>
 					</a>
 				{/if}
-				<button class:on={tab === 'projects'} onclick={() => (tab = 'projects')}>
-					<ListIcon size={18} weight={tab === 'projects' ? 'fill' : 'regular'} />
-					<span class="label">{t('shell.remote.sessions')}</span>
-				</button>
-				<button class:on={tab === 'requirements'} onclick={() => (tab = 'requirements')}>
-					<ListChecksIcon size={18} weight={tab === 'requirements' ? 'fill' : 'regular'} />
-					<span class="label">{t('shell.requirement.title')}</span>
-					{#if conn.requirements.pending > 0}<span class="badge">{conn.requirements.pending}</span>{/if}
-				</button>
-				<button class:on={tab === 'dispatch'} onclick={() => (tab = 'dispatch')}>
-					<PaperPlaneTiltIcon size={18} weight={tab === 'dispatch' ? 'fill' : 'regular'} />
-					<span class="label">{t('shell.dispatch.title')}</span>
-					{#if conn.dispatches.pending > 0}<span class="badge">{conn.dispatches.pending}</span>{/if}
-				</button>
-				<button class:on={tab === 'desk'} onclick={() => (tab = 'desk')}>
-					<TrayIcon size={18} weight={tab === 'desk' ? 'fill' : 'regular'} />
-					<span class="label">{t('shell.desk.title')}</span>
-					{#if conn.agents.pending > 0}<span class="badge">{conn.agents.pending}</span>{/if}
-				</button>
+				{#snippet tabButton(name: Tab)}
+					{@const Icon = TAB_ICONS[name]}
+					{@const badge = badgeOf(name)}
+					<button class:on={tab === name} aria-current={tab === name ? 'page' : undefined} onclick={() => pickTab(name)}>
+						<Icon size={wide ? 18 : 22} weight={tab === name ? 'fill' : 'regular'} />
+						<span class="label">{t(TAB_TITLES[name])}</span>
+						{#if badge > 0}<span class="badge">{badge}</span>{/if}
+					</button>
+				{/snippet}
+				{#if wide}
+					{#each TABS as name (name)}{@render tabButton(name)}{/each}
+				{:else}
+					<!-- The phone: three tabs and the round 派一件事 button (the
+					     dispatches are listed in 工作台). -->
+					<div class="tabs">
+						{#each PHONE_TABS as name (name)}{@render tabButton(name)}{/each}
+					</div>
+					<button class="go" onclick={dispatchNew} aria-label={t('shell.remote.go')}>
+						<PaperPlaneTiltIcon size={22} weight="fill" />
+					</button>
+				{/if}
 			</nav>
 			<!-- Outside the scrolling list, so the switcher's menu is not cut off.
 			     Wide: the nav names the tab, the switcher sits in the foot. -->
@@ -375,12 +405,23 @@
 					/>
 				</div>
 				<div class="tabbody" hidden={tab !== 'desk'}>
-					<DeskList
-						current={currentDeskItem}
-						status={!wide}
-						onOpen={(item) => open({ kind: 'desk', item })}
-						onOpenAgent={(id) => open(agentScreen(id))}
-					/>
+					{#if wide}
+						<DeskList
+							current={currentDeskItem}
+							onOpen={(item) => open({ kind: 'desk', item })}
+							onOpenAgent={(id) => open(agentScreen(id))}
+						/>
+					{:else}
+						<Workbench
+							{name}
+							current={currentDeskItem}
+							onOpenDesk={(item) => open({ kind: 'desk', item })}
+							onOpenAgent={(id) => open(agentScreen(id))}
+							onOpenSession={(s) => open(sessionScreen(s))}
+							onOpenDispatch={(id) => open({ kind: 'dispatch', id })}
+							onNewDispatch={dispatchNew}
+						/>
+					{/if}
 				</div>
 			</main>
 			{#if wide}
@@ -662,11 +703,20 @@
 	main {
 		padding: 0 16px calc(env(safe-area-inset-bottom) + 76px);
 	}
+	/* The phone's title bar stays at the top; 工作台's number cards stick
+	   under it (--top-h). */
 	.top {
+		position: sticky;
+		top: 0;
+		z-index: 5;
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		padding: calc(env(safe-area-inset-top) + 16px) 16px 10px;
+		background: var(--bg);
+	}
+	.side {
+		--top-h: calc(env(safe-area-inset-top) + 60px);
 	}
 	.wide .top {
 		padding: 10px 12px 10px 16px;
@@ -698,16 +748,53 @@
 		flex: 1;
 		min-width: 0;
 	}
+	/* The phone's bar: three labelled tabs in a rounded strip and, beside
+	   it, the round 派一件事 button (the one accent-filled control here). */
 	nav {
 		position: fixed;
-		left: 0;
-		right: 0;
-		bottom: 0;
+		left: 12px;
+		right: 12px;
+		bottom: calc(env(safe-area-inset-bottom) + 10px);
 		z-index: 10;
 		display: flex;
-		padding: 6px 0 calc(env(safe-area-inset-bottom) + 6px);
-		border-top: 1px solid var(--hairline);
-		background: var(--panel);
+		align-items: flex-end;
+		gap: 8px;
+	}
+	.tabs {
+		flex: 1;
+		display: flex;
+		height: 56px;
+		padding: 4px;
+		border: 1px solid var(--hairline);
+		border-radius: 28px;
+		background: color-mix(in srgb, var(--panel) 88%, transparent);
+		backdrop-filter: blur(18px) saturate(1.4);
+		-webkit-backdrop-filter: blur(18px) saturate(1.4);
+		box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+	}
+	.go {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 56px;
+		height: 56px;
+		border: none;
+		border-radius: 28px;
+		background: var(--accent);
+		color: var(--on-accent);
+		box-shadow: 0 6px 24px rgb(0 0 0 / 0.22);
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+		transition: transform var(--t-fast) var(--ease-out);
+	}
+	.go:active {
+		transform: scale(0.94);
+	}
+	nav .tabs button {
+		border-radius: 24px;
+	}
+	nav .tabs button.on {
+		background: rgb(128 128 128 / 0.13);
 	}
 	nav button {
 		position: relative;

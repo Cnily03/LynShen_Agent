@@ -25,7 +25,7 @@
 	let rules: Frame = { daily_budget: 20, quiet_start: '23:00', quiet_end: '08:00', turn_done: true, sent_today: 3 };
 	const SESSION = 's-cache';
 	const sessions = [
-		{ session: SESSION, cwd: '/Users/me/code/lynshen-desktop', title: '会话缓存分片', open: true, watchers: 0, updated_at: Date.now(), created_at: Date.now(), entries: 4, engine: 'lynshen', agent: null, archived: false, chat: false },
+		{ session: SESSION, running: true, cwd: '/Users/me/code/lynshen-desktop', title: '会话缓存分片', open: true, watchers: 0, updated_at: Date.now(), created_at: Date.now(), entries: 4, engine: 'lynshen', agent: null, archived: false, chat: false },
 		{ session: 's-docs', cwd: '/Users/me/code/lynshen-desktop', title: '翻译文档', open: false, watchers: 0, updated_at: Date.now() - 3_600_000, created_at: Date.now() - 3_600_000, entries: 9, engine: 'lynshen', agent: null, archived: false, chat: false }
 	];
 	const workspaces = { type: 'workspaces', rev: 1, workspaces: [{ id: 'w1', name: '工作', projects: [{ id: 'p1', name: 'lynshen-desktop', path: '/Users/me/code/lynshen-desktop', dirs: [] }] }] };
@@ -48,8 +48,20 @@
 				this.emit({ type: 'sessions', sessions });
 				this.emit(workspaces);
 				this.emit({ type: 'agents', agents: [] });
-				this.emit({ type: 'questions', questions: [] });
-				this.emit({ type: 'actions', actions: [] });
+				// &bench: things waiting (two actions, a question, a dispatch plan)
+				// and a running session, for 工作台.
+				const bench = params.has('bench');
+				this.emit({ type: 'questions', questions: bench ? [{ id: 'q1', agent: 'ops', session: 's-docs', title: '文档要不要同时出英文版？', body: '', asked_at: Date.now() - 600_000, importance: 'normal' }] : [] });
+				this.emit({
+					type: 'actions',
+					actions: bench
+						? [
+								{ id: 'a1', session_id: SESSION, cwd: '/Users/me/code/lynshen-desktop', name: 'bash', arguments: '{}', summary: '运行 git push origin feat/session-cache', created_at: Date.now() - 120_000 },
+								{ id: 'a2', session_id: 's-docs', cwd: '/Users/me/code/docs', name: 'write', arguments: '{}', summary: '写入 ~/Desktop/notes.md', created_at: Date.now() - 300_000 }
+							]
+						: []
+				});
+				this.emit({ type: 'dispatches', dispatches: bench ? [{ id: 'd1', text: '把三个仓库的依赖都升级到最新', plan: true, mode: 'auto', status: 'awaiting', tasks: [], summary: '', created_at: Date.now() - 900_000, updated_at: Date.now() - 900_000 }] : [] });
 			});
 			Object.assign(window, { __remoteSend: (f: Frame) => this.emit(f) });
 		}
@@ -99,6 +111,10 @@
 					return answer({ type: 'push_rules', rules });
 				case 'push_viewing':
 					return answer({ type: 'push_viewing' });
+				case 'plan_quota':
+					return answer({ type: 'plan_quota', plan: 'Sprout', windows: [{ kind: '5h', used_pct: 42, resets_at: null }, { kind: '7d', used_pct: 18, resets_at: null }] });
+				case 'decide_action':
+					return;
 				case 'ping':
 					return answer({ type: 'pong' });
 				case 'device_me':

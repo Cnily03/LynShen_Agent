@@ -92,6 +92,8 @@ export interface DaemonSessionView {
 	entries?: number | null;
 	/** ACP: the desktop's registry agent it was started with (newer daemons). */
 	acp_agent?: { id: string; name: string } | null;
+	/** A turn runs or messages wait (newer daemons). */
+	running?: boolean;
 }
 
 export interface QuestionView {
