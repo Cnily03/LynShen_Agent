@@ -1094,7 +1094,7 @@ try {
   await expect(widthRow.locator('.opt.on')).toHaveText('自适应');
   await widthRow.getByRole('button',{name:'铺满'}).click();
   await expect(widthRow.locator('.opt.on')).toHaveText('铺满');
-  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [2, 'full']);
+  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [3, 'full']);
   await page.getByPlaceholder('搜索设置').fill('对话宽度');
   await expect(page.getByRole('button',{name:/^对话宽度/})).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('lynshen-prefs'));
