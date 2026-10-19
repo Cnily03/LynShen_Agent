@@ -147,7 +147,39 @@ try {
       assert.deepEqual(refused, [], `${theme}: styles refused by the policy`);
       await ctx.close();
     }
-    console.log('Desktop CSP passed: the logo light keeps its colour and CodeMirror its styles under the app\'s policy, dark and light.');
+    // 审阅 on a Markdown file under the same policy, in Chromium and WebKit
+    // (WebKitGTK on Linux, ticket #53; WebView2 on Windows, #44): the text
+    // beside its line numbers, wrapped lines not stretching the gutter, and
+    // the file's folder and path a click away.
+    for (const [engine, launchIt] of [['Chromium', () => browser], ['WebKit', () => webkit.launch()]]) {
+      const b = await launchIt();
+      const ctx = await b.newContext({viewport: {width: 900, height: 700}});
+      const p = await ctx.newPage();
+      const refused = [];
+      p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+      p.on('console', (m) => /Content Security Policy|Refused to apply/.test(m.text()) && refused.push(m.text().slice(0, 160)));
+      const editorHtml = (await (await fetch(`${origin}/tests/browser/index.html`)).text());
+      await p.route((u) => u.pathname === '/editor', (r) => r.fulfill({contentType: 'text/html', headers: {'Content-Security-Policy': csp}, body: editorHtml.replace('<head>', nonced ? '<head><style nonce="7">html{background:#1a1a1a}</style>' : '<head><style>html{background:#1a1a1a}</style>')}));
+      await p.goto(`${origin}/editor?editor`);
+      const md = p.locator('.editor .cm-content');
+      await expect(md).toContainText('交接说明', {timeout: 30000});
+      assert.equal(await p.locator('.editor .cm-scroller').evaluate((el) => getComputedStyle(el).display), 'flex', `${engine}: 审阅 has CodeMirror's styles`);
+      const [g, c] = await Promise.all([p.locator('.editor .cm-gutters').boundingBox(), md.boundingBox()]);
+      assert.ok(g && c && Math.abs(g.y - c.y) < 2 && c.x >= g.x + g.width - 1 && c.width > 200, `${engine}: the Markdown text beside its line numbers`);
+      assert.deepEqual(refused, [], `${engine}: styles refused in 审阅`);
+      // 打开所在文件夹 and 复制文件路径 (ticket #53).
+      await p.evaluate(() => (window.__calls.length = 0));
+      await p.getByRole('button', {name: '打开所在文件夹'}).click();
+      await expect.poll(() => p.evaluate(() => window.__calls.find((c) => c.command === 'plugin:opener|reveal_item_in_dir')?.args?.paths?.[0] ?? window.__calls.find((c) => c.command === 'plugin:opener|reveal_item_in_dir')?.args?.path)).toBe('/Users/me/code/app/HANDOFF.md');
+      await expect(p.getByRole('button', {name: '复制文件路径'})).toBeVisible();
+      await p.locator('.etab').first().click({button: 'right'});
+      await expect(p.getByRole('menuitem', {name: '复制文件路径'})).toBeVisible();
+      await expect(p.getByRole('menuitem', {name: '打开所在文件夹'})).toBeVisible();
+      if (engine === 'WebKit') await p.screenshot({path: '/tmp/review-md-webkit.png'});
+      await ctx.close();
+      if (b !== browser) await b.close();
+    }
+    console.log('Desktop CSP passed: the logo light keeps its colour and CodeMirror its styles under the app\'s policy, dark and light; 审阅 shows a Markdown file in Chromium and WebKit, with 打开所在文件夹 and 复制文件路径.');
   }
   await page.goto(base + '?projects');
   for (let i=1;i<=3;i++) {
