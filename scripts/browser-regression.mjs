@@ -116,6 +116,26 @@ try {
     assert.equal(await lp.evaluate(() => window.__launch.shown), false);
     await lp.context().close();
     console.log('Launch screen passed: first frame in dark and light, the five entrances on the kit timetable, the frame behind, slow start at the cap, a fast start after the whole entrance and its hold, a late start at readiness, click and key skip, reduced motion at readiness, none outside the desktop app.');
+    // Ticket #40: a started Claude Code conversation stays on Claude Code;
+    // the model menu offers to continue it in a new LynShen conversation,
+    // which carries it over (continue_on_lynshen_cmd) and opens it.
+    {
+      const cp = await browser.newPage({viewport: {width: 1320, height: 880}});
+      cp.on('pageerror', (e) => errors.push(e.message));
+      await cp.goto(base + '?shell&claudeChat');
+      const modelBtn = cp.locator('.composer-wrap .fbtn.model');
+      await expect(modelBtn).toBeVisible({timeout: 60000});
+      await modelBtn.click();
+      const carry = cp.getByRole('button', {name: '在 LynShen 上继续这段对话'});
+      await expect(carry).toBeVisible();
+      await carry.click();
+      await expect(cp.getByText('在 LynShen 上继续？')).toBeVisible();
+      await cp.getByRole('button', {name: '新开 LynShen 对话'}).click();
+      await expect.poll(() => cp.evaluate(() => window.__calls.find((c) => c.command === 'continue_on_lynshen_cmd')?.args)).toEqual({source: 'claude', cwd: '/Users/me/code/lynshen-desktop', id: '0b9c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d'});
+      await expect.poll(() => cp.evaluate(() => { const s = window.__shellStore; const a = s.allSessions.find((x) => x.id === s.activeId); return a && [a.backendId, a.chat.sessionId]; })).toEqual(['lynshen', 's19a0b1c2d3e4f5a6']);
+      await cp.close();
+      console.log('Continue on LynShen passed: offered for a started Claude Code conversation, confirmed, carried over and opened.');
+    }
   }
   await page.goto(base + '?projects');
   for (let i=1;i<=3;i++) {

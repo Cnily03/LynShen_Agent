@@ -313,6 +313,8 @@ Object.assign(window, {
         // the folder a first message makes there.
         case 'default_workspace_dir': return '/Users/me/Documents/LynShen';
         case 'create_chat_dir': return `${args.root}/${args.name}`;
+        // A Claude Code / Codex conversation carried to LynShen (ticket #40).
+        case 'continue_on_lynshen_cmd': return {id: 's19a0b1c2d3e4f5a6', title: '对话宽度跟随窗口', cwd: args.cwd, turns: 12};
         default: return null;
       }
     }

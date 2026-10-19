@@ -315,7 +315,7 @@ fn clean_claude(src: &Path, dst: &Path, to: &str) -> Result<(), String> {
 /// A JSONL file's rows (a `.jsonl.zst` rollout decompressed). A read error
 /// fails the import (a copy cut short at it would look whole); a line that is
 /// not JSON — a row being written as we read — is skipped.
-fn json_lines(path: &Path) -> Result<impl Iterator<Item = Result<Value, String>>, String> {
+pub(crate) fn json_lines(path: &Path) -> Result<impl Iterator<Item = Result<Value, String>>, String> {
     let reader = open_rollout(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let shown = path.display().to_string();
     Ok(reader.lines().filter_map(move |line| match line {
@@ -674,7 +674,7 @@ fn list_codex(h: &Homes, cwd: &str) -> Result<Vec<NativeSession>, String> {
 /// The files making up a thread's current history, oldest first, each with
 /// the ordinal its lines must stay below: the newest segment, then the file
 /// its `history_base` names (cut at that base's end), and so on back.
-fn codex_plan(threads: &HashMap<String, Vec<Segment>>, id: &str) -> Result<Vec<(PathBuf, i64)>, String> {
+pub(crate) fn codex_plan(threads: &HashMap<String, Vec<Segment>>, id: &str) -> Result<Vec<(PathBuf, i64)>, String> {
     let files: HashMap<&str, &Segment> =
         threads.values().flatten().map(|s| (s.file_id.as_str(), s)).collect();
     let head = threads

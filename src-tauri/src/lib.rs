@@ -3988,6 +3988,7 @@ pub fn run() {
             native_import::record_opencode_copy,
             agent_import::import_scan,
             agent_import::import_apply,
+            agent_import::continue_on_lynshen_cmd,
             pty_open,
             pty_write,
             pty_resize,

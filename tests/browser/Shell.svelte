@@ -135,6 +135,14 @@
 	const menuSession = $derived(rowMenu ? (store.allSessions.find((s) => s.id === rowMenu!.sid) ?? null) : null);
 	const session = store.allSessions.find((s) => s.id === first.sessions[0].id)!;
 	store.activeId = session.id;
+	// ?claudeChat: a Claude Code conversation that has started (ticket #40:
+	// it can go on in a new LynShen conversation).
+	if (mode.has('claudeChat')) {
+		session.backendId = 'claude';
+		session.chat.backendId = 'claude';
+		session.restored = true;
+		session.chat.sessionId = '0b9c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d';
+	}
 	// As the page does: the count of conversations that wait for the user in
 	// the window's title, the Dock badge or the Windows overlay
 	// (`window.__calls`).
