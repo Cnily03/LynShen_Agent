@@ -53,7 +53,8 @@ const DAEMON_EVENTS = new Set([
 	'schedules',
 	'workspaces',
 	'dispatches',
-	'requirements'
+	'requirements',
+	'device_scopes_changed'
 ]);
 const CLOSE_TIMEOUT_MS = 10_000;
 

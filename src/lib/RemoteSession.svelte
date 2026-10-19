@@ -481,7 +481,14 @@
 		approvalModeKeys(bcaps, isAgent).map((k) => {
 			// A mode the computer's engine refused (an older engine) is listed, not offered.
 			const old = chat.unsupportedModes.includes(k) && k !== shownMode;
-			return { ...APPROVAL_MODES[k], checked: shownMode === k, disabled: isAgent || old, ...(old ? { desc: t('chat.modeOld') } : {}) };
+			// 全自动 needs this phone to be allowed it on the computer.
+			const locked = k === 'all' && !host.may('full_auto') && k !== shownMode;
+			return {
+				...APPROVAL_MODES[k],
+				checked: shownMode === k,
+				disabled: isAgent || old || locked,
+				...(old ? { desc: t('chat.modeOld') } : locked ? { desc: t('shell.remote.scope.lockedDesc') } : {})
+			};
 		})
 	);
 	const approvalCurrent = $derived(APPROVAL.find((a) => a.checked) ?? APPROVAL_MODES[shownMode] ?? APPROVAL_MODES.ask);
@@ -642,6 +649,16 @@
 		return { id: row?.vendor ?? pendingModel, label: row?.label || pendingModel };
 	});
 
+	/** What this phone may not allow of `request` (the daemon refuses it
+	 *  too: LynShen-CLI scopes.rs). */
+	function approvalLocks(request: { sandbox?: { kind: string } }) {
+		const kind = request.sandbox?.kind;
+		return {
+			all: ((kind === 'escalation' || kind === 'elevation') && !host.may('full_access')) || (kind === 'outside_write' && !host.may('add_folder')),
+			dir: !host.may('add_folder')
+		};
+	}
+
 	function respond(op: ApproveOp) {
 		send(op);
 		chat.approvalAnswered();
@@ -753,7 +770,14 @@
 		{#if chat.pendingApproval}
 			<div class="approval">
 				{#key chat.pendingApproval.callId}
-					<ApprovalCard approval={chat.pendingApproval} place={chat.approvalPlace} onRespond={respond} ruleScopes={caps(chat).ruleScopes} remote />
+					<ApprovalCard
+						approval={chat.pendingApproval}
+						place={chat.approvalPlace}
+						onRespond={respond}
+						ruleScopes={caps(chat).ruleScopes}
+						remote
+						locked={approvalLocks(chat.pendingApproval)}
+					/>
 				{/key}
 			</div>
 		{/if}

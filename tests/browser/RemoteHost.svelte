@@ -101,6 +101,13 @@
 					return answer({ type: 'push_viewing' });
 				case 'ping':
 					return answer({ type: 'pong' });
+				case 'device_me':
+					return answer({ type: 'device_me', device: 'dev-1', name: 'iPhone', scopes: scopes() });
+				case 'set_approval_mode':
+					if (op.mode === 'full-access' && !scopes().includes('full_auto'))
+						return answer({ type: 'error', code: 'scope_required', message: 'scope_required:full_auto: grant it on the computer' });
+					setTimeout(() => this.emit({ type: 'approval_mode', session: op.session, mode: op.mode }), 20);
+					return;
 				default:
 					if (typeof op.id === 'number') answer({ type: 'error', message: `${op.op} requires session` });
 			}
@@ -108,10 +115,15 @@
 		close() {}
 	}
 	let approved = false;
+	// &scopes=full_auto,…: what this phone may do beyond the defaults.
+	const scopes = () => (params.get('scopes') ?? '').split(',').filter(Boolean);
 	Object.assign(window, { __remoteOps: ops });
 
-	const conn = new HostConnection('host-1', 'lan', async () => ({ url: 'ws://computer', token: 't' }), () => new Computer());
-	conn.start();
+	// &pending: paired, the computer has not confirmed this phone yet.
+	const conn = params.has('pending')
+		? HostConnection.lan('t', '482913')
+		: new HostConnection('host-1', 'lan', async () => ({ url: 'ws://computer', token: 't' }), () => new Computer());
+	if (!params.has('pending')) conn.start();
 	/* eslint-disable @typescript-eslint/no-explicit-any -- the screens as the page loads them */
 	const screens: { RemoteSession: Component<any> | null; FilesScreen: Component<any> | null; ChangesScreen: Component<any> | null } = {
 		RemoteSession,

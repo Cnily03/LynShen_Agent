@@ -343,6 +343,20 @@ const shell = {
 			installClose: '知道了',
 			install: '安装到桌面',
 			inAppBrowser: '当前在应用内置浏览器里，无法安装、也收不到通知。请点右上角菜单，选「在浏览器中打开」。',
+			pairCheck: {
+				checkTitle: '在电脑上核对这串数字',
+				checkLabel: '核对码 {code}',
+				checkHint: '电脑上会显示同样的 6 位数字。一样就在电脑上点「确认」，这台手机才能使用。',
+				waiting: '等电脑确认…',
+				waitingShort: '等电脑确认',
+				cancel: '取消配对'
+			},
+			scope: {
+				lockedDesc: '要先在电脑上授权这台手机',
+				allowOnComputer: '这台手机不能批准这一项，请在电脑上处理，或在电脑上授权这台手机'
+			},
+			forgetNotRevoked: '电脑没有确认移除这台手机。请到电脑的 设置 → 远程访问 里移除它。',
+			forgetOffline: '电脑现在连不上：这台手机上的记录已删除。请到电脑的 设置 → 远程访问 里移除这台手机。',
 			push: {
 				menu: '通知',
 				title: '通知',
@@ -1416,6 +1430,20 @@ const shell = {
 			installClose: 'Got it',
 			install: 'Install the app',
 			inAppBrowser: "This is an app's built-in browser: it cannot install the app or show notifications. Open the menu and choose Open in browser.",
+			pairCheck: {
+				checkTitle: 'Check this number on the computer',
+				checkLabel: 'Check code {code}',
+				checkHint: 'The computer shows the same 6 digits. If they match, click Confirm there; then this phone can be used.',
+				waiting: 'Waiting for the computer to confirm…',
+				waitingShort: 'Waiting to be confirmed',
+				cancel: 'Cancel pairing'
+			},
+			scope: {
+				lockedDesc: 'Allow this phone on the computer first',
+				allowOnComputer: 'This phone may not allow this. Answer it on the computer, or allow this phone there'
+			},
+			forgetNotRevoked: 'The computer did not confirm removing this phone. Remove it in Settings → Remote access on the computer.',
+			forgetOffline: 'The computer cannot be reached: this phone forgot it. Remove this phone in Settings → Remote access on the computer.',
 			push: {
 				menu: 'Notifications',
 				title: 'Notifications',

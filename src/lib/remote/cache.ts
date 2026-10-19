@@ -87,3 +87,23 @@ export async function saveSession<T>(key: string, messages: T[], title?: string)
 		/* not kept: the computer sends it again next time */
 	}
 }
+
+/** Drops every conversation kept of `host` (keys `host:session`); with no
+ *  computer left, the whole database. */
+export async function forgetSessions(host: string, nothingLeft = false) {
+	if (typeof indexedDB === 'undefined') return;
+	try {
+		if (nothingLeft) {
+			(await open()).close();
+			db = null;
+			await done(indexedDB.deleteDatabase(DB) as unknown as IDBRequest<unknown>);
+			return;
+		}
+		const store = (await open()).transaction(STORE, 'readwrite').objectStore(STORE);
+		const keys = (await done(store.getAllKeys())) as string[];
+		const write = (await open()).transaction(STORE, 'readwrite').objectStore(STORE);
+		for (const key of keys) if (key.startsWith(`${host}:`)) write.delete(key);
+	} catch {
+		/* nothing kept, or storage blocked */
+	}
+}

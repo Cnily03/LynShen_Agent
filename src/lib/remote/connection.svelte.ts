@@ -9,8 +9,10 @@ import { DaemonClient, type DaemonEndpoint, type SocketLike } from '$lib/daemon'
 import { AgentDirectory } from '$lib/agents.svelte';
 import { Dispatches } from './dispatch.svelte';
 import { resubscribe } from './push';
+import { loadScopes, type Scope } from './device';
 import { provideAgents } from '$lib/agentScope';
-import { deviceKey, hostStaticKey, type RelayHost } from '$lib/relay/pairing';
+import { hostStaticKey, type RelayHost, type SavedHost } from '$lib/relay/pairing';
+import { deviceKeyFor } from '$lib/relay/deviceKey';
 import { RelaySocket, type RelayError, type RelayErrorKind } from '$lib/relay/socket';
 import { deviceName, remoteEndpoint } from '$lib/remote';
 import { RemoteProjects } from './store.svelte';
@@ -54,6 +56,7 @@ export function connectionState(
 	if (!error) return { tone: 'wait', text: 'shell.remote.relayConnecting', short: 'shell.remote.connecting' };
 	if (error === 'pair-invalid' || error === 'revoked')
 		return { tone: 'off', text: 'shell.remote.relayFatalTitle', short: 'shell.remote.relayFatalTitle' };
+	if (error === 'pending') return { tone: 'wait', text: 'shell.remote.pairCheck.waiting', short: 'shell.remote.pairCheck.waitingShort' };
 	if (error === 'offline') return { tone: 'off', text: 'shell.remote.relayOffline', short: 'shell.remote.hostOffline' };
 	if (error === 'busy') return { tone: 'off', text: 'shell.remote.relayBusy', short: 'shell.remote.disconnected' };
 	return { tone: 'off', text: 'shell.remote.relayNetwork', short: 'shell.remote.disconnected' };
@@ -71,6 +74,12 @@ export class HostConnection {
 	relayError = $state<RelayError | null>(null);
 	/** The daemon accepted this device at least once since the page opened. */
 	everConnected = $state(false);
+	/** While the computer has not confirmed this device: the 6-digit code to
+	 *  compare with the one the computer shows. */
+	checkCode = $state('');
+	/** What this phone may do on the computer beyond the defaults (granted
+	 *  there); null until known, or from an engine before scopes. */
+	scopes = $state<Scope[] | null>(null);
 	/** Frames and exits of the sessions open on this computer, by client id. */
 	#routes = new Map<string, Route>();
 	#socket: SocketLike | null = null;
@@ -109,8 +118,10 @@ export class HostConnection {
 
 	/** A paired computer through the relay; `pair` goes along until its
 	 *  daemon accepts this device once. */
-	static relay(host: RelayHost, pair?: string): HostConnection {
-		const device = deviceKey();
+	static relay(host: SavedHost | RelayHost, pair?: string): HostConnection {
+		// Its own key, or the older shared one it was paired with.
+		const legacy = !pair && !(host as SavedHost).own_key;
+		const device = () => deviceKeyFor(host.host_id, legacy);
 		const name = deviceName();
 		const conn: HostConnection = new HostConnection(
 			host.host_id,
@@ -127,31 +138,58 @@ export class HostConnection {
 					onAccepted: () => {
 						pair = undefined;
 						conn.relayError = null;
+						conn.checkCode = '';
 						conn.everConnected = true;
 					},
 					onRelayError: (error) => {
 						if (conn.#stopped) return;
 						conn.relayError = error;
 						if (error.fatal) conn.agents.stop();
+						// Waiting for the computer to confirm: the code is used, the
+						// device is known now; ask again soon.
+						if (error.kind === 'pending') {
+							pair = undefined;
+							conn.checkCode = error.check ?? conn.checkCode;
+							setTimeout(() => conn.agents.retryNow(), 2000);
+						}
 					}
 				})
 		);
 		return conn;
 	}
 
-	/** The daemon that served this page, with this device's LAN token. */
-	static lan(token: string): HostConnection {
-		return new HostConnection(
+	/** The daemon that served this page, with this device's LAN token.
+	 *  `check`: a new pairing's check code, shown until the computer
+	 *  confirms the device (its token connects from then on). */
+	static lan(token: string, check = ''): HostConnection {
+		const conn: HostConnection = new HostConnection(
 			LAN_ID,
 			'lan',
 			async () => remoteEndpoint(token),
 			(url) => new WebSocket(url) as unknown as SocketLike
 		);
+		if (check) {
+			conn.checkCode = check;
+			conn.everConnected = false;
+		}
+		return conn;
+	}
+
+	/** This phone may `scope` here: granted, or an engine that does not limit. */
+	may(scope: Scope): boolean {
+		return this.scopes === null || this.scopes.includes(scope);
+	}
+
+	/** Paired, and the computer has not confirmed this device yet. */
+	get awaitingConfirm(): boolean {
+		return !!this.checkCode && !this.everConnected;
 	}
 
 	/** Connects and keeps reconnecting, with backoff, until stopped. */
 	start() {
 		this.daemon.onEvent = (frame) => {
+			// The computer changed what this phone may do.
+			if (frame.type === 'device_scopes_changed') loadScopes(this.daemon).then((scopes) => (this.scopes = scopes));
 			this.agents.handle(frame);
 			this.projects.handle(frame);
 			this.dispatches.handle(frame);
@@ -162,6 +200,9 @@ export class HostConnection {
 		// or the browser renews its subscription.
 		this.daemon.onHello = (version) => {
 			engine.version = version;
+			this.checkCode = '';
+			this.everConnected = true;
+			loadScopes(this.daemon).then((scopes) => (this.scopes = scopes));
 			resubscribe(this.daemon).catch(() => {});
 		};
 		this.daemon.onDisconnect = () => {

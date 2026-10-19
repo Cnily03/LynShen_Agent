@@ -23,9 +23,11 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium webkit
       - run: node scripts/browser-regression.mjs
       - run: node scripts/phone-regression.mjs
-      - run: node --test scripts/prepare-desktop-release.test.mjs
+      - run: node --test scripts/prepare-desktop-release.test.mjs scripts/phone-csp.test.mjs
       - run: python3 scripts/test-receive-desktop-release.py
       - run: pnpm build
+      # The phone page's CSP on this build: renders, blocks injected scripts.
+      - run: cp -R build /tmp/phone-page && node scripts/phone-csp.mjs /tmp/phone-page && node scripts/phone-csp-check.mjs /tmp/phone-page
 
   # Release runs these tests on Windows before it builds; a Windows checkout has
   # CRLF line endings and backslash paths, so run them here first.

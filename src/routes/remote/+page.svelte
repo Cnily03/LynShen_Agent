@@ -27,7 +27,9 @@
 	import BellIcon from 'phosphor-svelte/lib/BellIcon';
 	import { enablePush, pushOn, pushSupported, openTarget, type OpenTarget } from '$lib/remote/push';
 	import type { ShowRequest } from '$lib/remote/HostView.svelte';
-	import { forgetLists } from '$lib/remote/cache';
+	import { forgetLists, forgetSessions } from '$lib/remote/cache';
+	import { forgetOnComputer } from '$lib/remote/device';
+	import { forgetDeviceKey } from '$lib/relay/deviceKey';
 	import { toast } from '$lib/ui/toast.svelte';
 	import HostView from '$lib/remote/HostView.svelte';
 	import PushSettings from '$lib/remote/PushSettings.svelte';
@@ -244,9 +246,9 @@
 		select(link.host.host_id);
 	}
 
-	function startLan(saved: string) {
+	function startLan(saved: string, check = '') {
 		conns.find((c) => c.id === LAN_ID)?.stop();
-		const conn = HostConnection.lan(saved);
+		const conn = HostConnection.lan(saved, check);
 		conns = [...conns.filter((c) => c.id !== LAN_ID), conn];
 		conn.start();
 	}
@@ -338,8 +340,8 @@
 		pairing = true;
 		pairError = '';
 		try {
-			await pairDevice(code, deviceName());
-			startLan(remoteToken()!);
+			const check = await pairDevice(code, deviceName());
+			startLan(remoteToken()!, check);
 			select(LAN_ID);
 		} catch (e) {
 			pairError = e instanceof Error ? e.message : String(e);
@@ -359,12 +361,22 @@
 		lanPairing = true;
 	}
 
-	function forget(conn: HostConnection, ask = true) {
+	/** Forgets a computer here and, when it can be reached, there too (the
+	 *  computer revokes this device), and drops what this phone kept of it:
+	 *  its lists and its conversations. */
+	async function forget(conn: HostConnection, ask = true) {
 		switchMenu = false;
 		if (ask && !confirm(t('shell.remote.forgetHostConfirm', { name: nameOf(conn) }))) return;
+		const revoked = conn.agents.status === 'on' ? await forgetOnComputer(conn.daemon) : false;
+		if (ask && conn.agents.status === 'on' && !revoked) toast.error(t('shell.remote.forgetNotRevoked'));
+		else if (ask && !revoked) toast.info(t('shell.remote.forgetOffline'));
 		conn.stop();
 		forgetHost(conn.id);
 		forgetLists(conn.id);
+		// The last computer gone: everything this phone kept goes with it.
+		const nothingLeft = loadHosts().length === 0 && !remoteToken();
+		void forgetSessions(conn.id, nothingLeft);
+		void forgetDeviceKey(conn.id, nothingLeft);
 		hosts = loadHosts();
 		conns = conns.filter((c) => c !== conn);
 		if (activeId === conn.id && conns.length) select(conns[0].id);
