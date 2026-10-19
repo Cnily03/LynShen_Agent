@@ -95,6 +95,9 @@ export interface PlanCard {
 	steps: StepView[];
 	done: number;
 	total: number;
+	/** The turn is at work: the step in progress shows it (PlanBody). The
+	 *  card shows only what the plan says; it never marks a step itself. */
+	live: boolean;
 	/** The step being worked on; -1 for none. */
 	current: number;
 	/** The first step that failed or waits for the reader; -1 for none. */
@@ -127,10 +130,62 @@ export function planCard({ plan, rows, busy, wait, error }: PlanCardInput): Plan
 		steps,
 		done: plan.done,
 		total: plan.total,
+		live: busy,
 		current: plan.current,
 		attention: steps.findIndex((s) => s.state === 'failed' || s.state === 'waiting')
 	};
 }
+
+/** How a step's change of state plays while the checklist is on screen
+ *  (PlanBody): a step done since the last update (`complete`: its circle
+ *  fills, the check draws, a line strikes its words and they dim), and the
+ *  step in progress after it (`light`: its dot lights up and the running
+ *  light starts). `from` is the state it had; `delay` (ms, before
+ *  --time-scale) puts several completions in sequence and the light after
+ *  the last of them. */
+export interface StepMotion {
+	index: number;
+	kind: 'complete' | 'light';
+	from: StepMark;
+	delay: number;
+}
+
+/** Between two steps completing in the same update. */
+export const STEP_STAGGER = 120;
+/** From a completion's start until its line has crossed most of the words:
+ *  when the next step lights up. */
+export const STEP_LIGHT_AFTER = 240;
+/** The longest part of a completion (the line, --t-slow) or a light-up
+ *  (--t-med), with some room: when its look is the static one again. */
+export const STEP_SETTLE = 400;
+
+const isDone = (state: StepMark) => state === 'done' || state === 'skipped';
+
+/** The motions an update of the checklist plays: only for steps it had
+ *  before (`prev`, each step's state by its text, null for a checklist that
+ *  was not on screen), so a plan loaded or shown again is drawn as it is. */
+export function stepMotions(prev: ReadonlyMap<string, StepMark> | null, steps: readonly Pick<StepView, 'text' | 'state'>[]): StepMotion[] {
+	if (!prev) return [];
+	const out: StepMotion[] = [];
+	let k = 0;
+	steps.forEach((s, index) => {
+		const from = prev.get(s.text);
+		if (from && s.state === 'done' && !isDone(from)) out.push({ index, kind: 'complete', from, delay: k++ * STEP_STAGGER });
+	});
+	const light = k ? (k - 1) * STEP_STAGGER + STEP_LIGHT_AFTER : 0;
+	steps.forEach((s, index) => {
+		const from = prev.get(s.text);
+		if (from === 'pending' && s.state === 'active') out.push({ index, kind: 'light', from, delay: light });
+	});
+	return out;
+}
+
+/** Each step's state by its text, as `stepMotions` compares them. */
+export const stepStates = (steps: readonly Pick<StepView, 'text' | 'state'>[]) => {
+	const map = new Map<string, StepMark>();
+	for (const s of steps) if (!map.has(s.text)) map.set(s.text, s.state);
+	return map;
+};
 
 /** What makes the plan card open by itself: the step that fails or waits,
  *  by its place and text ('' while none does). The same step waiting again

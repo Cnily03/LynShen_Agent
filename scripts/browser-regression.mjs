@@ -1195,8 +1195,9 @@ try {
     assert.equal(l.decor, 0, 'the cards draw a ring, a bar or beads');
     assert.ok(l.h1 <= 1, 'more than one h1');
   }
-  // The checklist: done steps checked, the current one at 500 (the others
-  // 400; 600 is for titles, design.md "Type"); each subagent
+  // The checklist: done steps checked, the current one in progress (its
+  // mark, not its weight: every step at 400; the marks are checked in the
+  // block below); each subagent
   // a 6px dot, its role, attempt, action and time; the team's tokens and board.
   const steps = cards.locator('.card.plan .step');
   await expect(steps).toHaveCount(7);
@@ -1204,7 +1205,7 @@ try {
   const current = cards.locator('.card.plan .step.current');
   await expect(current).toHaveText(/跑单元测试/);
   const weightOf = (step) => step.locator('.text').evaluate((el) => Number(getComputedStyle(el).fontWeight));
-  assert.equal(await weightOf(current), 500, 'the current step does not stand out at 500');
+  assert.equal(await weightOf(current), 400, 'the step in progress is not at 400');
   assert.equal(await weightOf(steps.nth(4)), 400, 'a pending step is not at 400');
   await expect(current.locator('.owner')).toHaveText('worker-2');
   const worker = cards.locator('.agent', {has: cardsPage.getByRole('button', {name:'查看 worker-2 在做什么'})});
@@ -1349,6 +1350,304 @@ try {
     assert.ok(await p.evaluate(() => !!window.__shellChat.pendingApproval), `${what}: Escape over the popover answered the approval`);
     await p.close();
   }
+
+  // BLOCK plan-step-marks
+  // The plan card's checklist (0.10.2), in Chromium and WebKit: each step as
+  // the plan says it is. One to do: a 9px hollow circle and --dim text. The
+  // one in progress: a 6px --accent dot and --text at 400, and while the turn
+  // works the running light sweeps its words (ui/shimmer.ts; not under
+  // reduced motion, and not once the turn is over). A done one: a filled
+  // circle with a check, its --dim words struck through. Each mark is an image named for its
+  // state. The title line names the step in progress and counts the done
+  // ones. A plan the model set once and left alone shows just that (step 1
+  // in progress, "0/6"). The veil matches the fill under the list: the
+  // card's --bg, the popover's and the phone sheet's --panel. (Each step
+  // showed as plain text: no mark but a done step's check.)
+  {
+    const shots = globalThis.__shots || '';
+    const wk = await webkit.launch();
+    try {
+      const SIX = ['设计文档 + 仓库脚手架（package.json / DESIGN.md / 目录结构）', '核心引擎：RNG、事件钩子、效果DSL、状态系统、战斗引擎', '元系统：地图生成、Run状态机、Meta进度、存档、校验器、无头模拟器', '并行 subagents：4个角色卡组 / 遗物药水 / 敌人Boss / 事件商店 / UI渲染 / 测试', '合并、全量校验、平衡模拟、修复', '浏览器端到端截图验证 + README'];
+      const STATES = ['pending', 'active', 'done', 'skipped', 'failed', 'waiting'];
+      // Each step: its state, its mark (shape, size, fill, ring) and its words.
+      const marks = (p, list) => p.locator(list).locator('.step').evaluateAll((lis, STATES) => lis.map((li) => {
+        const m = li.querySelector('.mark');
+        const shape = m.firstElementChild;
+        const cs = shape ? getComputedStyle(shape) : null;
+        const t = getComputedStyle(li.querySelector('.text'));
+        return {
+          state: [...li.classList].find((c) => STATES.includes(c)), role: m.getAttribute('role'), label: m.getAttribute('aria-label'),
+          shape: !shape ? '' : shape.tagName.toLowerCase() === 'svg' ? 'check' : shape.className.split(' ')[0],
+          size: cs ? `${cs.width}×${cs.height}` : '', fill: cs?.backgroundColor, ring: cs && parseFloat(cs.borderTopWidth) >= 1 ? cs.borderTopColor : '',
+          color: t.color, weight: Number(t.fontWeight), strike: t.textDecorationLine, veils: li.querySelectorAll('.veil').length
+        };
+      }), STATES);
+      const tokens = (p) => p.evaluate(() => Object.fromEntries(['--dim', '--dim2', '--text', '--accent'].map((name) => {
+        const el = document.createElement('i');
+        el.style.color = `var(${name})`;
+        document.body.append(el);
+        const c = getComputedStyle(el).color;
+        el.remove();
+        return [name, c];
+      })));
+      // The colour the veil is mixed from (--step-bg) and the fill behind the list.
+      const veilFill = (p, list, box) => p.evaluate(({list, box}) => {
+        const steps = document.querySelector(`${list} .steps`);
+        const probe = document.createElement('i');
+        probe.style.background = 'var(--step-bg)';
+        steps.append(probe);
+        const fill = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return [fill, getComputedStyle(document.querySelector(box)).backgroundColor];
+      }, {list, box});
+      const sweeping = (p, list) => p.locator(`${list} .steps .veil`).evaluateAll((vs) => vs.map((v) => ({display: getComputedStyle(v).display, running: v.getAnimations().filter((a) => a.playState === 'running').length})));
+      const check = (got, k) => {
+        const want = {
+          done: {role: 'img', label: '已完成', shape: 'tick', size: '12px×12px', color: k['--dim'], weight: 400, strike: 'line-through', veils: 0},
+          active: {role: 'img', label: '进行中', shape: 'dot', size: '6px×6px', fill: k['--accent'], color: k['--text'], weight: 400, strike: 'none'},
+          pending: {role: 'img', label: '待开始', shape: 'ring', size: '9px×9px', ring: k['--dim2'], color: k['--dim'], weight: 400, strike: 'none', veils: 0}
+        }[got.state];
+        assert.ok(want, `a step in an unexpected state: ${JSON.stringify(got)}`);
+        for (const [key, value] of Object.entries(want)) assert.equal(got[key], value, `${got.state} step: ${key} (${JSON.stringify(got)})`);
+      };
+      for (const [engine, b] of [['Chromium', browser], ['WebKit', wk]]) {
+        for (const theme of ['dark', 'light']) {
+          const p = await b.newPage({viewport: {width: 1440, height: 900}});
+          p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+          await p.goto(base + `?shell&cards&theme=${theme}`);
+          await expect(p.locator('.composer')).toBeVisible({timeout: 60000});
+          const card = p.locator('.card.plan');
+          await expect(card.locator('.step')).toHaveCount(7);
+          await expect(card.locator('.head')).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+          const k = await tokens(p);
+          // Three done, the fourth in progress, three to do.
+          let m = await marks(p, '.card.plan');
+          assert.deepEqual(m.map((s) => s.state), ['done', 'done', 'done', 'active', 'pending', 'pending', 'pending'], engine);
+          m.forEach((s) => check(s, k));
+          // The light sweeps the step in progress while the turn works.
+          assert.equal(m[3].veils, 1, `${engine}: the step in progress has no running light`);
+          assert.deepEqual(await sweeping(p, '.card.plan'), [{display: 'block', running: 1}], `${engine} ${theme}: the light does not sweep`);
+          const [mixed, behind] = await veilFill(p, '.card.plan', '.card.plan');
+          assert.equal(mixed, behind, `${engine} ${theme}: the veil is not the card's fill`);
+          if (shots) {
+            await card.screenshot({path: `${shots}/${engine.toLowerCase()}-${theme}-beside-3of7.png`});
+            // The light halfway across the words, held there.
+            await p.locator('.card.plan .steps .veil').evaluate((v) => { const a = v.getAnimations()[0]; a.pause(); a.currentTime = a.effect.getTiming().duration * 0.4; });
+            await card.locator('.step.active').screenshot({path: `${shots}/${engine.toLowerCase()}-${theme}-sweep-held.png`});
+            await p.locator('.card.plan .steps .veil').evaluate((v) => v.getAnimations()[0].play());
+          }
+          // A plan set once and left alone (the owner's session): step 1 in
+          // progress, the rest to do, as the engine says.
+          await p.evaluate((SIX) => window.__shellChat.handle({type: 'plan', plan: SIX.map((step, i) => ({step, status: i === 0 ? 'in_progress' : 'pending'}))}), SIX);
+          await expect(card.locator('.head')).toHaveText(/计划\s*0\/6\s*·\s*设计文档/);
+          m = await marks(p, '.card.plan');
+          assert.deepEqual(m.map((s) => s.state), ['active', 'pending', 'pending', 'pending', 'pending', 'pending'], engine);
+          m.forEach((s) => check(s, k));
+          if (shots) await card.screenshot({path: `${shots}/${engine.toLowerCase()}-${theme}-beside-stale-0of6.png`});
+          // Kept current: the title line names the step in progress (the
+          // steps done play their completion first).
+          await p.evaluate((SIX) => window.__shellChat.handle({type: 'plan', plan: SIX.map((step, i) => ({step, status: i < 3 ? 'completed' : i === 3 ? 'in_progress' : 'pending'}))}), SIX);
+          await expect(card.locator('.head')).toHaveText(/计划\s*3\/6\s*·\s*并行 subagents/);
+          await expect(card.locator('.completing, .lighting')).toHaveCount(0, {timeout: 3000});
+          m = await marks(p, '.card.plan');
+          assert.deepEqual(m.map((s) => s.state), ['done', 'done', 'done', 'active', 'pending', 'pending'], engine);
+          m.forEach((s) => check(s, k));
+          if (shots) await card.screenshot({path: `${shots}/${engine.toLowerCase()}-${theme}-beside-kept-3of6.png`});
+          // The turn is over: the step stays in progress, the light stops.
+          // (The fixture's turn has no start time; one that started before
+          // the plan keeps the card after it.)
+          await p.evaluate(() => { const c = window.__shellChat; c.turnStartedAt = c.planAt - 1000; c.handle({type: 'status', message: 'ready'}); });
+          await expect(card.locator('.step')).toHaveCount(6);
+          await expect(card.locator('.steps .veil')).toHaveCount(0);
+          m = await marks(p, '.card.plan');
+          assert.equal(m[3].state, 'active', engine);
+          check(m[3], k);
+          await p.close();
+        }
+        // Reduced motion: no light, the words stay --text.
+        {
+          const ctx = await b.newContext({viewport: {width: 1440, height: 900}, reducedMotion: 'reduce'});
+          const p = await ctx.newPage();
+          p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+          await p.goto(base + '?shell&cards');
+          await expect(p.locator('.card.plan .step')).toHaveCount(7, {timeout: 60000});
+          assert.deepEqual(await sweeping(p, '.card.plan'), [{display: 'none', running: 0}], `${engine}: the light sweeps under reduced motion`);
+          const m = await marks(p, '.card.plan');
+          check(m[3], await tokens(p));
+          await ctx.close();
+        }
+        // A narrow leaf: the popover's list, its veil in --panel.
+        {
+          const p = await b.newPage({viewport: {width: 1100, height: 760}});
+          p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+          await p.goto(base + '?shell&cards');
+          await expect(p.locator('.composer')).toBeVisible({timeout: 60000});
+          const line = p.getByRole('region', {name: '计划和子智能体'}).locator('.tline').first();
+          await expect(line).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/);
+          await line.click();
+          await expect(p.locator('.cardpop .step')).toHaveCount(7);
+          const k = await tokens(p);
+          (await marks(p, '.cardpop')).forEach((s) => check(s, k));
+          const [mixed, behind] = await veilFill(p, '.cardpop', '.cardpop');
+          assert.equal(mixed, behind, `${engine}: the popover's veil is not its fill`);
+          await p.waitForTimeout(400);
+          if (shots) await p.screenshot({path: `${shots}/${engine.toLowerCase()}-narrow-popover.png`, clip: {x: 560, y: 0, width: 540, height: 420}});
+          await p.close();
+        }
+        // The phone page: the sheet's list, its veil in --panel.
+        {
+          const p = await b.newPage({viewport: {width: 390, height: 844}});
+          p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+          await p.goto(base + '?remote&cards');
+          const chip = p.getByRole('region', {name: '计划和子智能体'}).locator('.chip').first();
+          await expect(chip).toHaveText(/计划\s*3\/7\s*·\s*跑单元测试/, {timeout: 60000});
+          await chip.click();
+          const sheet = p.locator('.sheet[role="dialog"]');
+          await expect(sheet.locator('.step')).toHaveCount(7);
+          const k = await tokens(p);
+          const m = await marks(p, '.sheet');
+          m.forEach((s) => check(s, k));
+          if (m[3].veils) {
+            const [mixed, behind] = await veilFill(p, '.sheet', '.sheet');
+            assert.equal(mixed, behind, `${engine}: the sheet's veil is not its fill`);
+          }
+          await p.waitForTimeout(400);
+          if (shots) await p.screenshot({path: `${shots}/${engine.toLowerCase()}-phone-sheet.png`});
+          await p.close();
+        }
+      }
+    } finally {
+      await wk.close();
+    }
+  }
+  // END BLOCK plan-step-marks
+
+  // BLOCK plan-step-motion
+  // A step done while the plan card is on screen (0.10.2), in Chromium and
+  // WebKit: its circle fills and the check draws, a line sweeps its words
+  // left to right and stays, the words dim, then the next step's dot lights
+  // up. Steps done together play in turn. Nothing moves the layout, and
+  // only transform, opacity, clip-path and stroke-dashoffset animate. Its
+  // end state is a done step's static one. A card that comes on screen (the
+  // collapsed card opened again, the page reloaded) plays nothing. Reduced
+  // motion: the end state at once.
+  {
+    const shots = globalThis.__shots || '';
+    const wk = await webkit.launch();
+    try {
+      const C = 'completed', A = 'in_progress', P = 'pending';
+      // The fixture's plan with other statuses (its owners and files kept).
+      const plan = (p, states) => p.evaluate((states) => {
+        const c = window.__shellChat;
+        c.handle({type: 'plan', plan: c.plan.map((s, i) => ({...s, status: states[i]}))});
+      }, states);
+      // What runs in the card: each animation's name, delay and duration
+      // (the CSS property it moves is checked through its keyframes).
+      const running = (p) => p.evaluate(() => document.getAnimations()
+        .filter((a) => a.animationName?.includes('step-') && document.querySelector('.card.plan')?.contains(a.effect?.target))
+        .map((a) => {
+          const step = a.effect.target.closest('.step');
+          const t = a.effect.getTiming();
+          return {step: [...step.parentElement.children].indexOf(step), name: a.animationName.replace(/^.*step-/, ''), delay: Math.round(t.delay), props: [...new Set(a.effect.getKeyframes().flatMap((k) => Object.keys(k)).filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)))]};
+        }));
+      // A done step as it is drawn at rest: the disc, the check drawn, the
+      // line through the words, the words dim; no copies over them.
+      const doneLook = (p, i) => p.locator('.card.plan .step').nth(i).evaluate((li) => {
+        const text = li.querySelector('.text');
+        return {
+          cls: [...li.classList].filter((c) => ['completing', 'lighting', 'recolour'].includes(c)),
+          disc: getComputedStyle(li.querySelector('.disc')).opacity, check: getComputedStyle(li.querySelector('.check')).strokeDashoffset,
+          line: getComputedStyle(text).textDecorationLine, color: getComputedStyle(text).color,
+          copies: ['::before', '::after'].map((at) => getComputedStyle(text, at).content).filter((c) => c !== 'none'),
+          was: li.querySelectorAll('.was').length
+        };
+      });
+      // Each row's top and height, and where its words' glyphs are.
+      const geometry = (p) => p.locator('.card.plan .step').evaluateAll((lis) => lis.map((li) => {
+        const r = li.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(li.querySelector('.words'));
+        const g = [...range.getClientRects()].map((q) => [Math.round(q.left), Math.round(q.top), Math.round(q.right)].join(','));
+        return [Math.round(r.top), Math.round(r.height), g.join(' ')];
+      }));
+      for (const [engine, b] of [['Chromium', browser], ['WebKit', wk]]) {
+        const p = await b.newPage({viewport: {width: 1440, height: 900}});
+        p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+        await p.goto(base + '?shell&cards');
+        await expect(p.locator('.card.plan .step')).toHaveCount(7, {timeout: 60000});
+        // The fixture's turn has no start time; the app's has one, so a
+        // plan changed in it stays on screen once done.
+        await p.evaluate(() => (window.__shellChat.turnStartedAt = Date.now() - 60_000));
+        const dim = await p.evaluate(() => { const el = document.createElement('i'); el.style.color = 'var(--dim)'; document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; });
+        // The page as loaded: nothing plays, done steps are drawn at rest.
+        assert.deepEqual(await running(p), [], `${engine}: a loaded plan plays`);
+        assert.deepEqual(await doneLook(p, 0), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, engine);
+        const before = await geometry(p);
+        // Step 4 done, step 5 lit: they play, the light after the line.
+        await plan(p, [C, C, C, C, A, P, P]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(1);
+        const one = await running(p);
+        const of = (step, name) => one.find((a) => a.step === step && a.name === name);
+        for (const [step, name] of [[3, 'fill'], [3, 'draw'], [3, 'strike'], [3, 'fade'], [4, 'light']]) assert.ok(of(step, name), `${engine}: no ${name} on step ${step + 1}: ${JSON.stringify(one)}`);
+        assert.ok(of(4, 'light').delay > of(3, 'strike').delay, `${engine}: the next step lights before the line`);
+        const allowed = new Set(['transform', 'opacity', 'clipPath', 'clip-path', 'strokeDashoffset', 'stroke-dashoffset']);
+        const moved = one.flatMap((a) => a.props).filter((k) => !allowed.has(k));
+        assert.deepEqual(moved, [], `${engine}: an animation moves ${moved}`);
+        // No layout shift while it plays.
+        assert.deepEqual(await geometry(p), before, `${engine}: the steps moved or resized`);
+        // Its end: the static done step; the next one lit, the light sweeping.
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        assert.deepEqual(await doneLook(p, 3), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, `${engine}: the end state`);
+        await expect(p.locator('.card.plan .step').nth(4)).toHaveClass(/active/);
+        await expect(p.locator('.card.plan .step').nth(4).locator('.veil')).toHaveCount(1);
+        assert.deepEqual(await geometry(p), before, `${engine}: the steps moved or resized after`);
+        // Two done at once play in turn; the last step lights after both.
+        await plan(p, [C, C, C, C, C, C, A]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(2);
+        const two = await running(p);
+        const strikes = two.filter((a) => a.name === 'strike').sort((x, y) => x.step - y.step);
+        assert.deepEqual(strikes.map((a) => a.step), [4, 5], engine);
+        assert.ok(strikes[1].delay - strikes[0].delay >= 100, `${engine}: the second starts with the first`);
+        assert.ok(two.find((a) => a.name === 'light').delay > strikes[1].delay, `${engine}: the light before the last line`);
+        if (shots && engine === 'Chromium') await p.locator('.card.plan').screenshot({path: `${shots}/anim-chromium-two-at-once-start.png`});
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        // Collapsed and opened again: drawn as it is, nothing replays. (The
+        // turn still runs: a plan with steps to do stays on screen.)
+        await plan(p, [C, C, C, C, C, A, P]);
+        await expect(p.locator('.card.plan .completing, .card.plan .lighting')).toHaveCount(0, {timeout: 3000});
+        const head = p.locator('.card.plan .head');
+        await head.click();
+        await expect(p.locator('.card.plan .step')).toHaveCount(0);
+        await head.click();
+        await expect(p.locator('.card.plan .step')).toHaveCount(7);
+        assert.deepEqual(await running(p), [], `${engine}: the card opened again replays`);
+        for (let i = 0; i < 5; i++) assert.deepEqual((await doneLook(p, i)).cls, [], engine);
+        if (shots) await p.locator('.card.plan').screenshot({path: `${shots}/anim-${engine.toLowerCase()}-reopened.png`});
+        // The last steps done: the card stays for the rest of the turn, and
+        // the last completion plays.
+        await plan(p, [C, C, C, C, C, C, C]);
+        await expect(p.locator('.card.plan .step.completing')).toHaveCount(2);
+        await expect(p.locator('.card.plan .completing')).toHaveCount(0, {timeout: 3000});
+        await p.close();
+        // Reduced motion: the end state at once.
+        const ctx = await b.newContext({viewport: {width: 1440, height: 900}, reducedMotion: 'reduce'});
+        const r = await ctx.newPage();
+        r.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+        await r.goto(base + '?shell&cards');
+        await expect(r.locator('.card.plan .step')).toHaveCount(7, {timeout: 60000});
+        await plan(r, [C, C, C, C, A, P, P]);
+        await expect(r.locator('.card.plan .step').nth(3)).toHaveClass(/done/);
+        assert.deepEqual(await running(r), [], `${engine}: it plays under reduced motion`);
+        // (app.css gives every transition 0.01ms there: one frame.)
+        await r.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+        assert.deepEqual(await doneLook(r, 3), {cls: [], disc: '1', check: '0px', line: 'line-through', color: dim, copies: [], was: 0}, `${engine}: reduced motion`);
+        await ctx.close();
+      }
+    } finally {
+      await wk.close();
+    }
+  }
+  // END BLOCK plan-step-motion
 
   // The phone page: the cards' title lines as chips under the header; a tap
   // opens one as a sheet from the bottom (not dimming: phone-regression.mjs), closed by Escape; a

@@ -15,6 +15,10 @@ import {
 	planCard,
 	planTitle,
 	saveCards,
+	STEP_LIGHT_AFTER,
+	STEP_STAGGER,
+	stepMotions,
+	stepStates,
 	type CardsState,
 	type PlanCardInput
 } from './progressCards';
@@ -139,6 +143,25 @@ describe('the plan card', () => {
 		expect(planTitle(planCard(input({ plan: done, busy: false })))).toMatchObject({ count: '4/4', allDone: true });
 	});
 
+	it('shows each step as the plan says, the one in progress live while the turn works', () => {
+		// One update_plan call, then a long turn: the card says what the plan
+		// says (step 1 in progress), nothing more.
+		const six = ['设计文档 + 仓库脚手架', '核心引擎', '元系统', '并行 subagents', '合并、全量校验', '浏览器端到端截图验证'];
+		const stale = planCard(input({ plan: planSummary(six.map((step, i) => ({ step, status: i === 0 ? 'in_progress' : 'pending' }))) }));
+		expect(stale.steps.map((s) => s.state)).toEqual(['active', 'pending', 'pending', 'pending', 'pending', 'pending']);
+		expect(planTitle(stale)).toMatchObject({ count: '0/6', step: '设计文档 + 仓库脚手架' });
+		expect(stale.live).toBe(true);
+		// Kept current: the title line names the step in progress, not the first.
+		const kept = planCard(
+			input({ plan: planSummary(six.map((step, i) => ({ step, status: i < 3 ? 'completed' : i === 3 ? 'in_progress' : 'pending' }))) })
+		);
+		expect(kept.steps.map((s) => s.state)).toEqual(['done', 'done', 'done', 'active', 'pending', 'pending']);
+		expect(kept.current).toBe(3);
+		expect(planTitle(kept)).toMatchObject({ count: '3/6', step: '并行 subagents' });
+		// The turn is over: the step is still in progress, but nothing runs.
+		expect(planCard(input({ busy: false })).live).toBe(false);
+	});
+
 	it('marks the step whose subagent failed', () => {
 		const card = planCard(input({ rows: [row({ state: 'failed', error: 'tests failed\nat line 3' })] }));
 		expect(card.steps[1]).toMatchObject({ state: 'failed', reason: { kind: 'agent', name: 'worker-1', error: 'tests failed' } });
@@ -166,6 +189,54 @@ describe('the plan card', () => {
 		expect(sub.steps[1].reason).toEqual({ kind: 'question' });
 		// The turn is over: nothing waits.
 		expect(planCard(input({ busy: false, wait: { kind: 'approval', agent: '' } })).attention).toBe(-1);
+	});
+});
+
+describe('a step done while the checklist is on screen', () => {
+	const view = (states: string[]) => planCard({ plan: planSummary(states.map((status, i) => ({ step: `s${i + 1}`, status }))), rows: [], busy: true, wait: null, error: '' }).steps;
+	const before = view(['completed', 'in_progress', 'pending', 'pending']);
+
+	it('plays the step done, then lights the next one', () => {
+		const after = view(['completed', 'completed', 'in_progress', 'pending']);
+		expect(stepMotions(stepStates(before), after)).toEqual([
+			{ index: 1, kind: 'complete', from: 'active', delay: 0 },
+			{ index: 2, kind: 'light', from: 'pending', delay: STEP_LIGHT_AFTER }
+		]);
+	});
+
+	it('plays several steps done at once one after another, the light after the last', () => {
+		const after = view(['completed', 'completed', 'completed', 'in_progress']);
+		expect(stepMotions(stepStates(before), after)).toEqual([
+			{ index: 1, kind: 'complete', from: 'active', delay: 0 },
+			{ index: 2, kind: 'complete', from: 'pending', delay: STEP_STAGGER },
+			{ index: 3, kind: 'light', from: 'pending', delay: STEP_STAGGER + STEP_LIGHT_AFTER }
+		]);
+	});
+
+	it('plays nothing for a checklist that comes on screen, or an update that changes no step', () => {
+		const done = view(['completed', 'completed', 'completed', 'completed']);
+		// Shown for the first time (a plan loaded, a card opened again).
+		expect(stepMotions(null, done)).toEqual([]);
+		expect(stepMotions(stepStates(done), done)).toEqual([]);
+		// A step done before stays still; a step that came back is drawn as it is.
+		expect(stepMotions(stepStates(done), before)).toEqual([]);
+		// A new plan with other steps.
+		const other = planCard({ plan: planSummary([{ step: 'x', status: 'completed' }]), rows: [], busy: true, wait: null, error: '' }).steps;
+		expect(stepMotions(stepStates(before), other)).toEqual([]);
+	});
+
+	it('plays a step done from any state but done, and lights only a step that was to do', () => {
+		const failed = new Map([
+			['s1', 'failed' as const],
+			['s2', 'waiting' as const],
+			['s3', 'skipped' as const],
+			['s4', 'active' as const]
+		]);
+		const after = view(['completed', 'completed', 'completed', 'in_progress']);
+		expect(stepMotions(failed, after).map((m) => [m.index, m.kind, m.from])).toEqual([
+			[0, 'complete', 'failed'],
+			[1, 'complete', 'waiting']
+		]);
 	});
 });
 

@@ -374,6 +374,7 @@
 	}
 	/* Positioned against the leaf below the strip (.mainwrap). */
 	.cardpop {
+		--plan-fill: var(--panel);
 		position: absolute;
 		top: 40px;
 		z-index: 30;
