@@ -168,6 +168,38 @@ describe('ChatState.handle', () => {
 		expect(userTexts(c)).toEqual(['first']);
 	});
 
+	// Ticket #39: a reopened conversation shows each turn's model and duration
+	// from the engine's record, not only the turn that just ran here.
+	it('stamps the turn figures the engine recorded on each turn of a reopened conversation', () => {
+		const c = new ChatState();
+		c.handle({
+			type: 'transcript',
+			items: [
+				{ role: 'user', content: 'one' },
+				{ role: 'assistant', content: 'thinking aloud' },
+				{ role: 'tool', name: 'bash', output: 'ok' },
+				{ role: 'assistant', content: 'done one' },
+				{ role: 'turn_stats', model: 'claude-haiku-5-5', elapsed_ms: 49200, ttft_ms: 20200, input_tokens: 797300, output_tokens: 606, tools: 1, cost: 0 },
+				{ role: 'user', content: 'two' },
+				// Stopped before it answered: nothing to stamp.
+				{ role: 'turn_stats', model: 'gpt-6.1-sol', elapsed_ms: 3000 },
+				{ role: 'user', content: 'three' },
+				{ role: 'assistant', content: 'done three' },
+				{ role: 'turn_stats', model: 'gpt-6.1-sol', elapsed_ms: 1500 },
+				// Not a record this version reads.
+				{ role: 'turn_stats', elapsed_ms: 10 }
+			]
+		});
+		const replies = c.messages.filter((m) => m.kind === 'assistant') as Extract<(typeof c.messages)[number], { kind: 'assistant' }>[];
+		expect(replies.map((m) => m.text)).toEqual(['thinking aloud', 'done one', 'done three']);
+		expect(replies[0]!.turn).toBeUndefined();
+		expect(replies[1]!.turn).toMatchObject({ model: 'claude-haiku-5-5', elapsed: 49200, ttft: 20200, inTokens: 797300, outTokens: 606, tools: 1 });
+		expect(replies[1]!.elapsed).toBe(49200);
+		expect(replies[2]!.turn).toMatchObject({ model: 'gpt-6.1-sol', elapsed: 1500 });
+		expect(replies[2]!.turn?.ttft).toBeUndefined();
+		expect(c.messages.some((m) => m.kind === 'system')).toBe(false);
+	});
+
 	it('takes the snapshot copy of a just-sent message when it already has it', () => {
 		const c = new ChatState();
 		c.optimisticUser('first');
