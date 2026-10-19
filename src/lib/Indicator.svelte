@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	// The work status line under the transcript: one sign, what the turn is
 	// doing in words ("正在运行 pnpm vitest run"), how long this step has
 	// taken, and "›" to the running tool call's details (workStatus.ts). The
@@ -48,8 +49,7 @@
 	$effect(() => {
 		if (!anchor) return;
 		now = Date.now();
-		const timer = setInterval(() => (now = Date.now()), 500);
-		return () => clearInterval(timer);
+		return visibleInterval(() => (now = Date.now()), 500);
 	});
 </script>
 

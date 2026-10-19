@@ -581,7 +581,7 @@ function replayMessages(items: Record<string, unknown>[]): Msg[] {
 					kind: 'tool',
 					callId: '',
 					name: str(it.name),
-					output: boundedOutput(str(it.output)),
+					output: boundedOutput(str(it.output), str(it.name)),
 					running: false,
 					isError: false
 				};
@@ -700,9 +700,19 @@ export interface TurnDiff {
 /** What a tool card keeps of an output in memory: a long one (a build log,
  *  a big file read) keeps its head and tail. Structured (JSON) outputs are
  *  kept whole when they fit, else their string fields are cut the same way,
- *  so a card still parses them. The engine's session keeps the full output. */
+ *  so a card still parses them. The engine's session keeps the full output.
+ *  An image a `read` call returns (`name`) keeps no pixels: its card shows
+ *  the file's name only, and a screenshot held 300 KB to 1 MB of base64 in
+ *  memory for as long as its conversation was open. */
 const TOOL_OUTPUT_MAX = 64 * 1024;
-export function boundedOutput(output: string): string {
+export function boundedOutput(output: string, name = ''): string {
+	if (name === 'read' && output.includes('"base64"')) {
+		const o = outputObject(output);
+		if (o?.kind === 'image' && typeof o.base64 === 'string') {
+			delete o.base64;
+			return JSON.stringify(o);
+		}
+	}
 	if (output.length <= TOOL_OUTPUT_MAX) return output;
 	const cut = (text: string, max: number) =>
 		text.length <= max ? text : `${text.slice(0, max / 2)}\n… (${text.length - max} characters not shown) …\n${text.slice(-max / 2)}`;
@@ -2050,7 +2060,7 @@ export class ChatState {
 			case 'tool_update': {
 				const t = this.#tool(str(ev.call_id));
 				if (t) {
-					t.output = boundedOutput(str(ev.output));
+					t.output = boundedOutput(str(ev.output), t.name);
 					if (SUBAGENT_CALLS.has(t.name) || t.name === 'send_to_session') t.args = t.output;
 					const started = /^started: (.+)/.exec(t.output)?.[1]?.trim();
 					if (started && !t.target) t.target = started;
@@ -2067,7 +2077,7 @@ export class ChatState {
 				this.#segStart = Date.now();
 				const t = this.#tool(str(ev.call_id));
 				if (t) {
-					t.output = boundedOutput(str(ev.output));
+					t.output = boundedOutput(str(ev.output), t.name);
 					t.running = false;
 					t.isError = ev.is_error === true;
 					// Its output came after all: the engine kept it.
@@ -2634,7 +2644,7 @@ export class ChatState {
 								callId: str(it.call_id),
 								name: str(it.name),
 								// The call's arguments name what it acted on until its output does.
-								output: boundedOutput(str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input))),
+								output: boundedOutput(str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input)), str(it.name)),
 								running: it.running === true,
 								isError: it.is_error === true
 							};

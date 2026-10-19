@@ -136,7 +136,6 @@
 	import { agentChanges, agentChangesOf, agentChangesPanel } from '$lib/agents/agentChanges.svelte';
 	import { subagentPages, subagentOf, subagentPanel, type SubagentPlace } from '$lib/agents/subagentPages.svelte';
 	import SubagentPane from '$lib/agents/SubagentPane.svelte';
-	import FilePreview from '$lib/preview/FilePreview.svelte';
 	import { filePreviews } from '$lib/preview/store.svelte';
 	import { dropPreviewTabs, previewOf, previewPanel } from '$lib/preview/kinds';
 	import { fileName } from '$lib/attachments';
@@ -149,14 +148,18 @@
 	import TurnsPanel from '$lib/TurnsPanel.svelte';
 	import FilesPanel from '$lib/FilesPanel.svelte';
 	import GitPanel from '$lib/GitPanel.svelte';
-	import TerminalPanel from '$lib/TerminalPanel.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import BrowserPanel from '$lib/BrowserPanel.svelte';
 	import DiagnosticsPanel from '$lib/DiagnosticsPanel.svelte';
 	import AgentRunsPanel from '$lib/AgentRunsPanel.svelte';
 	import TeamPanel from '$lib/agents/TeamPanel.svelte';
-	import TuiPanel from '$lib/TuiPanel.svelte';
-	import EditorPane from '$lib/editor/EditorPane.svelte';
+	import type TuiPanel from '$lib/TuiPanel.svelte';
+	import Lazy from '$lib/ui/Lazy.svelte';
+	// Loaded when first shown (ui/Lazy.svelte): CodeMirror and xterm.
+	const FilePreview = () => import('$lib/preview/FilePreview.svelte');
+	const TerminalPanel = () => import('$lib/TerminalPanel.svelte');
+	const TuiPanelCode = () => import('$lib/TuiPanel.svelte');
+	const EditorPane = () => import('$lib/editor/EditorPane.svelte');
 	import QuickOpen from '$lib/editor/QuickOpen.svelte';
 	import { editorStore } from '$lib/editor/editorStore.svelte';
 
@@ -1815,8 +1818,9 @@
 											     resuming this conversation by id (never a standalone tui:* tab),
 											     once the engine has its daemon session (a new one is starting). -->
 											{#if sess.chat.sessionId && daemon.sessionOf(sid)}
-											<TuiPanel
-												bind:this={tuiPanels[sid]}
+											<Lazy
+												load={TuiPanelCode}
+												bind:instance={tuiPanels[sid]}
 												backend={sess.backendId}
 												cwd={store.projectPathOf(sid) ?? ''}
 												session={daemon.sessionOf(sid)}
@@ -1886,7 +1890,7 @@
 										<SubagentPane chat={sessionMap.get(sub.sessionId)?.chat} agentId={sub.agentId} onOp={(op) => dispatch(sub.sessionId, op)} />
 									{/key}
 								{:else if previewOf(tab.panel)}
-									<FilePreview path={previewOf(tab.panel)!} root={activeProject?.path ?? ''} />
+									<Lazy load={FilePreview} path={previewOf(tab.panel)!} root={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'goal'}<GoalPanel goal={chat?.goal ?? null} />
 								{:else if tab.panel === 'agents'}{#if chat && activeId}{#key activeId}<AgentRunsPanel {chat} onOp={(op) => activeId && dispatch(activeId, op)} />{/key}{/if}
 								{:else if tab.panel === 'team'}{#if chat && activeId}{#key activeId}<TeamPanel
@@ -1903,11 +1907,11 @@
 								{:else if tab.panel === 'turns'}<TurnsPanel turns={chat?.turnTimeline ?? []} onOpenFile={openActiveFile} />
 								{:else if tab.panel === 'files'}<FilesPanel rootDir={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'git'}<GitPanel cwd={activeProject?.path ?? ''} worktree={activeProject?.worktree ?? null} llm={llmTarget} onOpenTask={(path, meta) => openTaskProject(path, meta)} onTaskRemoved={closeTaskProject} />
-								{:else if tab.panel === 'term'}<TerminalPanel cwd={terminalRequests.cwdOf(tab.id) ?? activeProject?.path ?? ''} tabId={tab.id} />
+								{:else if tab.panel === 'term'}<Lazy load={TerminalPanel} cwd={terminalRequests.cwdOf(tab.id) ?? activeProject?.path ?? ''} tabId={tab.id} />
 								{:else if tab.panel === 'browser'}<BrowserPanel />
 								{:else if tab.panel === 'diag'}<DiagnosticsPanel chat={chat ?? null} />
-								{:else if tab.panel === 'audit'}<EditorPane onAiSend={sendAiEdit} />
-								{:else if tui}<TuiPanel backend={tui} cwd={activeProject?.path ?? ''} onOpenSettings={() => openSettings('agents')} />
+								{:else if tab.panel === 'audit'}<Lazy load={EditorPane} onAiSend={sendAiEdit} />
+								{:else if tui}<Lazy load={TuiPanelCode} backend={tui} cwd={activeProject?.path ?? ''} onOpenSettings={() => openSettings('agents')} />
 								{/if}
 							{/snippet}
 						</Mosaic>

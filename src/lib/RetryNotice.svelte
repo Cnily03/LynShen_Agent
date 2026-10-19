@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	// A model request that failed and is being re-sent: which attempt of how
 	// many (one segment each, for a few), the countdown to it, then how long
 	// the attempt has been waiting, and why the last one failed, in words
@@ -25,8 +26,7 @@
 	$effect(() => {
 		void retry;
 		now = Date.now();
-		const timer = setInterval(() => (now = Date.now()), 250);
-		return () => clearInterval(timer);
+		return visibleInterval(() => (now = Date.now()), 250);
 	});
 	const left = $derived(Math.max(0, Math.ceil((retry.at + retry.delayMs - now) / 1000)));
 	const count = $derived(retryCount(retry.attempt, retry.max));
