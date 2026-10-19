@@ -22,6 +22,9 @@
 	import NotePencilIcon from 'phosphor-svelte/lib/NotePencilIcon';
 	import ShieldWarningIcon from 'phosphor-svelte/lib/ShieldWarningIcon';
 	import PopMenu, { type PopMenuItem } from '$lib/ui/PopMenu.svelte';
+	import ComposerTray, { type TraySection } from '$lib/composer/ComposerTray.svelte';
+	import CommandIcon from 'phosphor-svelte/lib/CommandIcon';
+	import { slashMatches as matchCommands, phoneCommand } from '$lib/remote/slash';
 	import PaperclipIcon from 'phosphor-svelte/lib/PaperclipIcon';
 	import FileIcon from 'phosphor-svelte/lib/FileIcon';
 	import XIcon from 'phosphor-svelte/lib/XIcon';
@@ -51,6 +54,7 @@
 	import type { LynShenGroup, Op } from '$lib/protocol';
 	import { useHost } from '$lib/remote/connection.svelte';
 	import { confirm } from '$lib/ui/confirm.svelte';
+	import { toast } from '$lib/ui/toast.svelte';
 	import { BACKEND_LABELS, caps } from '$lib/backends';
 	import { approvalModeKeys, buildSetApprovalModeOp, type ApprovalMode, type ApproveOp } from '$lib/approval';
 	import { commandsIsolated, firstLine } from '$lib/sandbox/request';
@@ -317,6 +321,10 @@
 	/** Phones send with the button (Enter is a new line); keyboards with Enter. */
 	const enterSends = () => matchMedia('(hover: hover) and (pointer: fine)').matches;
 	function onKey(e: KeyboardEvent) {
+		if (slashOpen && !e.isComposing && tray?.handleKey(e)) {
+			e.preventDefault();
+			return;
+		}
 		if (e.key !== 'Enter' || e.isComposing) return;
 		if (e.metaKey || e.ctrlKey || (!e.shiftKey && enterSends())) {
 			e.preventDefault();
@@ -406,13 +414,33 @@
 			await connect();
 		}
 		if (!connected) return;
-		// /btw asks beside the conversation (claude): the answer shows in the task strip.
-		const btw = !attached.length && bcaps.sideQuestions ? typed.match(/^\/btw\s+([\s\S]+)/) : null;
-		if (btw) {
-			chat.sideAnswers.push({ question: btw[1].trim(), answer: '', error: '', pending: true });
-			send({ op: 'command', input: typed });
-			text = '';
-			return;
+		// A command (`/compact`, `/context`, `/goal …`) goes to the engine as a
+		// command, as on the desktop, not as a message. /btw asks beside the
+		// conversation (claude): the answer shows in the task strip.
+		if (!attached.length && bcaps.slashCommands && typed.startsWith('/')) {
+			const command = phoneCommand(typed, chat.commands);
+			if (command.kind === 'computer') {
+				toast.info(t('shell.remote.commandOnComputer', { command: command.name }));
+				return;
+			}
+			if (command.kind === 'command') {
+				const btw = bcaps.sideQuestions ? typed.match(/^\/btw\s+([\s\S]+)/) : null;
+				if (btw) chat.sideAnswers.push({ question: btw[1].trim(), answer: '', error: '', pending: true });
+				if (typed === '/model') {
+					text = '';
+					openModels();
+					return;
+				}
+				if (/^\/(rewind|undo)$/.test(typed)) {
+					text = '';
+					openRewind();
+					return;
+				}
+				send({ op: 'command', input: typed });
+				text = '';
+				tick().then(autosize);
+				return;
+			}
 		}
 		// A busy session queues the message: the engine lists it (lynshen) or
 		// runs it as the next turn (others, listed here until that turn).
@@ -467,6 +495,73 @@
 	// until its engine says otherwise.
 	const isAgent = $derived(!!(agent || chat.agent || view?.agent));
 	const sandboxed = $derived(bcaps.sandbox && !isAgent);
+
+	// "/" completion from the engine's command list, in the box above the
+	// text, as on the desktop (Composer.svelte); Escape hides it until the
+	// typed word changes.
+	let tray = $state<ReturnType<typeof ComposerTray>>();
+	let trayIdx = $state(0);
+	let slashDismissed = $state('');
+	const slashItems = $derived(bcaps.slashCommands ? matchCommands(text, chat.commands) : []);
+	const slashOpen = $derived(slashItems.length > 0 && slashDismissed !== text.trim());
+	const slashSections = $derived<TraySection[]>([
+		{
+			items: slashItems.map((c) => ({
+				id: c.command,
+				icon: CommandIcon,
+				title: c.command,
+				mono: true,
+				hint: c.args,
+				desc: c.description,
+				marker: c.marker,
+				onSelect: () => {
+					text = c.command + ' ';
+					tick().then(() => (autosize(), input?.focus()));
+				}
+			}))
+		}
+	]);
+
+	// Rewind to a sent message and rewrite it, as on the desktop
+	// (ChatPane.rewindToMessage): the engine lists its checkpoints, the one
+	// for that message is confirmed, then restored, and the message comes
+	// back into the box.
+	const canRewind = $derived(bcaps.checkpoints && (engine ?? view?.engine ?? 'lynshen') === 'lynshen' && !isAgent);
+	function rewindTo(message: string, userIndex: number) {
+		if (chat.busy) return;
+		chat.rewindIntent = { userIndex, text: message };
+		send({ op: 'command', input: '/rewind' });
+	}
+	function openRewind() {
+		const last = chat.messages.filter((m) => m.kind === 'user').length;
+		const lastUser = chat.messages.findLast((m) => m.kind === 'user');
+		if (lastUser && lastUser.kind === 'user') rewindTo(lastUser.text, last - 1);
+	}
+	let rewindAsked = '';
+	$effect(() => {
+		const pending = chat.pendingRewind;
+		if (!pending || pending.id === rewindAsked) return;
+		rewindAsked = pending.id;
+		untrack(async () => {
+			const ok = await confirm({
+				title: t('shell.rewindQuestion'),
+				message: `${t('shell.rewindBodyPlain')}\n\n${sentLabel(pending.text).slice(0, 120)}`,
+				confirmLabel: t('shell.rewindConfirm'),
+				danger: true
+			});
+			chat.pendingRewind = null;
+			rewindAsked = '';
+			if (!ok) return;
+			send({ op: 'command', input: `/rewind ${pending.id}` });
+			text = takeBack(pending.text);
+			tick().then(() => (autosize(), input?.focus()));
+		});
+	});
+	// The checkpoint list a plain /rewind opens elsewhere is not shown here.
+	$effect(() => {
+		if (chat.picker?.kind === 'checkpoint') untrack(() => chat.closePicker());
+	});
+
 	const isolated = $derived(commandsIsolated(chat.sandbox, false));
 	const modeDesc = (key: 'Ask' | 'Edits' | 'Auto' | 'All') =>
 		t(sandboxed ? `chat.approval${key}Desc${isolated ? 'Sandbox' : 'Open'}` : `chat.approval${key}Desc`);
@@ -798,7 +893,7 @@
 					text = takeBack(value);
 					tick().then(() => (autosize(), input?.focus()));
 				}}
-				onRewind={() => {}}
+				onRewind={canRewind && connected ? rewindTo : undefined}
 			/>
 		</div>
 		{#if opening && chat.messages.length === 0}
@@ -894,6 +989,16 @@
 				</div>
 			{/if}
 			<form class="composer" onsubmit={(e) => (e.preventDefault(), submit())}>
+				{#if slashOpen}
+					<ComposerTray
+						bind:this={tray}
+						bind:selected={trayIdx}
+						label={t('chat.slashMenuLabel')}
+						sections={slashSections}
+						tab="pick"
+						onClose={() => (slashDismissed = text.trim())}
+					/>
+				{/if}
 				<textarea
 					rows="1"
 					bind:this={input}

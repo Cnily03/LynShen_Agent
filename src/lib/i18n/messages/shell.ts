@@ -288,6 +288,7 @@ const shell = {
 		rewindLabel: '回退确认',
 		rewindQuestion: '回退到这一轮并重写？',
 		rewindBody: '对话会回退到这条消息发出前，<b>此后的文件改动也会一并还原</b>。原消息已填入输入框，可修改后重新发送。此操作不可撤销。',
+		rewindBodyPlain: '对话会回退到这条消息发出前，此后的文件改动也会一并还原。原消息会放回输入框，可修改后重新发送。此操作不可撤销。',
 		rewindConfirm: '回退并重写',
 
 		// dialogs (page)
@@ -454,6 +455,7 @@ const shell = {
 			agents: 'Agent',
 			back: '返回',
 			messagePlaceholder: '发消息…',
+			commandOnComputer: '{command} 要在电脑上用',
 			send: '发送',
 			stop: '停止',
 			disconnected: '连接中断',
@@ -1399,6 +1401,7 @@ const shell = {
 		rewindLabel: 'Confirm rewind',
 		rewindQuestion: 'Rewind to this turn and rewrite?',
 		rewindBody: 'The conversation rewinds to before this message, <b>and file changes made after it are reverted too</b>. The original message is placed in the input box so you can edit and resend. This cannot be undone.',
+		rewindBodyPlain: 'The conversation goes back to before this message, and the file changes made since are reverted too. The message goes back into the box to edit and send again. This cannot be undone.',
 		rewindConfirm: 'Rewind and rewrite',
 
 		// dialogs (page)
@@ -1565,6 +1568,7 @@ const shell = {
 			agents: 'Agents',
 			back: 'Back',
 			messagePlaceholder: 'Message…',
+			commandOnComputer: '{command} works on the computer only',
 			send: 'Send',
 			stop: 'Stop',
 			disconnected: 'Disconnected',

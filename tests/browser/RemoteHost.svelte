@@ -96,13 +96,30 @@
 								{ role: 'assistant', content: '改好了，单元测试全部通过。接下来推送分支。' }
 							]
 						});
+						// The engine's commands, for the "/" list (ticket #46).
+						this.emit({
+							type: 'command_list', session: op.session,
+							commands: [
+								{ command: '/compact', marker: null, description: '压缩上下文' },
+								{ command: '/context', marker: null, description: '上下文用量' },
+								{ command: '/login', marker: null, description: 'Sign in' },
+								{ command: '/rewind', marker: null, description: '回退' }
+							]
+						});
 						this.emit({ type: 'attended', session: op.session, attended: true });
 						if (op.session === SESSION && !approved) this.emit(approval);
 					}, 30);
 					return;
+				case 'command':
+					// /rewind lists the checkpoints (one per user turn); /rewind <id> restores.
+					if (op.input === '/rewind')
+						setTimeout(() => this.emit({ type: 'checkpoint_view', session: op.session, items: [{ id: 'e1', label: '把会话缓存改成按会话分片', detail: '', active: false }] }), 20);
+					return;
 				case 'approve':
 					approved = true;
 					setTimeout(() => this.emit({ type: 'tool_output', session: SESSION, call_id: 'call-push', name: 'bash', output: '已推送', is_error: false }), 30);
+					// The turn ends once the push ran (`?idleAfterApprove`).
+					if (params.has('idleAfterApprove')) setTimeout(() => this.emit({ type: 'status', session: SESSION, message: 'ready' }), 60);
 					return;
 				case 'push_rules':
 					return answer({ type: 'push_rules', rules });

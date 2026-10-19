@@ -70,8 +70,6 @@
 				streamingReasoning={null}
 				phase={live ? (lastRunning ? 'tool' : 'waiting') : null}
 				{scroller}
-				onEdit={() => {}}
-				onRewind={() => {}}
 			/>
 		</div>
 	{:else}
