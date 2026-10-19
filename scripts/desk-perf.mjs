@@ -133,6 +133,17 @@ try {
 	const open = await gc();
 	result.open = { showMs, empty: before, held: seeded, shown: open, messages: await page.evaluate(() => window.__perf.chat().messages.length) };
 
+	// The same conversation opened again (a restart): the engine's replay.
+	{
+		const t1 = Date.now();
+		await page.evaluate((n) => window.__perf.replay(n), TURNS);
+		await page.waitForFunction(() => window.__perf.ready(), null, { timeout: 60000 });
+		await frames2();
+		const replayMs = Date.now() - t1;
+		await page.waitForTimeout(1500);
+		result.replay = { showMs: replayMs, shown: await gc(), messages: await page.evaluate(() => window.__perf.chat().messages.length) };
+	}
+
 	// ── idle ─────────────────────────────────────────────────────────────
 	const idleFor = async (ms) => {
 		await reset();
@@ -183,7 +194,10 @@ try {
 					const frame = (now) => {
 						frames.push(now - last);
 						last = now;
-						if (left <= 0) return done({ frames, busy });
+						if (left <= 0) {
+							ch.port1.close();
+							return done({ frames, busy });
+						}
 						for (let i = 0; i < per && left > 0; i++, left--) ch.port2.postMessage(0);
 						requestAnimationFrame(frame);
 					};
@@ -193,6 +207,7 @@ try {
 		);
 	const pre = await gc();
 	await reset();
+	const m0 = await metrics();
 	await page.evaluate(() => window.__perf.deliver({ type: 'thinking_start' }));
 	let peak = 0;
 	const streamed = [];
@@ -208,10 +223,13 @@ try {
 	await frames2();
 	await page.waitForTimeout(1000);
 	const frames = streamed.flatMap((s) => s.frames).sort((a, b) => a - b);
+	const m1 = await metrics();
+	const per = (k) => +(((m1[k] - m0[k]) * 1000) / frames.length).toFixed(2);
 	const post = await gc();
 	const c = await counts();
 	result.stream = {
 		deliverMsPerDelta: +(streamed.reduce((a, s) => a + s.busy, 0) / DELTAS).toFixed(3),
+		...(cdp ? { taskMsPerFrame: per('TaskDuration'), scriptMsPerFrame: per('ScriptDuration'), layoutMsPerFrame: per('LayoutDuration') } : {}),
 		frameMean: +(frames.reduce((a, b) => a + b, 0) / frames.length).toFixed(1),
 		frameP95: +frames[Math.floor(frames.length * 0.95)].toFixed(1),
 		framesOver50: frames.filter((f) => f > 50).length,

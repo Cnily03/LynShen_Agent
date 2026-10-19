@@ -1,8 +1,8 @@
 // A long conversation as the engine streams it, for the performance checks
 // (Perf.svelte): each turn a user message (every 10th with an image), a
 // reasoning of a few paragraphs, five tool calls (a read, a command with a
-// long log, an edit with a large diff, a search, every 25th turn an image
-// read), and a Markdown reply with a code block and a table. Deterministic:
+// long log, an edit with a large diff, a search, and every 10th turn the read
+// of a screenshot), and a Markdown reply with a code block and a table. Deterministic:
 // the same turns every run.
 
 const WORDS = ['我们', '需要', '考虑', '这个', '函数', 'the cache', '边界', '情况', 'returns', '`buf.len()`', '然后', 'maybe', '检查', '一下', 'session', 'layout', '。'];
@@ -34,9 +34,19 @@ function log(n: number, turn: number): string {
 	return out.join('\n');
 }
 
-// A small PNG (8×8), as a read tool returns an image.
-const PNG =
-	'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAGklEQVR4nGNkYGD4z0AEYBxVSF+FAAAhRQEJ9N1RGQAAAABJRU5ErkJggg==';
+// A screenshot as the read tool returns it: about 400 KB of base64 (the
+// screenshots read in real conversations are 300–800 KB each).
+let shot = '';
+function screenshotBase64(): string {
+	if (shot) return shot;
+	const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+	const rnd = rng(42);
+	const out: string[] = [];
+	for (let i = 0; i < 4096; i++) out.push(abc[Math.floor(rnd() * 64)]!);
+	const block = out.join('');
+	shot = block.repeat(100);
+	return shot;
+}
 
 export function historyEvents(turns: number, from = 0): Record<string, unknown>[] {
 	const evs: Record<string, unknown>[] = [];
@@ -59,9 +69,10 @@ export function historyEvents(turns: number, from = 0): Record<string, unknown>[
 		evs.push({ type: 'tool_output', call_id: id('e'), name: 'edit', output: JSON.stringify({ path, diff: diff(`src/lib/module${t % 40}.ts`, 80, t) }) });
 		evs.push({ type: 'tool_start', call_id: id('g'), name: 'grep' });
 		evs.push({ type: 'tool_output', call_id: id('g'), name: 'grep', output: JSON.stringify({ entries: Array.from({ length: 30 }, (_, i) => `src/lib/module${i}.ts:${i + 10}: sessionCache.get(key)`) }) });
-		if (t % 25 === 24) {
+		if (t % 10 === 4) {
+			const base64 = screenshotBase64();
 			evs.push({ type: 'tool_start', call_id: id('i'), name: 'read' });
-			evs.push({ type: 'tool_output', call_id: id('i'), name: 'read', output: JSON.stringify({ path: `/tmp/perf-project/shot-${t}.png`, kind: 'image', mime: 'image/png', base64: PNG }) });
+			evs.push({ type: 'tool_output', call_id: id('i'), name: 'read', output: JSON.stringify({ base64, bytes: (base64.length * 3) / 4, kind: 'image', mime: 'image/png', path: `/tmp/perf-project/shot-${t}.png` }) });
 		} else {
 			evs.push({ type: 'tool_start', call_id: id('l'), name: 'list_dir' });
 			evs.push({ type: 'tool_output', call_id: id('l'), name: 'list_dir', output: JSON.stringify({ entries: ['a.ts', 'b.ts', 'c.ts'] }) });

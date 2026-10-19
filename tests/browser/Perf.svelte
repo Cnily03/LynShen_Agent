@@ -14,7 +14,7 @@
   import { setLocale } from '../../src/lib/i18n';
   import { Requirements, provideRequirements } from '../../src/lib/requirements.svelte';
   import type { DaemonClient } from '../../src/lib/daemon';
-  import { historyEvents } from './history';
+  import { historyEvents, historyTranscript } from './history';
   setLocale('zh');
   provideRequirements(new Requirements({} as DaemonClient));
   const store = new SessionStore();
@@ -40,6 +40,14 @@
       seed(turns: number, i = 0, from = 0) {
         const chat = chatOf(i);
         for (const ev of historyEvents(turns, from)) chat.handle(ev as never);
+      },
+      /** Shows conversation `i` again as reopened: its `turns` turns as the
+       *  engine's replay, in a new pane. */
+      replay(turns: number, i = 0) {
+        api = null;
+        shownId = null;
+        chatOf(i).handle(historyTranscript(turns) as never);
+        queueMicrotask(() => (shownId = ids[i]!));
       },
       /** Opens `n` more conversations of `turns` turns each; returns how many there are. */
       addSessions(n: number, turns: number) {
