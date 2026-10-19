@@ -3477,6 +3477,12 @@ try {
     await expect(mp.locator('.pop.mp .qs [role=option]')).toHaveText([/自动选择|自动/, /GPT Image 2/, /全部模型/]);
     await mp.keyboard.press('Escape');
     await expect(mp.locator('.pop.mp')).toHaveCount(0);
+    // The compaction model can follow the conversation's model (ticket #47):
+    // written as an empty compact_model.
+    await mp.locator('#set-compact-model .trigger').click();
+    await mp.locator('.pop.mp').getByRole('option', {name:/跟随当前模型/}).click();
+    await expect(mp.locator('#set-compact-model .trigger')).toContainText('跟随当前模型');
+    await expect.poll(() => mp.evaluate(() => window.__calls.filter((c) => c.command === 'write_config' && 'compact_model' in c.args.patch).map((c) => c.args.patch.compact_model).at(-1))).toBe('');
     await mp.close();
   }
   // Settings → 聊天连接: a Telegram bot's state, binding with a code (link

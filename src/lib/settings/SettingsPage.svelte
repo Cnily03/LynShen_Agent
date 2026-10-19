@@ -1386,14 +1386,15 @@
 						</SettingsRow>
 					</SettingsSection>
 					<SettingsSection title={t('settings.behavior.compaction')}>
-						<SettingsRow id="compact-model" title={t('settings.behavior.compactModel')}>
+						<SettingsRow id="compact-model" title={t('settings.behavior.compactModel')} description={t('settings.behavior.compactModelHint')}>
 							<div class="w-model">
+								<!-- Empty: the conversation's current model (ticket #47; LynShen CLI 0.7.8). -->
 								<ModelPicker
 									items={chatItems(cfg.compact_model ?? '')}
 									value={cfg.compact_model ?? ''}
+									extras={[{ value: '', label: t('settings.behavior.followCurrentModel'), active: false }]}
 									label={t('settings.behavior.compactModel')}
 									remember={false}
-									placeholder={t('settings.behavior.selectModel')}
 									onChange={(v) => (cfg.compact_model = v)}
 								/>
 							</div>
