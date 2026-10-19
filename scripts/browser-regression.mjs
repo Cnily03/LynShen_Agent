@@ -116,6 +116,38 @@ try {
     assert.equal(await lp.evaluate(() => window.__launch.shown), false);
     await lp.context().close();
     console.log('Launch screen passed: first frame in dark and light, the five entrances on the kit timetable, the frame behind, slow start at the cap, a fast start after the whole entrance and its hold, a late start at readiness, click and key skip, reduced motion at readiness, none outside the desktop app.');
+    // Under the policy the desktop app sends (tickets #41/#42 and #44): the
+    // style-src of tauri.conf.json, with the nonce Tauri adds to app.html's
+    // <style> unless dangerousDisableAssetCspModification names style-src.
+    // A nonce made the browser ignore 'unsafe-inline': the logo's light
+    // (a style attribute) drew black, and CodeMirror's injected theme was
+    // refused, so 审阅 showed only line numbers.
+    const conf = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')).app.security;
+    const nonced = !(conf.dangerousDisableAssetCspModification ?? []).includes('style-src');
+    const cspHtml = nonced ? appHtml.replace('<style>', '<style nonce="7">') : appHtml;
+    const csp = `default-src 'self'; style-src ${conf.csp['style-src']}${nonced ? " 'nonce-7'" : ''}; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; connect-src 'self' ws:`;
+    for (const theme of ['dark', 'light']) {
+      const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+      const p = await ctx.newPage();
+      const refused = [];
+      p.on('console', (m) => /Content Security Policy/.test(m.text()) && refused.push(m.text().slice(0, 160)));
+      await p.route((u) => u.pathname === '/', (r) => r.fulfill({contentType: 'text/html', headers: {'Content-Security-Policy': csp}, body: cspHtml}));
+      await p.addInitScript((theme) => localStorage.setItem('lynshen-theme', theme), theme);
+      await p.goto(`${origin}/?shell&preview&theme=${theme}`);
+      const light = p.locator('aside .brand .mark svg path').nth(2);
+      await expect(light).toBeAttached({timeout: 30000});
+      const tile = theme === 'dark' ? 'rgb(194, 88, 31)' : 'rgb(240, 164, 101)';
+      assert.equal(await light.evaluate((el) => getComputedStyle(el).fill), tile, `${theme}: the logo's light`);
+      await p.locator('button.ufile', {hasText: 'chatWidth.ts'}).click();
+      const content = p.locator('.preview:visible .cm-content');
+      await expect(content).toContainText('export function chatColumnWidth');
+      assert.equal(await p.locator('.preview:visible .cm-scroller').evaluate((el) => getComputedStyle(el).display), 'flex', `${theme}: CodeMirror's own styles apply`);
+      const [gutter, text] = await Promise.all([p.locator('.preview:visible .cm-gutters').boundingBox(), content.boundingBox()]);
+      assert.ok(gutter && text && Math.abs(gutter.y - text.y) < 2 && text.x >= gutter.x + gutter.width - 1, `${theme}: the text sits beside its line numbers`);
+      assert.deepEqual(refused, [], `${theme}: styles refused by the policy`);
+      await ctx.close();
+    }
+    console.log('Desktop CSP passed: the logo light keeps its colour and CodeMirror its styles under the app\'s policy, dark and light.');
   }
   await page.goto(base + '?projects');
   for (let i=1;i<=3;i++) {
