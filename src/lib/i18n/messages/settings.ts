@@ -671,7 +671,7 @@ const settings = {
 		},
 		devices: {
 			loadFailed: '授权设备加载失败',
-			autoRemoval: '每个账户包含 5 台电脑，同一台电脑重新登录不占新坐席。不用的电脑可以在这里移除；电脑 {deviceDays} 天未使用、IP 地址 {ipDays} 天未使用会自动移除。',
+			autoRemoval: '每个账户包含 5 台电脑，同一台电脑重新登录不占新坐席；24 小时内最多新授权 3 台电脑，移除电脑不会重置这个次数。不用的电脑可以在这里移除；电脑 {deviceDays} 天未使用、IP 地址 {ipDays} 天未使用会自动移除。',
 			deviceSeats: '电脑',
 			ipSeats: 'IP 地址',
 			used: '已用 {used} / {limit}',
@@ -707,7 +707,7 @@ const settings = {
 			version: '版本 {version}',
 			remove: '移除',
 			removeTitle: '移除「{name}」？',
-			removeBody: '这台电脑会立即退出登录，坐席随即释放。需要时可以在那台电脑上重新登录。',
+			removeBody: '这台电脑会立即退出登录，坐席随即释放。需要时可以在那台电脑上重新登录，这算一次新授权。',
 			removed: '已移除这台电脑'
 		},
 		accountGate: {
@@ -1922,7 +1922,7 @@ const settings = {
 		},
 		devices: {
 			loadFailed: 'Could not load your devices',
-			autoRemoval: 'Each account includes 5 computers. Signing in again on the same computer uses no new seat. Remove a computer you no longer use here. A computer is removed after {deviceDays} days without use, an IP address after {ipDays} days.',
+			autoRemoval: 'Each account includes 5 computers. Signing in again on the same computer uses no new seat. At most 3 new computers can be authorized in 24 hours, and removing a computer does not reset this count. Remove a computer you no longer use here. A computer is removed after {deviceDays} days without use, an IP address after {ipDays} days.',
 			deviceSeats: 'Computers',
 			ipSeats: 'IP addresses',
 			used: '{used} of {limit} used',
@@ -1958,7 +1958,7 @@ const settings = {
 			version: 'Version {version}',
 			remove: 'Remove',
 			removeTitle: 'Remove “{name}”?',
-			removeBody: 'That computer is signed out at once and its seat is freed. You can sign in on it again later.',
+			removeBody: 'That computer is signed out at once and its seat is freed. You can sign in on it again later; that counts as a new authorization.',
 			removed: 'Computer removed'
 		},
 		accountGate: {
