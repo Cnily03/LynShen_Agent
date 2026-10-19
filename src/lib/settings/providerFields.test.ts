@@ -4,6 +4,7 @@ import {
 	DEFAULT_CONTEXT,
 	DEFAULT_EFFORTS,
 	DEFAULT_MAX_OUTPUT,
+	DEFAULT_REASONING_MAX_OUTPUT,
 	draftFromModel,
 	formatTokens,
 	modelEfforts,
@@ -60,11 +61,25 @@ describe('model drafts', () => {
 		expect(model).toEqual({
 			name: 'my-model',
 			context_window: DEFAULT_CONTEXT,
-			max_output_tokens: DEFAULT_MAX_OUTPUT,
+			max_output_tokens: DEFAULT_REASONING_MAX_OUTPUT,
 			reasoning: true,
 			reasoning_efforts: DEFAULT_EFFORTS,
 			input_modalities: ['text', 'image']
 		});
+	});
+
+	it('an empty output cap leaves room for thinking, within the window', () => {
+		// 8k let thinking at a high effort use up the whole cap: no answer.
+		expect(modelFromDraft({ ...newModelDraft(), name: 'm' }).max_output_tokens).toBe(32_000);
+		const plain = { ...newModelDraft(), name: 'm', reasoning: false, efforts: [] };
+		expect(modelFromDraft(plain).max_output_tokens).toBe(DEFAULT_MAX_OUTPUT);
+		const small = { ...newModelDraft(), name: 'm', context: '16k' };
+		expect(modelFromDraft(small).max_output_tokens).toBe(16_000);
+		expect(validateModel(small, [])).toEqual({});
+		// A typed cap and a built-in value still win.
+		expect(modelFromDraft({ ...newModelDraft(), name: 'm', maxOutput: '8k' }).max_output_tokens).toBe(8_000);
+		const builtin = { context_window: 200_000, max_output_tokens: 64_000 };
+		expect(modelFromDraft({ ...newModelDraft(), name: 'm' }, undefined, builtin).max_output_tokens).toBe(64_000);
 	});
 
 	it('an existing entry without the new fields reads as today', () => {

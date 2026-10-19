@@ -62,7 +62,7 @@ describe('built-in provider overrides', () => {
 				'claude-fable-5': { context_window: 1_000_000, max_output_tokens: 128_000, reasoning_efforts: ['minimal', 'low', 'medium', 'high'] },
 				'claude-haiku-4-5': { reasoning: false, input_modalities: ['text'] }
 			},
-			added: [{ name: 'claude-next', context_window: 400_000, max_output_tokens: 8192, reasoning: true, reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'], input_modalities: ['text', 'image'] }]
+			added: [{ name: 'claude-next', context_window: 400_000, max_output_tokens: 32_000, reasoning: true, reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'], input_modalities: ['text', 'image'] }]
 		});
 		expect('context_window' in edited[2]).toBe(false);
 	});

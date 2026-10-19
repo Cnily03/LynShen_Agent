@@ -38,6 +38,17 @@ export const SAFE_EFFORTS = ['default', 'none'];
 /** Today's values for a new model left empty. */
 export const DEFAULT_CONTEXT = 128_000;
 export const DEFAULT_MAX_OUTPUT = 8_192;
+/** The same for a model that thinks: room for the thinking and an answer.
+ *  With 8k, thinking at a high effort could use up the whole cap, and the
+ *  reply ended with no answer. */
+export const DEFAULT_REASONING_MAX_OUTPUT = 32_000;
+
+/** The output cap of a new model whose field is left empty, never over its
+ *  window (0 or undefined: unknown). */
+export function defaultMaxOutput(reasoning: boolean, window?: number): number {
+	const cap = reasoning ? DEFAULT_REASONING_MAX_OUTPUT : DEFAULT_MAX_OUTPUT;
+	return window ? Math.min(cap, window) : cap;
+}
 
 const UNITS: Record<string, number> = { k: 1_000, m: 1_000_000 };
 
@@ -161,7 +172,7 @@ export function validateModel(draft: ModelDraft, taken: string[], fallback?: Tok
 	if (context === 'invalid') errors.context = 'tokens';
 	if (maxOutput === 'invalid') errors.maxOutput = 'tokens';
 	const window = typeof context === 'number' ? context : fallback ? fallback.context_window || 0 : DEFAULT_CONTEXT;
-	const cap = typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || 0 : DEFAULT_MAX_OUTPUT;
+	const cap = typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || 0 : defaultMaxOutput(draft.reasoning, window);
 	// An unknown window (0) or cap (0) is not compared.
 	if (!errors.context && !errors.maxOutput && window && cap > window) errors.maxOutput = 'outputOverWindow';
 	if (draft.reasoning && !draft.efforts.length) errors.efforts = 'effortRequired';
@@ -177,11 +188,13 @@ export function modelFromDraft(draft: ModelDraft, previous?: ProviderModel, fall
 	const context = parseTokens(draft.context);
 	const maxOutput = parseTokens(draft.maxOutput);
 	const display = draft.display_name.trim();
+	const window = typeof context === 'number' ? context : fallback ? fallback.context_window || undefined : DEFAULT_CONTEXT;
 	const model: ProviderModel = {
 		...previous,
 		name: draft.name.trim(),
-		context_window: typeof context === 'number' ? context : fallback ? fallback.context_window || undefined : DEFAULT_CONTEXT,
-		max_output_tokens: typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || undefined : DEFAULT_MAX_OUTPUT,
+		context_window: window,
+		max_output_tokens:
+			typeof maxOutput === 'number' ? maxOutput : fallback ? fallback.max_output_tokens || undefined : defaultMaxOutput(draft.reasoning, window),
 		reasoning: draft.reasoning,
 		reasoning_efforts: draft.reasoning ? orderTiers(draft.efforts) : ['none'],
 		input_modalities: MODALITIES.filter((kind) => draft.modalities.includes(kind))

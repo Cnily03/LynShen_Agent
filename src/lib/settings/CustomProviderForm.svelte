@@ -438,7 +438,7 @@
 			<div class="np-f">
 				<label class="np-f">
 					<span class="cap">{t('settings.custom.maxOutput')}</span>
-					<TextField bind:value={draft.maxOutput} mono placeholder="8k" />
+					<TextField bind:value={draft.maxOutput} mono placeholder={draft.reasoning ? '32k' : '8k'} />
 				</label>
 				{#if modelErrors.maxOutput}<span class="np-err" role="alert">{err(modelErrors.maxOutput)}</span>{/if}
 			</div>

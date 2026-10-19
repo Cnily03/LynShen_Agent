@@ -67,13 +67,16 @@ describe('model discovery', () => {
 		expect(modelFromListed({ id: 'my-model' })).toEqual({
 			name: 'my-model',
 			context_window: 128_000,
-			max_output_tokens: 8192,
+			max_output_tokens: 32_000,
 			reasoning: true,
 			reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
 			input_modalities: ['text', 'image']
 		});
 		// Not thinking: written as the form writes it.
 		expect(modelFromListed({ id: 'glm-5.3-flash' }, lookup('glm-5.3-flash'))).toMatchObject({ reasoning: false, reasoning_efforts: ['none'] });
+		// No cap known: 32k for a model that thinks, 8k for one that does not.
+		expect(modelFromListed({ id: 'plain' }, { reasoning: false }).max_output_tokens).toBe(8192);
+		expect(modelFromListed({ id: 'small-thinker', context_window: 16_000 }).max_output_tokens).toBe(16_000);
 		// An output cap never exceeds the window.
 		expect(modelFromListed({ id: 'small', context_window: 16_000 }, { max_output_tokens: 64_000 }).max_output_tokens).toBe(16_000);
 	});

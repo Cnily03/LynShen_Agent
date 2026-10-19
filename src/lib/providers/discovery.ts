@@ -16,7 +16,7 @@ import type { CatalogModel } from '$lib/models/gatewayCatalog';
 import {
 	DEFAULT_CONTEXT,
 	DEFAULT_EFFORTS,
-	DEFAULT_MAX_OUTPUT,
+	defaultMaxOutput,
 	EFFORT_TIERS,
 	MODALITIES,
 	offersThinking,
@@ -130,8 +130,8 @@ export function modelLookup(sources: { gateway?: (id: string) => CatalogModel | 
 export function modelFromListed(listed: ListedModel, known?: KnownModel, fallback: string[] = DEFAULT_EFFORTS): ProviderModel {
 	const k = mergeKnown([knownFromListed(listed), known]) ?? {};
 	const window = k.context_window || DEFAULT_CONTEXT;
-	const output = Math.min(k.max_output_tokens || DEFAULT_MAX_OUTPUT, window);
 	const thinks = k.reasoning !== false;
+	const output = k.max_output_tokens ? Math.min(k.max_output_tokens, window) : defaultMaxOutput(thinks, window);
 	const kinds = k.input_modalities?.filter((kind) => (MODALITIES as readonly string[]).includes(kind));
 	const model: ProviderModel = {
 		name: listed.id,

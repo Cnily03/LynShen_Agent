@@ -62,6 +62,10 @@ describe('auto retry', () => {
 		for (const code of ['plan_quota_exhausted', 'plan_inactive', 'model_not_in_plan', 'plan_device_limit'])
 			expect(retryable(`unexpected status 402 Payment Required: {"error":{"code":"${code}"}}`, 'codex')).toBe(false);
 		expect(retryable('LLM API returned HTTP 401: invalid api key', 'lynshen')).toBe(false);
+		// Thinking with no answer: another attempt spends the same thinking.
+		expect(retryable('模型只输出了思考，没有给出回答：输出上限用完了。可以调高这个模型的输出上限，或降低思考强度后重试。 (stop reason max_tokens, 8192 output tokens)', 'lynshen')).toBe(false);
+		expect(retryable('模型拒绝回答了这个请求。 (stop reason content_filter)', 'lynshen')).toBe(false);
+		expect(retryable('模型没有给出回答。', 'lynshen')).toBe(false);
 	});
 
 	it('LynShen picks the failed turn up with no new message, after the wait, at most three times', async () => {
