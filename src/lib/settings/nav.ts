@@ -112,6 +112,7 @@ export const ROWS: SearchRow[] = [
 	{ section: 'models', id: 'image-model', titleKey: 'settings.behavior.imageModel', descKey: 'settings.behavior.imageModelHint' },
 	{ section: 'styles', id: 'reply-style-default', titleKey: 'settings.styles.default', descKey: 'settings.styles.defaultHint' },
 	{ section: 'styles', id: 'reply-style-list', titleKey: 'settings.styles.listTitle', descKey: 'settings.styles.listHint' },
+	{ section: 'network', id: 'network-proxy', titleKey: 'settings.network.proxy', descKey: 'settings.network.proxyHint' },
 	{ section: 'network', id: 'retry-attempts', titleKey: 'settings.behavior.retryAttempts' },
 	{ section: 'network', id: 'connect-timeout', titleKey: 'settings.behavior.connectTimeout' },
 	{ section: 'network', id: 'read-timeout', titleKey: 'settings.behavior.readTimeout' },
