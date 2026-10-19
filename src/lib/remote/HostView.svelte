@@ -1,3 +1,11 @@
+<script lang="ts" module>
+	/** Something to show from outside (an opened notification); `n` makes
+	 *  the same one again a new request. */
+	export type ShowRequest = ({ kind: 'requirement'; requirement: string } | { kind: 'session'; session: string; host?: string }) & {
+		n: number;
+	};
+</script>
+
 <script lang="ts">
 	// One paired computer on the remote page: its list (sessions and desk) and
 	// the pages opened over it, or, until its daemon has accepted this device,
@@ -36,6 +44,9 @@
 	import AddProjectScreen from './AddProjectScreen.svelte';
 	import { baseName, type ProjectView } from './store.svelte';
 	import { provideHost, type HostConnection } from './connection.svelte';
+	import { sayViewing } from './push';
+	import { pageVisible } from './visibility.svelte';
+	import { untrack } from 'svelte';
 
 	/* eslint-disable @typescript-eslint/no-explicit-any -- lazily loaded components */
 	let {
@@ -79,9 +90,8 @@
 		onForget: (ask?: boolean) => void;
 		/** LAN: pair this device again. */
 		onRepair: () => void;
-		/** A requirement to show (a notification was opened); `n` makes the
-		 *  same one again a new request. */
-		show?: { requirement: string; n: number } | null;
+		/** What to show (a notification was opened). */
+		show?: ShowRequest | null;
 	} = $props();
 	/* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -183,11 +193,35 @@
 	const currentDeskItem = $derived(top?.kind === 'desk' ? top.item : undefined);
 	const currentRequirement = $derived(top?.kind === 'requirement' ? top.id : undefined);
 
-	// A requirement asked for from outside (an opened notification).
+	// A requirement or session asked for from outside (an opened
+	// notification). A session opens in the sessions tab, its approval card
+	// above the composer; the one already on top is left as it is.
 	$effect(() => {
-		if (!show) return;
-		tab = 'requirements';
-		open({ kind: 'requirement', id: show.requirement });
+		const request = show;
+		if (!request) return;
+		untrack(() => {
+			if (request.kind === 'requirement') {
+				tab = 'requirements';
+				open({ kind: 'requirement', id: request.requirement });
+				return;
+			}
+			tab = 'projects';
+			if (currentSession === request.session) return;
+			open(sessionScreen(request.session));
+		});
+	});
+
+	// The session this computer's view shows now goes to its daemon, so it
+	// does not push to this phone about it; again every minute while shown
+	// (the daemon forgets it after 90 s), and none once hidden.
+	const viewing = $derived(!hidden && ready && pageVisible.visible ? (currentSession ?? null) : null);
+	$effect(() => {
+		const session = viewing;
+		if (conn.agents.status !== 'on') return;
+		sayViewing(conn.daemon, session);
+		if (!session) return;
+		const again = setInterval(() => sayViewing(conn.daemon, session), 60_000);
+		return () => clearInterval(again);
 	});
 
 	/** A daemon session's page, from what the daemon's list knows of it. */

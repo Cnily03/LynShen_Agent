@@ -22,6 +22,7 @@ jobs:
       - run: pnpm test
       - run: pnpm exec playwright install --with-deps chromium webkit
       - run: node scripts/browser-regression.mjs
+      - run: node scripts/phone-regression.mjs
       - run: node --test scripts/prepare-desktop-release.test.mjs
       - run: python3 scripts/test-receive-desktop-release.py
       - run: pnpm build

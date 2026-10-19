@@ -73,3 +73,69 @@ export async function resubscribe(daemon: DaemonClient): Promise<void> {
 	const sub = (await subscription()).toJSON();
 	await daemon.request({ op: 'push_subscribe', subscription: sub });
 }
+
+/** What a tapped notification opens: a requirement, or a session on one
+ *  computer (`host`: its relay host id; absent from an older daemon). */
+export type OpenTarget = { kind: 'requirement'; requirement: string } | { kind: 'session'; session: string; host?: string };
+
+export function openTarget(url: string): OpenTarget | null {
+	let params: URLSearchParams;
+	try {
+		params = new URL(url, 'https://app.lynshen.org').searchParams;
+	} catch {
+		return null;
+	}
+	const requirement = params.get('requirement');
+	if (requirement) return { kind: 'requirement', requirement };
+	const session = params.get('session');
+	if (!session) return null;
+	const host = params.get('host');
+	return host ? { kind: 'session', session, host } : { kind: 'session', session };
+}
+
+/** The computer's notification rules (daemon `push_rules`). */
+export interface PushRules {
+	daily_budget: number;
+	quiet_start: string;
+	quiet_end: string;
+	turn_done: boolean;
+	sent_today?: number;
+}
+
+export const DEFAULT_RULES: PushRules = { daily_budget: 20, quiet_start: '23:00', quiet_end: '08:00', turn_done: true };
+
+/** The rules on `daemon`; null from a computer whose engine has none yet. */
+export async function loadRules(daemon: DaemonClient): Promise<PushRules | null> {
+	try {
+		const reply = await daemon.request({ op: 'push_rules' });
+		return { ...DEFAULT_RULES, ...((reply.rules as Partial<PushRules>) ?? {}) };
+	} catch {
+		return null;
+	}
+}
+
+export async function saveRules(daemon: DaemonClient, rules: Partial<PushRules>): Promise<PushRules> {
+	const reply = await daemon.request({ op: 'push_rules_set', rules });
+	return { ...DEFAULT_RULES, ...((reply.rules as Partial<PushRules>) ?? {}) };
+}
+
+/** Turns notifications off on this phone: every computer forgets this
+ *  browser's subscription, and the browser drops it. */
+export async function disablePush(daemons: DaemonClient[]): Promise<void> {
+	localStorage.removeItem(ON);
+	if (!pushSupported()) return;
+	const registration = await navigator.serviceWorker.ready;
+	const existing = await registration.pushManager.getSubscription();
+	if (!existing) return;
+	await Promise.allSettled(daemons.map((d) => d.request({ op: 'push_unsubscribe', endpoint: existing.endpoint })));
+	await existing.unsubscribe();
+}
+
+/** Tells the computer which of its sessions this phone shows now (null:
+ *  none): nothing about it is pushed here meanwhile. An older engine
+ *  answers with an error, which changes nothing. */
+export function sayViewing(daemon: DaemonClient, session: string | null): void {
+	daemon.request({ op: 'push_viewing', session }).catch(() => {});
+	// And to the service worker, for a notice already on its way.
+	if (typeof navigator !== 'undefined') navigator.serviceWorker?.controller?.postMessage({ type: 'lynshen-viewing', session });
+}
