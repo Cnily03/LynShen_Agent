@@ -309,7 +309,7 @@ try {
       'claude-fable-5': {context_window: 1000000, max_output_tokens: 128000, reasoning_efforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']},
       'claude-haiku-4-5': {reasoning: false, input_modalities: ['text']}
     },
-    added: [{name: 'claude-next', context_window: 400000, max_output_tokens: 8192, reasoning: true, reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'], input_modalities: ['text', 'image']}]
+    added: [{name: 'claude-next', context_window: 400000, max_output_tokens: 32000, reasoning: true, reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'], input_modalities: ['text', 'image']}]
   }});
   await expect(anthropicCard.getByText('已自定义')).toBeVisible();
   const lastEngineCopy = () => page.evaluate(() => {
@@ -319,7 +319,7 @@ try {
   await expect.poll(lastEngineCopy).toEqual(['https://www.lynshen.org/v1', [
     ['claude-fable-5', 1000000, 128000, true, 'none minimal low medium high xhigh', ''],
     ['claude-haiku-4-5', 200000, 64000, false, 'none', 'text'],
-    ['claude-next', 400000, 8192, true, 'none low medium high xhigh', 'text image']
+    ['claude-next', 400000, 32000, true, 'none low medium high xhigh', 'text image']
   ]]);
   // 编辑 again: the saved values; a model and then the whole provider go
   // back to the built-in values, and nothing is kept.
@@ -421,7 +421,7 @@ try {
   await expect(foundList.getByText('找到 4 个模型，其中 1 个在模型目录里有参数。')).toBeVisible();
   const foundRow = (id) => foundList.locator('.frow').filter({has: page.getByText(id, {exact:true})}).locator('.mdesc');
   await expect(foundRow('claude-relay-5')).toHaveText(/^窗口 1M · 输出 128k · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh \/ Max · 文本、图片$/);
-  await expect(foundRow('vendor/thinker-x')).toHaveText(/^窗口 256k · 输出 8192 · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh/);
+  await expect(foundRow('vendor/thinker-x')).toHaveText(/^窗口 256k · 输出 32k · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh/);
   await expect(foundRow('kimi-k2-thinking')).toHaveText(/^窗口 262144 · 输出 262144 · 思考 关闭 \/ Low \/ Medium \/ High \/ XHigh/);
   await expect(foundRow('plain-chat')).toHaveText(/不思考/);
   await foundList.getByRole('button',{name:'添加所选（4）',exact:true}).click();
@@ -448,7 +448,7 @@ try {
     .map((m) => [m.name, m.context_window, m.max_output_tokens, m.reasoning, m.reasoning_efforts.join(' '), m.input_modalities.join(' ')]));
   assert.deepEqual(await thinkerModels(), [
     ['claude-relay-5', 1000000, 128000, true, 'none low medium high xhigh max', 'text image'],
-    ['vendor/thinker-x', 256000, 8192, true, 'none low medium high xhigh', 'text image'],
+    ['vendor/thinker-x', 256000, 32000, true, 'none low medium high xhigh', 'text image'],
     ['kimi-k2-thinking', 262144, 262144, true, 'none low medium high xhigh', 'text image'],
     ['plain-chat', 128000, 8192, false, 'none', 'text image'],
     ['moonshot-v1-8k', 8192, 4096, true, 'none low medium high xhigh', 'text image']
