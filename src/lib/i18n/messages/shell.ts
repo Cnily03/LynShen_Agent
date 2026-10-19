@@ -575,7 +575,14 @@ const shell = {
 			send: '提交',
 			sent: '已提交工单 {no}，回复可在控制台的「工单」页查看',
 			needLogin: '请先登录 LynShen 账户再提交。',
-			environment: '版本：Aogiri 桌面端 {version} · 系统：{system}'
+			environment: '版本：Aogiri 桌面端 {version} · 系统：{system}',
+			hintWeb: '会以工单提交到「{computer}」上登录的 LynShen 账户，进度和回复可在控制台的「工单」页查看。',
+			withLogsWeb: '附带「{computer}」的日志',
+			logsNoteWeb: '由电脑附上它的引擎和后台服务日志的最后部分，发送前会去掉令牌、API Key、授权头和路径里的用户名，并压缩。',
+			environmentWeb: '来自网页端（app.lynshen.org）· 电脑：{computer} · 设备：{system}',
+			menu: '反馈问题',
+			needComputer: '电脑没有回应，请确认它已开机并连上远程访问。',
+			needNewerEngine: '电脑上的 Aogiri 版本较旧，还不能从这里提交工单。请在电脑上更新，或在电脑上用「反馈问题」提交。'
 		},
 		requirement: {
 			title: '需求',
@@ -1684,7 +1691,14 @@ const shell = {
 			send: 'Send',
 			sent: 'Ticket {no} sent; replies show in the console',
 			needLogin: 'Sign in to your LynShen account first.',
-			environment: 'Version: Aogiri desktop {version} · System: {system}'
+			environment: 'Version: Aogiri desktop {version} · System: {system}',
+			hintWeb: 'Sent as a ticket of the LynShen account signed in on “{computer}”; replies show under Tickets in the console.',
+			withLogsWeb: 'Attach the logs of “{computer}”',
+			logsNoteWeb: 'The computer attaches the end of its engine and background service logs, with tokens, API keys, authorization headers and user names in paths taken out, compressed.',
+			environmentWeb: 'From the web page (app.lynshen.org) · computer: {computer} · device: {system}',
+			menu: 'Send feedback',
+			needComputer: 'The computer does not answer. Check that it is on and connected to remote access.',
+			needNewerEngine: 'The Aogiri on the computer is too old to send a ticket from here. Update it on the computer, or send it there with Send feedback.'
 		},
 		requirement: {
 			title: 'Requirements',

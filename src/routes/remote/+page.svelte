@@ -33,6 +33,9 @@
 	import { toast } from '$lib/ui/toast.svelte';
 	import HostView from '$lib/remote/HostView.svelte';
 	import PushSettings from '$lib/remote/PushSettings.svelte';
+	import FeedbackDialog from '$lib/FeedbackDialog.svelte';
+	import { feedbackRemote } from '$lib/remote/feedback';
+	import ChatTeardropTextIcon from 'phosphor-svelte/lib/ChatTeardropTextIcon';
 	import { HostConnection, LAN_ID } from '$lib/remote/connection.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Notice from '$lib/ui/Notice.svelte';
@@ -171,6 +174,9 @@
 	}
 	/** 通知: this phone's notifications and the shown computer's rules. */
 	let pushSettings = $state(false);
+	/** 反馈问题 (ticket #45): a ticket sent through the shown computer, which
+	 *  holds the LynShen sign-in and its logs (the daemon's `feedback_send`). */
+	let feedback = $state(false);
 	/** Pairing another computer, opened from the switcher. */
 	let adding = $state(false);
 	/** LAN pairing with a code, asked for while other computers are paired. */
@@ -542,6 +548,10 @@
 						<span class="pop-ico"><BellIcon size={18} /></span>
 						<span class="pop-txt"><span class="pop-label">{t('shell.remote.push.menu')}</span></span>
 					</button>
+					<button class="pop-row" role="menuitem" onclick={() => ((switchMenu = false), (feedback = true))}>
+						<span class="pop-ico"><ChatTeardropTextIcon size={18} /></span>
+						<span class="pop-txt"><span class="pop-label">{t('shell.feedback.menu')}</span></span>
+					</button>
 					<button class="pop-row" role="menuitem" onclick={openLicenses}>
 						<span class="pop-ico"><ScrollIcon size={18} /></span>
 						<span class="pop-txt"><span class="pop-label">{t('shell.remote.licenses')}</span></span>
@@ -658,6 +668,9 @@
 		/>
 	{/each}
 </div>
+{#if feedback && active && view === 'app'}
+	<FeedbackDialog remote={feedbackRemote(active.daemon, nameOf(active))} onClose={() => (feedback = false)} />
+{/if}
 {#if pushSettings && active && view === 'app'}
 	<PushSettings conn={active} {conns} name={nameOf(active)} onTest={testPush} onClose={() => (pushSettings = false)} />
 {/if}
