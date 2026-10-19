@@ -75,6 +75,7 @@
 	import { caps } from '$lib/backends';
 	import { prefs, TURN_STAT_KEYS, BACKGROUND_STRENGTHS, vibrancySupported } from '$lib/prefs.svelte';
 	import { CHAT_WIDTH_MODES, isChatWidthMode } from '$lib/chatWidth';
+	import { proxySetting, proxyValid } from '$lib/settings/networkProxy';
 	import { turnParts } from '$lib/turnStats';
 	import { themeState, setTheme, type ThemePref } from '$lib/theme.svelte';
 	import type { ChatState, TurnStats } from '$lib/chat.svelte';
@@ -479,6 +480,9 @@
 			retry_attempts: retryAttemptsSetting(cfg.retry_attempts),
 			connect_timeout_seconds: Number(cfg.connect_timeout_seconds) || 0,
 			read_timeout_seconds: Number(cfg.read_timeout_seconds) || 0,
+			// The proxy for web fetches and commands (ticket #50; LynShen CLI
+			// 0.7.8 reads it): what was typed, once it reads as http://host:port.
+			network_proxy: proxySetting(cfg.network_proxy ?? ''),
 			include_project_instructions: !!cfg.include_project_instructions,
 			// The agent picks its subagents' models itself now (no list to keep).
 			subagent_models: [],
@@ -1434,6 +1438,14 @@
 				{:else if current === 'styles'}
 					<StylesSection project={chat && !chat.isChatMode ? chat.cwd : ''} />
 				{:else if current === 'network'}
+					<SettingsSection title={t('settings.network.proxyTitle')}>
+						<SettingsRow id="network-proxy" title={t('settings.network.proxy')} description={t('settings.network.proxyHint')}>
+							<div class="w-proxy"><TextField bind:value={cfg.network_proxy} placeholder="http://127.0.0.1:7890" mono /></div>
+						</SettingsRow>
+						{#if (cfg.network_proxy ?? '').trim() && !proxyValid(cfg.network_proxy)}
+							<p class="field-err">{t('settings.network.proxyInvalid')}</p>
+						{/if}
+					</SettingsSection>
 					<SettingsSection title={t('settings.page.requests')}>
 						<SettingsRow id="retry-attempts" title={t('settings.behavior.retryAttempts')} description={t('settings.behavior.retryAttemptsHint', { max: RETRY_ATTEMPTS_MAX })}>
 							<div class="w-num"><TextField bind:value={cfg.retry_attempts} type="number" align="right" /></div>
@@ -1889,6 +1901,15 @@
 	}
 	.w-num {
 		width: 96px;
+	}
+	.w-proxy {
+		width: 260px;
+		max-width: 100%;
+	}
+	.field-err {
+		margin: 4px 0 0;
+		color: var(--err);
+		font-size: var(--fs-xs);
 	}
 	.unit {
 		min-width: 1.5em;

@@ -408,6 +408,12 @@ const settings = {
 			noSwap: '先给「{name}」换一个快捷键。',
 			swap: '交换'
 		},
+		network: {
+			proxyTitle: '代理',
+			proxy: '网络代理',
+			proxyHint: 'HTTP 代理，如 http://127.0.0.1:7890。网页抓取、本地搜索和智能体运行的命令（git、npm、curl 等）走这个代理；模型请求不走。留空则不用代理。需要 LynShen CLI 0.7.8 或更新',
+			proxyInvalid: '格式不对：要写 http://主机:端口 或 主机:端口（暂不支持 socks5）'
+		},
 		page: {
 			back: '返回',
 			search: '搜索设置',
@@ -1672,6 +1678,12 @@ const settings = {
 			swapToNone: 'After the swap, {name} has no shortcut.',
 			noSwap: 'Change the shortcut for {name} first.',
 			swap: 'Swap'
+		},
+		network: {
+			proxyTitle: 'Proxy',
+			proxy: 'Network proxy',
+			proxyHint: 'An HTTP proxy, e.g. http://127.0.0.1:7890. Web fetches, the local search and the commands the agent runs (git, npm, curl…) go through it; model requests do not. Empty: no proxy. Needs LynShen CLI 0.7.8 or later',
+			proxyInvalid: 'Not a proxy address: write http://host:port or host:port (socks5 is not supported yet)'
 		},
 		page: {
 			back: 'Back',
