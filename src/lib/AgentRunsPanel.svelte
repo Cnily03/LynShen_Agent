@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	import { onMount } from 'svelte';
 	import TreeStructureIcon from 'phosphor-svelte/lib/TreeStructureIcon';
 	import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotchIcon';
@@ -64,8 +65,7 @@
 	const running = $derived(anyRunning(chat.agentRuns.workflows, agents));
 	$effect(() => {
 		if (!running) return;
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		return visibleInterval(() => (now = Date.now()), 1000);
 	});
 
 	onMount(() => onOp({ op: 'agent_runs' }));

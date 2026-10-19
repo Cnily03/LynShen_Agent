@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	// One subagent: who it is (state, kind, model, time, tokens, tool calls,
 	// its result or error), then its own conversation, read-only. Shown in the
 	// agent trace panel and in a subagent's own page (beside the chat or as a
@@ -71,8 +72,7 @@
 	$effect(() => {
 		if (!running) return;
 		now = Date.now();
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		return visibleInterval(() => (now = Date.now()), 1000);
 	});
 </script>
 

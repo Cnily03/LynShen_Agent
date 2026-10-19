@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	// A subagent's running time, ticking once a second while it runs. Its own
 	// component, so the clock re-renders this label only, not the list it is in.
 	import { rowElapsed, shortElapsed, type AgentRow } from '$lib/agentProgress';
@@ -10,8 +11,7 @@
 	$effect(() => {
 		if (!live) return;
 		now = Date.now();
-		const timer = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(timer);
+		return visibleInterval(() => (now = Date.now()), 1000);
 	});
 	const ms = $derived(rowElapsed(row as AgentRow, now));
 </script>

@@ -1161,6 +1161,21 @@ describe('boundedOutput', () => {
 		const image = JSON.stringify({ kind: 'image', base64: 'A'.repeat(300_000) });
 		expect(JSON.parse(boundedOutput(image)).base64.length).toBe(300_000);
 	});
+	it("keeps no pixels of an image a read returns: its card shows the file's name", () => {
+		const shot = JSON.stringify({ path: '/p/shot.png', kind: 'image', mime: 'image/png', bytes: 3, base64: 'A'.repeat(300_000) });
+		expect(JSON.parse(boundedOutput(shot, 'read'))).toEqual({ path: '/p/shot.png', kind: 'image', mime: 'image/png', bytes: 3 });
+		// The same in a live call, a replay and a reopened card.
+		const c = new ChatState();
+		c.handle({ type: 'tool_start', call_id: 'r1', name: 'read' } as never);
+		c.handle({ type: 'tool_output', call_id: 'r1', name: 'read', output: shot } as never);
+		c.handle({ type: 'transcript', items: [{ role: 'tool', name: 'read', output: shot }] } as never);
+		const tool = c.messages.find((m) => m.kind === 'tool');
+		expect(tool?.kind === 'tool' && JSON.parse(tool.output).base64).toBeUndefined();
+		// Other tools' images, and a read of text, stay as they are.
+		expect(JSON.parse(boundedOutput(shot, 'view_image')).base64.length).toBe(300_000);
+		const text = JSON.stringify({ path: 'a.md', kind: 'text', content: 'say "base64"' });
+		expect(boundedOutput(text, 'read')).toBe(text);
+	});
 });
 
 import { merged, refilled, replayShows } from './chat.svelte';
