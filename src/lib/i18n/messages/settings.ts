@@ -1064,7 +1064,7 @@ const settings = {
 			thinkingSummaries: '显示思考摘要',
 			thinkingSummariesHint: '支持的引擎（Claude Code、Codex）在回复前展示思考过程的摘要。对已打开的会话同样生效。',
 			cacheMissAlert: '缓存未命中提醒',
-			cacheMissAlertHint: '可在 5 秒内停止任务',
+			cacheMissAlertHint: '一次请求没命中提示缓存（这次输入按全价计费）时在顶部提示几秒，可以顺手停止任务。不会暂停执行',
 			turnStatsPreview: '预览',
 			turnStatsNone: '不显示统计',
 			turnStat: {
@@ -2326,7 +2326,7 @@ const settings = {
 			thinkingSummaries: 'Show thinking summaries',
 			thinkingSummariesHint: 'Engines that support it (Claude Code, Codex) show a summary of their thinking before replying. Applies to open sessions too.',
 			cacheMissAlert: 'Cache miss alert',
-			cacheMissAlertHint: 'Lets you stop the task within 5 seconds',
+			cacheMissAlertHint: 'A note for a few seconds when a request missed the prompt cache (its input is billed in full), with a button to stop the task. It does not pause anything',
 			turnStatsPreview: 'Preview',
 			turnStatsNone: 'No stats shown',
 			turnStat: {

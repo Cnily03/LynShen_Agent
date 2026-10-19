@@ -7,9 +7,16 @@ describe('migratePrefs', () => {
 	it('turns the window frost off for preferences stored before version 2', () => {
 		// The old default, written out with every other preference.
 		const old = { sidebarVibrancy: true, glass: 60, turnStats: ['elapsed'] };
-		expect(migratePrefs(old)).toEqual({ sidebarVibrancy: false, glass: 60, turnStats: ['elapsed'], version: 2 });
+		expect(migratePrefs(old)).toEqual({ sidebarVibrancy: false, cacheMissAlert: false, glass: 60, turnStats: ['elapsed'], version: PREFS_VERSION });
 		expect(migratePrefs({ version: 1, sidebarVibrancy: true }).sidebarVibrancy).toBe(false);
 		expect(migratePrefs({}).sidebarVibrancy).toBe(false);
+	});
+
+	// Ticket #52: the cache-miss notice was on by default and saved with
+	// every preference; from version 3 it is off unless chosen.
+	it('turns the cache-miss notice off for preferences stored before version 3', () => {
+		expect(migratePrefs({ version: 2, cacheMissAlert: true, sidebarVibrancy: true })).toEqual({ version: PREFS_VERSION, cacheMissAlert: false, sidebarVibrancy: true });
+		expect(migratePrefs({ version: PREFS_VERSION, cacheMissAlert: true }).cacheMissAlert).toBe(true);
 	});
 
 	it('keeps a choice stored at the current version', () => {

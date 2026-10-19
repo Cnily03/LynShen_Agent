@@ -7,7 +7,7 @@ const shell = {
 		notifyApproval: '等你批准：{what}',
 		notifyPlan: '计划待批准：{title}',
 		cacheMiss: {
-			message: '「{title}」缓存未命中：本次输入 {input} token，只命中 {cached} token。不操作的话，5 秒后继续执行。',
+			message: '「{title}」缓存未命中：本次输入 {input} token，只命中 {cached} token。任务照常进行，要停下可以点「停止任务」。',
 			stop: '停止任务'
 		},
 		untitled: '未命名',
@@ -1121,7 +1121,7 @@ const shell = {
 		notifyApproval: 'Waiting for your approval: {what}',
 		notifyPlan: 'Plan to approve: {title}',
 		cacheMiss: {
-			message: '{title}: prompt cache miss. {cached} of {input} input tokens were cached. Continuing in 5 seconds.',
+			message: '{title}: prompt cache miss. {cached} of {input} input tokens were cached. The task goes on; stop it here if you want.',
 			stop: 'Stop task'
 		},
 		untitled: 'Untitled',
