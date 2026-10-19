@@ -8,8 +8,8 @@ const KEY = 'lynshen-prefs';
 /** The stored shape's version. 2 turned the window frost off for everyone,
  *  once: until then it was on by default and written out with every other
  *  preference, so a stored `true` was not a choice (design.md, "Surfaces
- *  and depth"). */
-export const PREFS_VERSION = 2;
+ *  and depth"). 3 did the same for the cache-miss notice (ticket #52). */
+export const PREFS_VERSION = 3;
 
 type PrefsShape = {
 	/** Clicking an .html/.htm link in chat opens it in the built-in browser
@@ -78,7 +78,9 @@ const DEFAULTS: PrefsShape = {
 	sidebarVibrancy: false,
 	turnStats: ['elapsed', 'tokens', 'files'],
 	chatWidth: 'auto',
-	cacheMissAlert: true,
+	// Off unless asked for (ticket #52): the notice interrupts, and the turn
+	// goes on whatever the user does.
+	cacheMissAlert: false,
 	telemetry: true,
 	terminalFont: '',
 	terminalFontSize: 12.5,
@@ -137,6 +139,7 @@ export function migratePrefs(stored: Record<string, unknown>): Record<string, un
 	const version = typeof stored.version === 'number' ? stored.version : 1;
 	const next: Record<string, unknown> = { ...stored, version: PREFS_VERSION };
 	if (version < 2) next.sidebarVibrancy = false;
+	if (version < 3) next.cacheMissAlert = false;
 	return next;
 }
 
@@ -226,7 +229,7 @@ class PrefsStore {
 			: DEFAULTS.turnStats;
 		// (An older version kept a number of pixels here.)
 		this.chatWidth = isChatWidthMode(p.chatWidth) ? p.chatWidth : DEFAULTS.chatWidth;
-		this.cacheMissAlert = p.cacheMissAlert !== false;
+		this.cacheMissAlert = p.cacheMissAlert === true;
 		this.telemetry = p.telemetry !== false;
 		this.terminalFont = typeof p.terminalFont === 'string' ? p.terminalFont : DEFAULTS.terminalFont;
 		this.terminalFontSize = fontSize(p.terminalFontSize);

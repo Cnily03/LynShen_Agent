@@ -1158,7 +1158,7 @@ try {
   await expect(widthRow.locator('.opt.on')).toHaveText('自适应');
   await widthRow.getByRole('button',{name:'铺满'}).click();
   await expect(widthRow.locator('.opt.on')).toHaveText('铺满');
-  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [2, 'full']);
+  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [3, 'full']);
   await page.getByPlaceholder('搜索设置').fill('对话宽度');
   await expect(page.getByRole('button',{name:/^对话宽度/})).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('lynshen-prefs'));
@@ -1969,7 +1969,7 @@ try {
   }));
   const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
   await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
-  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [2, false], told: [false]});
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [3, false], told: [false]});
   // Turned on afterwards it is a choice: macOS frosts at once, and it is
   // still on after a restart.
   await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
@@ -1978,7 +1978,7 @@ try {
   await mac.reload();
   await expect(mac.locator('.composer')).toBeVisible({timeout:30000});
   await expect.poll(async () => (await frostState(mac)).root).toBe('on');
-  assert.deepEqual((await frostState(mac)).stored, [2, true]);
+  assert.deepEqual((await frostState(mac)).stored, [3, true]);
   await mac.close();
   // A Windows window is see-through or not for its lifetime: the choice is
   // handed to the app and shows after the next start.
