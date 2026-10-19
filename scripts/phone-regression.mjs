@@ -111,6 +111,166 @@ try {
 			await expect(page.getByRole('menuitemradio', { name: /全自动/ })).toBeEnabled();
 			await page.keyboard.press('Escape');
 
+			// The plan sheet does not dim the conversation: no scrim, not modal;
+			// the conversation behind still scrolls and takes taps; a tap
+			// outside closes it, so does a drag down past 40 px (not less).
+			await page.goto(`${base}?remote&cards`);
+			const chips = page.getByRole('region', { name: '计划和子智能体' });
+			await expect(chips.locator('.chip')).toHaveCount(2, { timeout: 30000 });
+			await chips.locator('.chip').first().click();
+			const sheet = page.locator('.sheet[role="dialog"]');
+			await expect(sheet).toHaveAttribute('aria-modal', 'false');
+			// The step marks are the desktop's (PR #64): done struck through,
+			// the current one with its dot and running light, the rest hollow.
+			if (await sheet.locator('.step .tick').count()) {
+				await expect(sheet.locator('.step.done .tick')).toHaveCount(3);
+				await expect(sheet.locator('.step.active .dot')).toHaveCount(1);
+				await expect(sheet.locator('.step.active .veil')).toHaveCount(1);
+				await expect(sheet.locator('.step.pending .ring')).toHaveCount(3);
+			}
+			await expect(page.locator('.scrim')).toHaveCount(0);
+			const style = await sheet.evaluate((el) => {
+				const cs = getComputedStyle(el);
+				return { animationDuration: cs.animationDuration, animationTimingFunction: cs.animationTimingFunction };
+			});
+			assert.equal(style.animationDuration, '0.55s');
+			assert.equal(style.animationTimingFunction, 'cubic-bezier(0.32, 0.86, 0.28, 1)');
+			await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+			// The conversation is not covered: what is above the sheet takes a
+			// wheel and a tap (a tap closes the sheet, and lands).
+			const scroll = page.locator('.session .scroll');
+			// It made room: the conversation's end is above the sheet.
+			await expect.poll(() => scroll.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom))).toBeGreaterThan(100);
+			const box = await sheet.boundingBox();
+			await page.mouse.move(195, box.y - 120);
+			await page.mouse.wheel(0, -200);
+			await expect.poll(() => scroll.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeGreaterThan(50);
+			await expect(sheet).toBeVisible();
+			await page.waitForTimeout(300);
+			await page.mouse.click(195, box.y - 60);
+			await expect(sheet, 'a tap outside closes the sheet').toHaveCount(0);
+			// A short drag snaps back; a long one closes.
+			await chips.locator('.chip').first().click();
+			await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+			const grab = sheet.locator('.grab');
+			const g = await grab.boundingBox();
+			await page.mouse.move(g.x + g.width / 2, g.y + 5);
+			await page.mouse.down();
+			await page.mouse.move(g.x + g.width / 2, g.y + 35, { steps: 4 });
+			await page.mouse.up();
+			await expect(sheet).toBeVisible();
+			// (Snapped back: 0.3 s.)
+			await page.waitForTimeout(400);
+			const g2 = await grab.boundingBox();
+			assert.ok(Math.abs(g2.y - g.y) < 2, `the sheet snapped back (${g2.y} vs ${g.y})`);
+			await page.mouse.move(g.x + g.width / 2, g.y + 5);
+			await page.mouse.down();
+			await page.mouse.move(g.x + g.width / 2, g.y + 90, { steps: 6 });
+			await page.mouse.up();
+			await expect(sheet, 'a drag past 40 px closes the sheet').toHaveCount(0);
+			// The chip toggles it.
+			await chips.locator('.chip').first().click();
+			await expect(sheet).toBeVisible();
+			await chips.locator('.chip').first().click();
+			await expect(sheet, 'the chip closes its sheet').toHaveCount(0);
+
+			// The bar: three tabs (会话 · 工作台 · 需求) and the round 派一件事.
+			await page.goto(`${base}?remoteHost&bench`);
+			const nav = page.locator('nav');
+			await expect(nav.locator('.tabs button')).toHaveText([/会话/, /工作台/, /需求/], { timeout: 30000 });
+			const go = nav.getByRole('button', { name: '派一件事' });
+			const goBox = await go.boundingBox();
+			assert.ok(Math.abs(goBox.width - 56) < 1 && Math.abs(goBox.height - 56) < 1, `round button 56×56 (${goBox.width}×${goBox.height})`);
+			assert.ok(goBox.x + goBox.width <= 390 && goBox.y + goBox.height <= 844, 'the round button on screen');
+			// 工作台: the number cards, the deck one card at a time.
+			await nav.getByRole('button', { name: /工作台/ }).click();
+			const stats = page.locator('.stats');
+			await expect(stats.locator('.cell')).toHaveText([/4\s*等你处理/, /1\s*进行中/, /42\s*%\s*今天用量/]);
+			const deck = page.locator('.deck');
+			await expect(page.locator('.deck-h')).toContainText('第 1/4 件');
+			const firstTitle = await deck.locator('.title').textContent();
+			// A sideways swipe of 44 px or more turns the card.
+			const d = await deck.boundingBox();
+			const swipe = async (from, to) => {
+				await page.mouse.move(from, d.y + 30);
+				await page.mouse.down();
+				await page.mouse.move(to, d.y + 34, { steps: 6 });
+				await page.mouse.up();
+			};
+			await swipe(300, 230);
+			await expect(page.locator('.deck-h')).toContainText('第 2/4 件');
+			assert.notEqual(await deck.locator('.title').textContent(), firstTitle);
+			// Too short: nothing. From the screen edge: the system's, nothing.
+			await swipe(300, 270);
+			await expect(page.locator('.deck-h')).toContainText('第 2/4 件');
+			await swipe(385, 250);
+			await expect(page.locator('.deck-h')).toContainText('第 2/4 件');
+			// Back past the first: it says so.
+			await swipe(150, 260);
+			await expect(page.locator('.deck-h')).toContainText('第 1/4 件');
+			await page.getByRole('button', { name: '上一件' }).click();
+			await expect(page.getByRole('status')).toHaveText('已经是第一件');
+			// An action is allowed from its card.
+			await deck.getByRole('button', { name: '允许' }).click();
+			await expect.poll(async () => (await ops()).some((o) => o.op === 'decide_action' && o.decision === 'allow')).toBe(true);
+			// The cards stay under the title bar while the page scrolls.
+			await page.evaluate(() => window.scrollTo(0, 400));
+			await expect(stats).toHaveClass(/stuck/);
+			await page.waitForTimeout(200);
+			const top = await page.locator('.top').boundingBox();
+			const st = await stats.boundingBox();
+			assert.ok(Math.abs(st.y - (top.y + top.height)) < 14, `the cards under the title bar (${st.y} vs ${top.y + top.height})`);
+			await page.screenshot({ path: `/tmp/phone-bench-${name}.png` });
+			// The round button opens the dispatch composer, over any tab.
+			await go.click();
+			await expect(page.getByRole('heading', { name: /派发|新派发/ }).first()).toBeVisible();
+
+			// A turn that ended with a next step: the recap card above the
+			// composer, as on the desktop; 暂不 leaves a receipt under the reply.
+			await page.goto(`${base}?remoteHost&open=s-docs`);
+			await expect(page.locator('.session .title')).toHaveText('翻译文档', { timeout: 30000 });
+			await expect(page.locator('.row.user')).toHaveCount(1);
+			await page.evaluate(() => {
+				const f = (frame) => window.__remoteSend({ session: 's-docs', ...frame });
+				f({ type: 'user_message', content: '跑一遍单元测试' });
+				f({ type: 'connecting' });
+				f({ type: 'status', message: 'streaming' });
+				f({ type: 'assistant_delta', delta: '12 个单元测试全部通过。' });
+				f({ type: 'status', message: 'ready' });
+				f({ type: 'prompt_suggestion', text: '提交并推送' });
+			});
+			const recap = page.locator('.session .recap-wrap .recap');
+			await expect(recap).toBeVisible();
+			await expect(recap.locator('.title')).toHaveText('本轮完成');
+			await expect(recap.getByRole('button', { name: '提交并推送' })).toBeVisible();
+			const rBox = await recap.boundingBox();
+			const cBox = await page.locator('.composer').boundingBox();
+			assert.ok(rBox.y + rBox.height <= cBox.y + 1, 'the recap card is above the composer');
+			await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+			await page.screenshot({ path: `/tmp/phone-recap-${name}.png` });
+			await recap.getByRole('button', { name: '暂不' }).click();
+			await expect(recap).toHaveCount(0);
+			await expect(page.locator('.thread')).toContainText('提交并推送');
+
+			// Reduced motion: the sheet and the deck's cards only fade.
+			const calm = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+			calm.on('pageerror', (e) => errors.push(e.message));
+			await calm.goto(`${base}?remote&cards`);
+			await calm.getByRole('region', { name: '计划和子智能体' }).locator('.chip').first().click();
+			const calmSheet = calm.locator('.sheet[role="dialog"]');
+			assert.match(await calmSheet.evaluate((el) => getComputedStyle(el).animationName), /sheet-fade$/);
+			// (The app's reduced-motion rule may shorten it further; it never slides.)
+			assert.ok(parseFloat(await calmSheet.evaluate((el) => getComputedStyle(el).animationDuration)) <= 0.15);
+			const calmBox = await calmSheet.boundingBox();
+			await calm.waitForTimeout(60);
+			assert.deepEqual(await calmSheet.boundingBox(), calmBox, 'the sheet does not move');
+			await calm.goto(`${base}?remoteHost&bench`);
+			await calm.getByRole('button', { name: /工作台/ }).click();
+			const calmCard = calm.locator('.deck .card');
+			await expect(calmCard).toBeVisible({ timeout: 30000 });
+			assert.match(await calmCard.evaluate((el) => getComputedStyle(el).animationName), /fade-only/);
+			await calm.close();
+
 			// The computer's side: a phone that paired asks to be confirmed with
 			// its check code; a paired phone's scopes are switched there.
 			const desk = await browser.newPage({ viewport: { width: 1280, height: 860 } });

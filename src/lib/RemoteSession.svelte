@@ -37,6 +37,9 @@
 	import type { SessionSwitch } from '$lib/composer/SessionSwitches.svelte';
 	import MessageList from '$lib/MessageList.svelte';
 	import ApprovalCard from '$lib/ApprovalCard.svelte';
+	import RecapCard from '$lib/RecapCard.svelte';
+	import { recapOf, type Recap } from '$lib/recap';
+	import { collapse } from '$lib/ui/motion';
 	import Vendor from '$lib/Vendor.svelte';
 	import BackendIcon from '$lib/BackendIcon.svelte';
 	import Button from '$lib/ui/Button.svelte';
@@ -683,6 +686,47 @@
 	});
 
 	const opening = $derived(!draft && !connected && !exited);
+
+	// The recap card (recap.ts): while nothing else waits for the reader
+	// and no turn is about to start.
+	const recap = $derived(
+		connected
+			? recapOf(chat.messages, {
+					busy: chat.busy || !!chat.pendingApproval || chat.pendingMessages.length > 0 || waiting.length > 0 || !!chat.autoRetry,
+					failed: !!chat.lastError,
+					suggestion: chat.suggestion,
+					review: !!onChanges
+				})
+			: null
+	);
+	function settleRecap(choice: 'picked' | 'skipped' | 'closed'): Recap | null {
+		const r = recap;
+		if (!r) return null;
+		r.reply.recap = { choice, what: choice === 'closed' ? '' : r.suggestion, at: Date.now() };
+		return r;
+	}
+	/** The primary: the suggestion as the next message, or the changes. */
+	function pickRecap() {
+		const r = settleRecap('picked');
+		if (!r) return;
+		if (!r.suggestion) return onChanges?.();
+		chat.suggestion = '';
+		if (r.suggestion.startsWith('/')) send({ op: 'command', input: r.suggestion });
+		else {
+			chat.optimisticUser(r.suggestion);
+			send({ op: 'user_message', content: r.suggestion });
+		}
+		atBottom = true;
+	}
+	/** The plan / sub-agent sheet's height and the composer area's: the
+	 *  conversation's end stays above an open sheet, which does not dim it. */
+	let sheetHeight = $state(0);
+	let bottomHeight = $state(0);
+	$effect(() => {
+		if (!sheetHeight || !scroller) return;
+		const el = scroller;
+		requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+	});
 </script>
 
 <svelte:window onkeydowncapture={reader.key} onpointerup={reader.up} onpointercancel={reader.up} onblur={reader.up} />
@@ -701,7 +745,13 @@
 	</header>
 	<!-- The turn's plan and subagents: a title line each, a bottom sheet a
 	     tap away (design.md, "Status, attention and emphasis"). -->
-	<ProgressSheet {chat} rows={turnAgents} onOpen={bcaps.agentTrace ? openAgent : undefined} onStop={(id) => send({ op: 'stop_task', task_id: id })} />
+	<ProgressSheet
+		{chat}
+		rows={turnAgents}
+		onOpen={bcaps.agentTrace ? openAgent : undefined}
+		onStop={(id) => send({ op: 'stop_task', task_id: id })}
+		bind:sheetHeight
+	/>
 
 	<TaskStrip
 		{chat}
@@ -722,6 +772,7 @@
 	{/if}
 	<main
 		class="scroll"
+		style:padding-bottom={sheetHeight ? `${Math.max(16, sheetHeight - bottomHeight + 12)}px` : undefined}
 		bind:this={scroller}
 		onscroll={onScroll}
 		onwheel={onWheel}
@@ -760,12 +811,21 @@
 		{/if}
 	</main>
 
-	<div class="bottom">
+	<div class="bottom" bind:offsetHeight={bottomHeight}>
 		{#if !atBottom}
 			<button class="jump" onclick={jumpToBottom} aria-label={t('shell.remote.back')}><CaretDownIcon size={18} /></button>
 		{/if}
 		{#if chat.inTerminal}
 			<p class="interm">{t('chat.inTerminal')}</p>
+		{/if}
+		{#if recap && !chat.pendingApproval}
+			<!-- The end of a turn hands control back, as on the desktop: the
+			     result, the next step as the one primary button, 暂不 and ×. -->
+			<div class="approval recap-wrap" out:collapse>
+				{#key recap.reply}
+					<RecapCard {recap} onPick={pickRecap} onSkip={() => settleRecap('skipped')} onClose={() => settleRecap('closed')} />
+				{/key}
+			</div>
 		{/if}
 		{#if chat.pendingApproval}
 			<div class="approval">

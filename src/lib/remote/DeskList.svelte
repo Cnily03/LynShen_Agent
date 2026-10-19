@@ -18,12 +18,16 @@
 	let {
 		current,
 		status = false,
+		queue = true,
 		onOpen,
 		onOpenAgent
 	}: {
 		/** The item shown in the pane, highlighted. */
 		current?: string;
 		status?: boolean;
+		/** The list of what waits for the user (the phone's 工作台 shows it
+		 *  as cards instead). */
+		queue?: boolean;
 		onOpen: (key: string) => void;
 		onOpenAgent: (agent: string) => void;
 	} = $props();
@@ -44,7 +48,7 @@
 		<Notice tone="warn">{t('shell.desk.unreachable')}</Notice>
 	{/if}
 
-	<section>
+	{#if queue}<section>
 		<div class="head"><span>{t('shell.desk.pending')}</span>{#if pending}<span class="count">{pending}</span>{/if}</div>
 		{#each agentDirectory.questions as q (q.id)}
 			{@const key = deskKey('question', q.id)}
@@ -69,7 +73,7 @@
 		{/each}
 		{#if pending === 0}<p class="empty">{t('shell.desk.nothingPending')}</p>{/if}
 		<div class="closed"><DeskClosed /></div>
-	</section>
+	</section>{/if}
 
 	{#if status}
 		<section>

@@ -1351,7 +1351,7 @@ try {
   }
 
   // The phone page: the cards' title lines as chips under the header; a tap
-  // opens one as a sheet from the bottom, closed by Escape or the scrim; a
+  // opens one as a sheet from the bottom (not dimming: phone-regression.mjs), closed by Escape; a
   // subagent row opens its conversation.
   const cardsPhone = await browser.newPage({viewport:{width:390,height:844}});
   cardsPhone.on('pageerror', e => errors.push(e.message));
