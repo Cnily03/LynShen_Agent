@@ -9,6 +9,7 @@
   // opens more conversations, kept in memory and not shown; `show(i)` shows
   // the i-th (0: the first), as picking it in the navigator does: the pane
   // of the one shown before goes. ?defer: no pane until `show` is called.
+  import { flushSync } from 'svelte';
   import ChatPane, { type ChatPaneApi } from '../../src/lib/ChatPane.svelte';
   import { SessionStore } from '../../src/lib/session.svelte';
   import { setLocale } from '../../src/lib/i18n';
@@ -36,6 +37,8 @@
         api?.scrollToEnd();
       },
       chat: () => (session ?? first).chat,
+      /** Runs the updates pending now, as the end of a task does. */
+      flush: () => flushSync(),
       /** Gives conversation `i` (default the first) `turns` turns of history. */
       seed(turns: number, i = 0, from = 0) {
         const chat = chatOf(i);
@@ -61,8 +64,10 @@
       },
       /** Shows conversation `i` (-1: none). */
       show(i: number) {
+        const next = i < 0 ? null : ids[i]!;
+        if (next === shownId) return;
         api = null;
-        shownId = i < 0 ? null : ids[i]!;
+        shownId = next;
       },
       count: () => ids.length
     }

@@ -299,7 +299,11 @@
 		rowSizes?.observe(node);
 		return {
 			update(next: Msg) {
+				if (rowMsg.get(node) === next) return;
 				rowMsg.set(node, next);
+				// Observed anew, it is reported (measured) again.
+				rowSizes?.unobserve(node);
+				rowSizes?.observe(node);
 			},
 			destroy() {
 				rowSizes?.unobserve(node);
