@@ -18,8 +18,10 @@ export type TurnPart = { text: string; title: string; mono?: boolean; change?: {
 /** The chosen turn figures, in footer order; shared by the reply footer and its settings preview. */
 export function turnParts(s: TurnStats, keys: readonly TurnStatKey[]): TurnPart[] {
 	const out: TurnPart[] = [];
+	// The duration's tooltip names the model when the model is not shown.
+	const elapsedTitle = s.model && !keys.includes('model') ? t('chat.stat.elapsedBy', { model: s.model }) : t('chat.stat.elapsed');
 	for (const k of keys) {
-		if (k === 'elapsed') out.push({ text: fmtDur(s.elapsed), title: t('chat.stat.elapsed'), mono: true });
+		if (k === 'elapsed') out.push({ text: fmtDur(s.elapsed), title: elapsedTitle, mono: true });
 		else if (k === 'ttft' && s.ttft !== undefined)
 			out.push({ text: t('chat.stat.ttftShort', { t: fmtDur(s.ttft) }), title: t('chat.stat.ttft') });
 		else if (k === 'tokens' && (s.inTokens || s.outTokens))

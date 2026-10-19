@@ -160,6 +160,7 @@ const chat = {
 		},
 		stat: {
 			elapsed: '本轮总耗时',
+			elapsedBy: '本轮总耗时 · {model}',
 			ttft: '首个输出的等待时间',
 			ttftShort: '首字 {t}',
 			tokens: '输入 / 输出 Token',
@@ -738,6 +739,7 @@ const chat = {
 		},
 		stat: {
 			elapsed: 'Total time of this turn',
+			elapsedBy: 'Total time of this turn · {model}',
 			ttft: 'Wait for the first output',
 			ttftShort: 'first token {t}',
 			tokens: 'Input / output tokens',
