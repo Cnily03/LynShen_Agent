@@ -109,12 +109,16 @@
 		// The scroll viewport (owned by +page). When provided and the history is
 		// long, rows outside the viewport are windowed out.
 		scroller?: HTMLElement | null;
-		onEdit: (text: string) => void;
+		/** Puts a sent message back in the composer; without it there is no pencil. */
+		onEdit?: (text: string) => void;
 		/** Quote text selected in a reply into the composer. */
 		onCite?: (text: string) => void;
 		/** Notes the selected passage as a requirement (offered beside quoting). */
 		onNote?: (text: string) => void;
-		onRewind: (text: string, userIndex: number) => void;
+		/** Rewinds to a sent message and puts it back to rewrite; without it
+		 *  there is no rewind button (a read-only transcript, an engine that
+		 *  cannot rewind). */
+		onRewind?: (text: string, userIndex: number) => void;
 		/** Open a workspace file referenced by a chat link (editor / browser). */
 		/** A file link in a message; `context` is that message's text. */
 		onFile?: (href: string, context?: string) => void;
@@ -615,10 +619,14 @@
 				<button class="uedit ucopy" class:done={copied === m} onclick={() => copy(copyableText(m.text), m)} aria-label={t(copied === m ? 'common.copied' : 'common.copy')} title={t(copied === m ? 'common.copied' : 'common.copy')}>
 					{#if copied === m}<CheckIcon size={12} />{:else}<CopyIcon size={12} />{/if}
 				</button>
-				<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
-					<ArrowCounterClockwiseIcon size={12} />{#if drop > 1}<span class="rwn">{drop}</span>{/if}
-				</button>
-				<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
+				{#if onRewind}
+					<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
+						<ArrowCounterClockwiseIcon size={12} />{#if drop > 1}<span class="rwn">{drop}</span>{/if}
+					</button>
+				{/if}
+				{#if onEdit}
+					<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
+				{/if}
 				<div class="ucol">
 					<!-- Files and videos sent with it: chips above the bubble, which
 					     shows what was typed (attachments.ts). -->
@@ -1125,10 +1133,11 @@
 	.tcopy:active {
 		transform: scale(0.94);
 	}
-	/* Touch screens (the phone page) have no hover: the copy buttons stay. */
+	/* Touch screens (the phone page) have no hover: a message's buttons
+	   (copy, rewind, put back) stay, as the turn's copy button does. */
 	@media (hover: none) {
 		.tcopy,
-		.uedit.ucopy {
+		.uedit {
 			opacity: 1;
 			transform: none;
 		}

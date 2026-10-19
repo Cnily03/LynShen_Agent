@@ -91,6 +91,45 @@ try {
 			await page.waitForTimeout(600);
 			await page.screenshot({ path: `/tmp/phone-pair-check-${name}.png` });
 
+			// "/" opens the engine's commands in the box, as on the desktop
+			// (ticket #46); a command goes as a command, not a message; one the
+			// computer runs is not listed and is not sent.
+			await page.goto(`${base}?remoteHost&open=s-cache&scopes=full_access&idleAfterApprove`);
+			await expect(card).toBeVisible({ timeout: 30000 });
+			await card.getByRole('button', { name: /允许一次/ }).click();
+			await expect(card).toHaveCount(0);
+			await expect(page.locator('.composer .cact.stop')).toHaveCount(0);
+			await page.evaluate(() => window.__remoteOps.splice(0));
+			const field = page.locator('.composer textarea');
+			await field.fill('/');
+			const tray = page.locator('.composer .tray');
+			await expect(tray.getByRole('option')).toHaveText([/\/compact/, /\/context/, /\/rewind/]);
+			await tray.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+			await page.screenshot({ path: `/tmp/phone-slash-tray-${name}.png` });
+			await field.fill('/co');
+			await expect(tray.getByRole('option')).toHaveText([/\/compact/, /\/context/]);
+			await tray.getByRole('option', { name: /\/compact/ }).click();
+			await expect(field).toHaveValue('/compact ');
+			await expect(tray).toHaveCount(0);
+			await page.locator('.composer .cact.send').click();
+			await expect.poll(async () => (await ops()).filter((o) => o.op === 'command').map((o) => o.input)).toEqual(['/compact']);
+			assert.ok(!(await ops()).some((o) => o.op === 'user_message'), 'a command is not a message');
+			await field.fill('/login');
+			await page.locator('.composer .cact.send').click();
+			await expect(page.getByText('/login 要在电脑上用')).toBeVisible();
+			assert.ok(!(await ops()).some((o) => o.op === 'command' && o.input === '/login'), '/login not sent');
+			// A sent message's buttons show without hover (a touch screen):
+			// rewind asks, restores that turn and puts the message back.
+			const sentRow = page.locator('.row.user').first();
+			await expect(sentRow.locator('.uedit.rewind')).toBeVisible();
+			await sentRow.locator('.uedit.rewind').click();
+			await expect(page.getByText('回退到这一轮并重写？')).toBeVisible();
+			await page.getByRole('button', { name: '回退并重写' }).click();
+			await expect.poll(async () => (await ops()).filter((o) => o.op === 'command').map((o) => o.input).at(-1)).toBe('/rewind e1');
+			await expect(field).toHaveValue('把会话缓存改成按会话分片，跑完单元测试再提交。');
+			await expect(page.getByText('回退到这一轮并重写？')).toHaveCount(0);
+			await page.screenshot({ path: `/tmp/phone-slash-${name}.png` });
+
 			// 全自动 is a locked row until the computer allows this phone; an
 			// escalation can only be denied here.
 			await page.goto(`${base}?remoteHost&open=s-cache`);
