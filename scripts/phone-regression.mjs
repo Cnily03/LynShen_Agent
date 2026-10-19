@@ -159,6 +159,35 @@ try {
 			await expect(page.getByText('回退到这一轮并重写？')).toHaveCount(0);
 			await page.screenshot({ path: `/tmp/phone-slash-${name}.png` });
 
+			// 反馈问题 from the phone (ticket #45): sent through the computer,
+			// which signs it and attaches its logs; the screenshot and the
+			// phone's platform go along.
+			await page.goto(`${base}?remoteHost&feedback`);
+			const dialog = page.getByRole('dialog', { name: '反馈问题' });
+			await expect(dialog).toBeVisible({ timeout: 30000 });
+			await expect(dialog.getByText('会以工单提交到「MacBook Pro」上登录的 LynShen 账户')).toBeVisible();
+			await expect(dialog.getByText('附带「MacBook Pro」的日志')).toBeVisible();
+			await dialog.getByRole('button', { name: '建议', exact: true }).click();
+			await dialog.locator('input').first().fill('网页端提交工单');
+			await dialog.locator('textarea').fill('在 app.lynshen.org 上也能提交工单');
+			await page.waitForTimeout(300);
+			await page.screenshot({ path: `/tmp/phone-feedback-${name}.png` });
+			await dialog.getByRole('button', { name: '提交' }).click();
+			await expect(page.getByText('已提交工单 #54')).toBeVisible();
+			const sent = (await ops()).find((o) => o.op === 'feedback_send');
+			assert.equal(sent.title, '网页端提交工单');
+			assert.equal(sent.category, 'feature');
+			assert.equal(sent.with_logs, true);
+			assert.equal(sent.app_version, 'web');
+			assert.match(sent.body, /来自网页端（app\.lynshen\.org）· 电脑：MacBook Pro/);
+			// A computer whose engine predates it says to update.
+			await page.goto(`${base}?remoteHost&feedback&oldEngine`);
+			await expect(dialog).toBeVisible({ timeout: 30000 });
+			await dialog.locator('input').first().fill('t');
+			await dialog.locator('textarea').fill('b');
+			await dialog.getByRole('button', { name: '提交' }).click();
+			await expect(dialog.getByText('电脑上的 Aogiri 版本较旧')).toBeVisible();
+
 			// 全自动 is a locked row until the computer allows this phone; an
 			// escalation can only be denied here.
 			await page.goto(`${base}?remoteHost&open=s-cache`);

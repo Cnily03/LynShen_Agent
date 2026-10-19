@@ -1,3 +1,16 @@
+<script lang="ts" module>
+	/** Where the report goes. The desktop app sends it itself; the phone page
+	 *  (no LynShen key of its own) through the computer it is paired with,
+	 *  which also reads its own logs (`remote` below). */
+	export interface FeedbackRemote {
+		/** The paired computer's name, for the hint. */
+		computer: string;
+		/** This page's version and platform, for the ticket. */
+		client: { version: string; os: string };
+		send(ticket: { title: string; body: string; category: 'bug' | 'feature'; app_version: string; os: string; attachments: { name: string; type: string; data_url: string }[]; with_logs: boolean }): Promise<{ ticket_no?: unknown }>;
+	}
+</script>
+
 <script lang="ts">
 	// 反馈问题: a bug report or suggestion, sent as a support ticket of the
 	// signed-in LynShen account (the console shows it and the replies). It can
@@ -23,7 +36,7 @@
 	import { telemetry } from '$lib/telemetry.svelte';
 	import { t } from '$lib/i18n';
 
-	let { onClose }: { onClose: () => void } = $props();
+	let { onClose, remote }: { onClose: () => void; remote?: FeedbackRemote } = $props();
 
 	/** Screenshots: 2 at most, each under 2 MB (the ticket's limits). */
 	const MAX_SHOTS = 2;
@@ -42,6 +55,8 @@
 	let picker = $state<HTMLInputElement | null>(null);
 
 	onMount(() => {
+		// The phone cannot read the computer's logs: the computer attaches them.
+		if (remote) return;
 		diagnosticLogs()
 			.then((list) => (logs = list))
 			.catch(() => (logs = []));
@@ -90,6 +105,24 @@
 		sending = true;
 		error = '';
 		try {
+			if (remote) {
+				const attachments = shots.map((s) => ({ name: s.name, type: s.url.slice(5, s.url.indexOf(';')), data_url: s.url }));
+				const environment = t('shell.feedback.environmentWeb', { computer: remote.computer, system: remote.client.os });
+				const ticket = await remote.send({
+					title: title.trim(),
+					body: `${body.trim()}\n\n---\n${environment}`,
+					category: kind === 'bug' ? 'bug' : 'feature',
+					app_version: remote.client.version.slice(0, 64),
+					os: remote.client.os.slice(0, 64),
+					attachments,
+					with_logs: withLogs
+				});
+				body = '';
+				saveComposerText('feedback', '');
+				toast.success(t('shell.feedback.sent', { no: ticket.ticket_no ? `#${ticket.ticket_no}` : '' }), { duration: 8000 });
+				onClose();
+				return;
+			}
 			const about = await aboutApp();
 			const version = about?.version ?? '';
 			const attachments: { name: string; type: string; data_url: string }[] = shots.map((s) => ({
@@ -126,7 +159,7 @@
 
 <Modal title={t('shell.feedback.title')} dismissible={!sending} width={560} {onClose}>
 	{#snippet icon()}<ChatCircleTextIcon size={15} />{/snippet}
-	<p class="hint">{t('shell.feedback.hint')}</p>
+	<p class="hint">{remote ? t('shell.feedback.hintWeb', { computer: remote.computer }) : t('shell.feedback.hint')}</p>
 	<Segmented
 		bind:value={kind}
 		options={[
@@ -171,8 +204,10 @@
 		/>
 	</div>
 	<div class="logs">
-		<Checkbox bind:checked={withLogs} disabled={!logs.length}>{t('shell.feedback.withLogs')}</Checkbox>
-		{#if logs.length}
+		<Checkbox bind:checked={withLogs} disabled={!remote && !logs.length}>{remote ? t('shell.feedback.withLogsWeb', { computer: remote.computer }) : t('shell.feedback.withLogs')}</Checkbox>
+		{#if remote}
+			<p class="dim small">{t('shell.feedback.logsNoteWeb')}</p>
+		{:else if logs.length}
 			<ul>
 				{#each logs as log (log.name)}
 					<li>

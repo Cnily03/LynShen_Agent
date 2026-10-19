@@ -10,6 +10,8 @@
 	import { onMount, type Component } from 'svelte';
 	import HostView, { type ShowRequest } from '../../src/lib/remote/HostView.svelte';
 	import PushSettings from '../../src/lib/remote/PushSettings.svelte';
+	import FeedbackDialog from '../../src/lib/FeedbackDialog.svelte';
+	import { feedbackRemote } from '../../src/lib/remote/feedback';
 	import Toaster from '../../src/lib/ui/Toaster.svelte';
 	import ConfirmHost from '../../src/lib/ui/ConfirmHost.svelte';
 	import RemoteSession from '../../src/lib/RemoteSession.svelte';
@@ -121,6 +123,10 @@
 					// The turn ends once the push ran (`?idleAfterApprove`).
 					if (params.has('idleAfterApprove')) setTimeout(() => this.emit({ type: 'status', session: SESSION, message: 'ready' }), 60);
 					return;
+				case 'feedback_send':
+					// ?oldEngine: a daemon before feedback_send.
+					if (params.has('oldEngine')) return answer({ type: 'error', message: 'feedback_send requires session' });
+					return answer({ type: 'feedback_sent', ticket_no: 54 });
 				case 'push_rules':
 					return answer({ type: 'push_rules', rules });
 				case 'push_rules_set':
@@ -188,6 +194,9 @@
 <div class="remote" class:wide={params.has('wide')}>
 	<HostView {conn} name="MacBook Pro" hidden={false} wide={params.has('wide')} {screens} {switcher} {resizer} onAdd={() => {}} onForget={() => {}} onRepair={() => {}} {show} />
 </div>
+{#if params.has('feedback')}
+	<FeedbackDialog remote={feedbackRemote(conn.daemon, 'MacBook Pro')} onClose={() => {}} />
+{/if}
 {#if settings}
 	<PushSettings {conn} conns={[conn]} name="MacBook Pro" onTest={() => {}} onClose={() => (settings = false)} />
 {/if}
