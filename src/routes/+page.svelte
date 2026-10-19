@@ -930,6 +930,9 @@
 	// ---------- pane registry ----------
 	// Global flows always target the active session's pane: palette commands,
 	// ⌘F find, file drops and browser element picks.
+	/** Engine frames of text and figures streaming in: none adds, removes or
+	 *  changes a plan (see `deliver`). */
+	const STREAM_FRAMES = new Set(['assistant_delta', 'reasoning_delta', 'tool_update', 'usage', 'context_usage', 'compaction_progress']);
 	const panes = new Map<string, ChatPaneApi>();
 	function registerPane(id: string, api: ChatPaneApi) {
 		panes.set(id, api);
@@ -1406,8 +1409,13 @@
 				if (!s) return;
 				const wasBusy = s.chat.busy;
 				const hadApproval = s.chat.pendingApproval?.callId ?? null;
-				const hadPlan = s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
-				const lastPlan = s.chat.messages.findLast((m) => m.kind === 'plan');
+				// A frame of text streaming changes no plan: the plans are not
+				// looked for (each look reads the whole conversation, on every
+				// delta of a reply).
+				const type = (parsed as { type?: unknown } | null)?.type;
+				const planless = typeof type === 'string' && STREAM_FRAMES.has(type);
+				const hadPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
+				const lastPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan');
 				// Capture the raw frame for the diagnostics trace so a mis-parsed or
 				// dropped tool frame is inspectable after the fact.
 				s.chat.captureFrame(data, parsed);
@@ -1463,13 +1471,13 @@
 					const ask = s.chat.pendingApproval;
 					if (ask && ask.callId !== hadApproval && !ask.questions?.length)
 						void notify(shownTitle(s.chat.title), t('shell.notifyApproval', { what: ask.summary.slice(0, 120) }));
-					const plan = s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
+					const plan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
 					if (plan && plan !== hadPlan && plan.kind === 'plan')
 						void notify(shownTitle(s.chat.title), t('shell.notifyPlan', { title: plan.title }));
 				}
 				// A plan the model starts writing (or proposes whole) opens in its
 				// page beside this session's chat.
-				const newPlan = s.chat.messages.findLast((m) => m.kind === 'plan');
+				const newPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan');
 				if (newPlan && newPlan !== lastPlan && newPlan.kind === 'plan' && (newPlan.status === 'drafting' || newPlan.status === 'pending') && tilesReady && chatSessionsIn(tiles).includes(s.id))
 					openPlanPage(s.id, newPlan.id);
 								// This session's tile (if any) sticks to the bottom while streaming.
