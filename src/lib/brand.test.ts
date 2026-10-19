@@ -129,6 +129,19 @@ describe('in-app marks', () => {
 			expect(new Set(fills)).toEqual(new Set(['currentColor']));
 		}
 	});
+
+	// Tickets #41/#42 (the light drawn black on Windows) and #44 (审阅 showed
+	// only line numbers): app.html has an inline <style>, so Tauri gave it a
+	// nonce and added 'nonce-…' to style-src. With a nonce in the policy the
+	// browser ignores 'unsafe-inline', and blocked every style="" attribute
+	// (the light's fill:var(--logo-light…)) and every <style> a script adds
+	// (CodeMirror's theme, KaTeX). Tauri must leave style-src as written.
+	it('keep their style attributes: Tauri adds no nonce to style-src', () => {
+		const conf = JSON.parse(file('src-tauri/tauri.conf.json').toString('utf8'));
+		expect(conf.app.security.csp['style-src']).toBe("'self' 'unsafe-inline'");
+		expect(conf.app.security.dangerousDisableAssetCspModification).toEqual(['style-src']);
+		expect(html).toMatch(/<style>/);
+	});
 });
 
 /** Width and height of a PNG. */

@@ -4,6 +4,12 @@
 	import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDiskIcon';
 	import SparkleIcon from 'phosphor-svelte/lib/SparkleIcon';
 	import SidebarSimpleIcon from 'phosphor-svelte/lib/SidebarSimpleIcon';
+	import FolderOpenIcon from 'phosphor-svelte/lib/FolderOpenIcon';
+	import CopySimpleIcon from 'phosphor-svelte/lib/CopySimpleIcon';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
+	import { copyText } from '$lib/clipboard';
+	import { toast } from '$lib/ui/toast.svelte';
+	import { contextItems } from '$lib/ui/contextMenu';
 	import {
 		EditorView,
 		keymap,
@@ -345,6 +351,19 @@
 	}
 
 	const active = $derived(store.active);
+
+	// The file's folder in Finder / Explorer / the file manager, and its
+	// absolute path on the clipboard (ticket #53).
+	function revealFile(tab: EditorTab) {
+		revealItemInDir(tab.path).catch((e) => toast.error(t('editor.revealFailed', { error: String(e) })));
+	}
+	async function copyPath(tab: EditorTab) {
+		if (await copyText(tab.path)) toast.success(t('editor.pathCopied'));
+	}
+	const tabMenu = (tab: EditorTab) => () => [
+		{ key: 'reveal', label: t('editor.revealFile'), run: () => revealFile(tab) },
+		{ key: 'copy-path', label: t('editor.copyPath'), run: () => void copyPath(tab) }
+	];
 </script>
 
 <div class="editor">
@@ -360,6 +379,7 @@
 					title={tab.rel}
 					onclick={() => store.activate(tab.path)}
 					onkeydown={(e) => e.key === 'Enter' && store.activate(tab.path)}
+					use:contextItems={tabMenu(tab)}
 					onauxclick={(e) => {
 						if (e.button === 1) {
 							e.preventDefault();
@@ -381,6 +401,10 @@
 			{/each}
 		</div>
 		<div class="eactions">
+			{#if active}
+				<IconButton size="sm" label={t('editor.revealFile')} title={t('editor.revealFile')} onclick={() => revealFile(active)}><FolderOpenIcon size={14} /></IconButton>
+				<IconButton size="sm" label={t('editor.copyPath')} title={t('editor.copyPath')} onclick={() => copyPath(active)}><CopySimpleIcon size={14} /></IconButton>
+			{/if}
 			<IconButton size="sm" label={t('editor.save')} title="{t('editor.save')} ⌘S" disabled={!active?.dirty} onclick={saveActive}><FloppyDiskIcon size={14} /></IconButton>
 			<IconButton size="sm" label={t('editor.closePane')} title={withShortcut(t('editor.closePane'), 'audit')} onclick={() => (store.visible = false)}><SidebarSimpleIcon size={14} /></IconButton>
 		</div>

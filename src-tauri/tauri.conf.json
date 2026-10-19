@@ -31,6 +31,7 @@
         "script-src": "'self'",
         "connect-src": "'self' ipc: http://ipc.localhost ws://127.0.0.1:7788"
       },
+      "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": {
         "enable": true,
         "scope": [
