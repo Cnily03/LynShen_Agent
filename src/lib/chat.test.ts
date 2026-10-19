@@ -411,6 +411,21 @@ describe('ChatState.handle', () => {
 		expect(c.messages.map((m) => m.kind)).toEqual(['user', 'system', 'system', 'error']);
 	});
 
+	it('shows a reply with thinking and no answer as an error card', () => {
+		for (const message of [
+			'模型只输出了思考，没有给出回答：输出上限用完了。可以调高这个模型的输出上限，或降低思考强度后重试。 (stop reason max_tokens, 8192 output tokens)',
+			'模型拒绝回答了这个请求。 (stop reason refusal)',
+			'模型没有给出回答。'
+		]) {
+			const c = new ChatState();
+			c.handle({ type: 'user_message', content: 'hi' });
+			c.handle({ type: 'reasoning_delta', delta: 'think' });
+			c.handle({ type: 'error', message });
+			expect(c.messages.map((m) => m.kind)).toEqual(['user', 'reasoning', 'error']);
+			expect(c.messages.at(-1)).toEqual({ kind: 'error', text: message });
+		}
+	});
+
 	it('shows a compaction as a card in the conversation, then as a divider with its sizes', () => {
 		const c = new ChatState();
 		c.handle({ type: 'user_message', content: 'hi' });
