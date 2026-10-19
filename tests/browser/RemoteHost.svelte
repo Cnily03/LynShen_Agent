@@ -167,8 +167,9 @@
 
 <Toaster />
 <ConfirmHost />
-<div class="remote">
-	<HostView {conn} name="MacBook Pro" hidden={false} wide={false} {screens} {switcher} {resizer} onAdd={() => {}} onForget={() => {}} onRepair={() => {}} {show} />
+<!-- ?wide: the tablet / desktop layout (the page's .remote.wide grid). -->
+<div class="remote" class:wide={params.has('wide')}>
+	<HostView {conn} name="MacBook Pro" hidden={false} wide={params.has('wide')} {screens} {switcher} {resizer} onAdd={() => {}} onForget={() => {}} onRepair={() => {}} {show} />
 </div>
 {#if settings}
 	<PushSettings {conn} conns={[conn]} name="MacBook Pro" onTest={() => {}} onClose={() => (settings = false)} />
@@ -180,5 +181,12 @@
 		background: var(--bg);
 		color: var(--text);
 		font-family: var(--font-sans);
+	}
+	.remote.wide {
+		display: grid;
+		grid-template-columns: 300px 1fr;
+		grid-template-rows: minmax(0, 1fr);
+		height: 100dvh;
+		overflow: hidden;
 	}
 </style>
