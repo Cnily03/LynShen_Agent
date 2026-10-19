@@ -7,7 +7,7 @@ import { SymmetricState, generateKeyPair, keyPairFromPrivate, PROLOGUE, type Key
 export function respond(
 	s: KeyPair,
 	msg1: Uint8Array,
-	reply: (payload: Uint8Array, rs: Uint8Array) => Uint8Array,
+	reply: (payload: Uint8Array, rs: Uint8Array, h: Uint8Array) => Uint8Array,
 	prologue = PROLOGUE,
 	ephemeral?: Uint8Array
 ): { msg2: Uint8Array; transport: Transport; h: Uint8Array } {
@@ -20,11 +20,13 @@ export function respond(
 	const rs = ss.decryptAndHash(msg1.subarray(32, 80));
 	ss.mixKey(x25519.getSharedSecret(s.priv, rs));
 	const payload = ss.decryptAndHash(msg1.subarray(80));
+	// `h` after msg 1, as the daemon takes it for the pairing check code.
+	const h1 = ss.h;
 	const e = ephemeral ? keyPairFromPrivate(ephemeral) : generateKeyPair();
 	ss.mixHash(e.pub);
 	ss.mixKey(x25519.getSharedSecret(e.priv, re));
 	ss.mixKey(x25519.getSharedSecret(e.priv, rs));
-	const body = ss.encryptAndHash(reply(payload, rs));
+	const body = ss.encryptAndHash(reply(payload, rs, h1));
 	const msg2 = new Uint8Array(32 + body.length);
 	msg2.set(e.pub);
 	msg2.set(body, 32);

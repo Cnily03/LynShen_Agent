@@ -1,7 +1,6 @@
 // The PWA's relay pairing state (LynShen-CLI docs/relay-protocol.md §1, §2):
-// the computers it is paired with, read from `#pair=` link fragments, and
-// this device's own X25519 key (one per browser, used for every computer),
-// all in localStorage.
+// the computers it is paired with, read from `#pair=` link fragments, in
+// localStorage. Each computer's key is in IndexedDB (relay/deviceKey.ts).
 
 import { fromBase64Url, generateKeyPair, toBase64Url, type KeyPair } from './noise';
 
@@ -27,6 +26,9 @@ export interface SavedHost extends RelayHost {
 	seq: number;
 	/** ms */
 	added_at: number;
+	/** Paired with a key of its own (relay/deviceKey.ts); absent: with the
+	 *  older key every computer shared, kept until paired again. */
+	own_key?: boolean;
 }
 
 export interface PairLink {
@@ -115,9 +117,10 @@ export function nextSeq(hosts: Pick<SavedHost, 'seq'>[]): number {
 export function addHost(host: RelayHost): SavedHost {
 	const hosts = loadHosts();
 	const known = hosts.find((h) => h.host_id === host.host_id);
+	// A new pairing uses this computer's own key from now on.
 	const saved: SavedHost = known
-		? { ...known, host_static_pub: host.host_static_pub, relay: host.relay }
-		: { ...host, name: '', seq: nextSeq(hosts), added_at: Date.now() };
+		? { ...known, host_static_pub: host.host_static_pub, relay: host.relay, own_key: true }
+		: { ...host, name: '', seq: nextSeq(hosts), added_at: Date.now(), own_key: true };
 	write(
 		HOSTS_KEY,
 		known ? hosts.map((h) => (h.host_id === host.host_id ? saved : h)) : [...hosts, saved]
@@ -164,7 +167,8 @@ export function saveActive(id: string) {
 	}
 }
 
-/** This device's static key, created on first use. */
+/** The older shared static key, from before each computer had its own
+ *  (relay/deviceKey.ts); tests and pairings made then. */
 export function deviceKey(): KeyPair {
 	const saved = read<{ priv: string; pub: string }>(DEVICE_KEY);
 	if (saved?.priv && saved.pub) return { priv: fromBase64Url(saved.priv), pub: fromBase64Url(saved.pub) };

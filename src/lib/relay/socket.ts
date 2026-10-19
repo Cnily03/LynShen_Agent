@@ -5,7 +5,7 @@
 // and out are encrypted and chunked.
 
 import type { SocketLike } from '$lib/daemon';
-import { FrameReader, Initiator, sealFrame, type CipherState, type KeyPair } from './noise';
+import { FrameReader, Initiator, sealFrame, type CipherState, type StaticKey } from './noise';
 
 export type RelayErrorKind =
 	/** The computer's daemon is not connected to the relay (4404). */
@@ -14,6 +14,9 @@ export type RelayErrorKind =
 	| 'pair-invalid'
 	/** The daemon refused this device: not paired, or revoked (also 4401). */
 	| 'revoked'
+	/** Paired: the computer has not confirmed this device yet. `check` is
+	 *  the 6-digit code both sides show. */
+	| 'pending'
 	/** Too many connections (4429). */
 	| 'busy'
 	/** The daemon ended the stream (4410). */
@@ -26,7 +29,9 @@ export type RelayErrorKind =
 export class RelayError extends Error {
 	constructor(
 		readonly kind: RelayErrorKind,
-		message: string
+		message: string,
+		/** For `pending`: the check code. */
+		readonly check?: string
 	) {
 		super(message);
 	}
@@ -42,7 +47,8 @@ export interface RelayOptions {
 	relay: string;
 	hostId: string;
 	hostStatic: Uint8Array;
-	device: KeyPair;
+	/** This phone's key for this computer, or how to get it. */
+	device: StaticKey | (() => Promise<StaticKey>);
 	name: string;
 	/** One-time pairing code, sent only on the first connection. */
 	pair?: string;
@@ -58,6 +64,14 @@ const CONNECTING = 0;
 const OPEN = 1;
 const CLOSED = 3;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
+
+/** The 6-digit check code of a pairing (LynShen-CLI `check_code`): the
+ *  first 8 bytes of `bytes`, big-endian, modulo 10^6, zero-padded. */
+export function checkCode(bytes: Uint8Array): string {
+	let n = 0n;
+	for (let i = 0; i < 8; i++) n = (n << 8n) | BigInt(bytes[i] ?? 0);
+	return String(n % 1_000_000n).padStart(6, '0');
+}
 
 export function closeCodeError(code: number, reason: string): RelayError {
 	switch (code) {
@@ -86,7 +100,11 @@ export class RelaySocket implements SocketLike {
 	error: RelayError | null = null;
 
 	#ws: WebSocket;
-	#initiator: Initiator;
+	#initiator!: Initiator;
+	/** The initiator, once the device key is at hand. */
+	#ready: Promise<Initiator>;
+	/** Messages in order: the handshake reply waits for the key work. */
+	#queue: Promise<void> = Promise.resolve();
 	#send: CipherState | null = null;
 	#reader: FrameReader | null = null;
 	#timer: ReturnType<typeof setTimeout>;
@@ -96,7 +114,8 @@ export class RelaySocket implements SocketLike {
 		const base = opts.relay.replace(/\/+$/, '');
 		this.#ws = new Impl(`${base}/connect?host=${encodeURIComponent(opts.hostId)}`);
 		this.#ws.binaryType = 'arraybuffer';
-		this.#initiator = new Initiator(opts.device, opts.hostStatic);
+		const device = typeof opts.device === 'function' ? opts.device() : Promise.resolve(opts.device);
+		this.#ready = device.then((key) => (this.#initiator = new Initiator(key, opts.hostStatic)));
 		this.#timer = setTimeout(
 			() => this.#fail(new RelayError('network', 'handshake timed out')),
 			HANDSHAKE_TIMEOUT_MS
@@ -105,15 +124,18 @@ export class RelaySocket implements SocketLike {
 		this.#ws.onopen = () => {
 			const hello: Record<string, string> = { name: opts.name };
 			if (opts.pair) hello.pair = opts.pair;
-			this.#ws.send(this.#initiator.writeMessage1(new TextEncoder().encode(JSON.stringify(hello))) as Uint8Array<ArrayBuffer>);
+			this.#queue = this.#queue
+				.then(() => this.#ready)
+				.then((initiator) => initiator.write1(new TextEncoder().encode(JSON.stringify(hello))))
+				.then((msg1) => this.#ws.send(msg1 as Uint8Array<ArrayBuffer>))
+				.catch((e) => this.#fail(new RelayError('protocol', String(e))));
 		};
 		this.#ws.onmessage = (event) => {
 			if (!(event.data instanceof ArrayBuffer)) return this.#fail(new RelayError('protocol', 'unexpected text frame'));
-			try {
-				this.#receive(new Uint8Array(event.data));
-			} catch (e) {
-				this.#fail(e instanceof RelayError ? e : new RelayError('protocol', String(e)));
-			}
+			const bytes = new Uint8Array(event.data);
+			// After the handshake, frames are handled as they come.
+			if (this.#reader) return this.#guard(() => this.#receive(bytes));
+			this.#queue = this.#queue.then(() => this.#guard(() => this.#receive(bytes)));
 		};
 		this.#ws.onerror = () => {
 			// A close event (with the relay's code) always follows.
@@ -123,18 +145,34 @@ export class RelaySocket implements SocketLike {
 		};
 	}
 
-	#receive(message: Uint8Array) {
+	async #guard(work: () => void | Promise<void>) {
+		try {
+			await work();
+		} catch (e) {
+			this.#fail(e instanceof RelayError ? e : new RelayError('protocol', String(e)));
+		}
+	}
+
+	async #receive(message: Uint8Array) {
 		if (this.#reader) {
 			const text = this.#reader.push(message);
 			if (text !== null) this.onmessage?.({ data: text });
 			return;
 		}
-		const { payload, transport } = this.#initiator.readMessage2(message);
-		let reply: { ok?: boolean; error?: string; device?: string; name?: string };
+		// The check code is from the handshake hash after msg 1 (the daemon
+		// takes it at the same point): taken before msg 2 is read.
+		const check = checkCode(this.#initiator.handshakeHash);
+		const { payload, transport } = await this.#initiator.read2(message);
+		let reply: { ok?: boolean; error?: string; device?: string; name?: string; pending?: boolean; check?: string };
 		try {
 			reply = JSON.parse(new TextDecoder().decode(payload));
 		} catch {
 			throw new RelayError('protocol', 'unreadable handshake reply');
+		}
+		if (reply.pending) {
+			// A new pairing shows this connection's code; later tries show
+			// the first one, which the computer kept.
+			throw new RelayError('pending', reply.error || 'waiting for the computer', this.opts.pair ? check : reply.check);
 		}
 		if (!reply.ok) {
 			throw new RelayError(

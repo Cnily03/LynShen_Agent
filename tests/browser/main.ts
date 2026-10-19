@@ -331,6 +331,7 @@ if (panels || shell) {
   daemonState.shellsPlatform = params.get('agents') === 'windows' ? 'windows' : 'macos';
   // ?chats[=empty|error|old|all]: Settings → 聊天连接's sample (fakeDaemon.ts).
   daemonState.chats = params.get('chats') ?? '';
+  daemonState.pendingPhone = params.has('pending');
   daemonState.connectors = (await import('./fakeDaemon')).chatSample(daemonState.chats);
 }
 // ?remote: the phone remote page's conversation (Remote.svelte), in a

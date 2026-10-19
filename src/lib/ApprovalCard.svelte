@@ -20,6 +20,7 @@
 	import PopMenu from '$lib/ui/PopMenu.svelte';
 	import { openExternal } from '$lib/openExternal';
 	import TerminalWindowIcon from 'phosphor-svelte/lib/TerminalWindowIcon';
+	import LockSimpleIcon from 'phosphor-svelte/lib/LockSimpleIcon';
 	import {
 		approvalChoices,
 		baseName,
@@ -36,7 +37,8 @@
 		keys = true,
 		remote = false,
 		onTerminal,
-		place = null
+		place = null,
+		locked = {}
 	}: {
 		approval: {
 			callId: string;
@@ -64,6 +66,10 @@
 		onTerminal?: (command: string, cwd: string) => void;
 		/** This request's place when several wait (ChatState.approvalPlace). */
 		place?: { n: number; of: number } | null;
+		/** On the phone: what this phone may not allow (its scopes on the
+		 *  computer): `all` for the request, `dir` for its writable-directory
+		 *  answers only. Deny stays. */
+		locked?: { all?: boolean; dir?: boolean };
 	} = $props();
 
 	// --- LynShen sandbox requests: title by kind, reason / command / cwd,
@@ -432,7 +438,10 @@
 			</div>
 		{:else}
 			<div class="approval-actions">
-				{#if choices.terminal}
+				{#if locked.all}
+					<!-- This phone may not allow it: the computer grants that. -->
+					<span class="locked-row" role="note"><LockSimpleIcon size={14} />{t('shell.remote.scope.allowOnComputer')}</span>
+				{:else if choices.terminal}
 					<Button variant="primary" size="sm" onclick={runInTerminal} title={t('shell.sandbox.terminalHint')}
 						><TerminalWindowIcon size={13} />{t('shell.sandbox.terminal')}<kbd>1</kbd></Button
 					>
@@ -440,7 +449,7 @@
 				{:else}
 					<Button variant="primary" size="sm" onclick={() => answer({ type: 'once' })}>{t('shell.allowOnce')}<kbd>1</kbd></Button>
 				{/if}
-				{#if choices.session}
+				{#if choices.session && !locked.all}
 					<Button variant="secondary" size="sm" title={sbx.prefix || undefined} onclick={() => answer({ type: 'session' })}
 						>{sbx.kind === 'edit'
 							? t('shell.sandbox.sessionEdits')
@@ -449,17 +458,17 @@
 								: t('shell.sandbox.sessionPrefix', { prefix: clip(sbx.prefix) })}{#if secondKey?.type === 'session'}<kbd>2</kbd>{/if}</Button
 					>
 				{/if}
-				{#if choices.project}
+				{#if choices.project && !locked.all}
 					<Button variant="secondary" size="sm" title={t('shell.sandbox.alwaysHint', { prefix: sbx.prefix })} onclick={() => answer({ type: 'project' })}
 						>{t('shell.sandbox.always')}{#if secondKey?.type === 'project'}<kbd>2</kbd>{/if}</Button
 					>
 				{/if}
-				{#if choices.pathSession}
+				{#if choices.pathSession && !locked.all && !locked.dir}
 					<Button variant="secondary" size="sm" title={choices.target} onclick={() => answer({ type: 'dir', path: choices.target, persist: 'session' })}
 						>{t('shell.sandbox.dirSession', { dir: clip(baseName(choices.target), 24) })}{#if secondKey?.type === 'dir'}<kbd>2</kbd>{/if}</Button
 					>
 				{/if}
-				{#if choices.pathProject}
+				{#if choices.pathProject && !locked.all && !locked.dir}
 					<Button variant="secondary" size="sm" title={t('shell.sandbox.dirProjectHint', { dir: choices.target })} onclick={() => answer({ type: 'dir', path: choices.target, persist: 'project' })}
 						>{t('shell.sandbox.dirProject', { dir: clip(baseName(choices.target), 24) })}</Button
 					>
@@ -902,5 +911,16 @@
 	}
 	.fb-input:focus {
 		border-color: var(--border-strong);
+	}
+	.locked-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-height: 30px;
+		padding: 0 10px;
+		border-radius: var(--r-full);
+		background: var(--surface2);
+		color: var(--dim);
+		font-size: var(--fs-sm);
 	}
 </style>

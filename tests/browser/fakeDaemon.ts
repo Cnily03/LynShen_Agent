@@ -59,6 +59,10 @@ export const daemonState = {
 	connectors: [] as Frame[],
 	/** The computer `shells` describes: a Mac, or a Windows PC without PowerShell 7. */
 	shellsPlatform: 'macos' as 'macos' | 'windows',
+	/** 远程访问: a phone waiting to be confirmed (?pending), and what the
+	 *  paired iPhone may do. */
+	pendingPhone: false,
+	phoneScopes: [] as string[],
 	/** Leave the catalog's first request unanswered (a stuck daemon). */
 	stall: false,
 	/** The engine reads the community sources again in the background. */
@@ -309,12 +313,24 @@ function connectorReply(op: Frame): Frame | null {
 			return {
 				type: 'devices',
 				devices: [
-					{ id: 'dev-phone', name: 'iPhone', paired_at: Date.UTC(2026, 9, 12), kind: 'device', last_seen: null },
+					{ id: 'dev-phone', name: 'iPhone', paired_at: Date.UTC(2026, 9, 12), kind: 'device', last_seen: null, scopes: s.phoneScopes },
+					// ?pending: a phone that just paired and waits to be confirmed.
+					...(s.pendingPhone ? [{ id: 'dev-new', name: 'Pixel', paired_at: Date.now(), kind: 'device', last_seen: null, scopes: [], pending: true, check: '482913' }] : []),
 					...s.connectors.flatMap((c) => c.bindings.map((b: Frame) => ({ id: b.device, name: b.name, paired_at: b.paired_at, kind: 'chat', platform: 'telegram', connector: c.id, last_seen: b.last_seen })))
 				]
 			};
 		case 'relay_status':
 			return { type: 'relay_status', enabled: false, connected: false, host: null, url: 'wss://app.lynshen.org/relay/v1' };
+		case 'device_confirm':
+			s.pendingPhone = false;
+			return { type: 'device_confirmed', device: op.device };
+		case 'device_scopes':
+			if (op.device === 'dev-phone') s.phoneScopes = op.scopes;
+			return { type: 'device_scopes', device: op.device, scopes: op.scopes };
+		case 'pair_cancel':
+			return { type: 'pair_cancelled' };
+		case 'pair_start':
+			return { type: 'pairing', code: 'K7QXA2B9', expires_at: Date.now() + 5 * 60_000 };
 		default:
 			return null;
 	}
@@ -336,7 +352,7 @@ export function chatSample(kind: string): Frame[] {
 
 function reply(op: Frame): Frame | null {
 	const s = daemonState;
-	if (String(op.op).startsWith('connector_') || ['device_revoke', 'device_list', 'relay_status'].includes(op.op)) return connectorReply(op);
+	if (String(op.op).startsWith('connector_') || ['device_revoke', 'device_list', 'relay_status', 'device_confirm', 'device_scopes', 'pair_cancel', 'pair_start'].includes(op.op)) return connectorReply(op);
 	const list = () => (op.backend === 'claude' ? s.claude : s.list);
 	if (s.old && String(op.op).startsWith('skill') && op.op !== 'skills_catalog' && op.op !== 'skill_install')
 		return { type: 'error', message: `${op.op} requires session` };

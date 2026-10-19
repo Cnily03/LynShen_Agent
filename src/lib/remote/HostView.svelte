@@ -266,6 +266,19 @@
 				<Button variant="ghost" onclick={() => onForget(false)}>{t('shell.remote.forget')}</Button>
 			</div>
 		</div>
+	{:else if conn.awaitingConfirm}
+		<!-- Paired; the computer confirms the device once the codes match. -->
+		<div class="pair">
+			<div class="corner">{@render switcher()}</div>
+			<span class="hero"><DesktopIcon size={28} /></span>
+			<h1>{t('shell.remote.pairCheck.checkTitle')}</h1>
+			<p class="check" aria-label={t('shell.remote.pairCheck.checkLabel', { code: conn.checkCode })}>
+				{conn.checkCode.slice(0, 3)}<span class="gap"></span>{conn.checkCode.slice(3)}
+			</p>
+			<p>{t('shell.remote.pairCheck.checkHint')}</p>
+			<p class="status"><CircleNotchIcon size={14} class="spin" /> {t('shell.remote.pairCheck.waiting')}</p>
+			<div class="actions"><Button variant="ghost" size="sm" onclick={() => onForget()}>{t('shell.remote.pairCheck.cancel')}</Button></div>
+		</div>
 	{:else if !ready}
 		<div class="pair">
 			<div class="corner">{@render switcher()}</div>
@@ -832,5 +845,17 @@
 		align-items: center;
 		justify-content: center;
 		color: var(--dim);
+	}
+	.pair .check {
+		margin: 12px 0 4px;
+		font-family: var(--font-mono);
+		font-size: 34px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		color: var(--text);
+	}
+	.check .gap {
+		display: inline-block;
+		width: 0.4em;
 	}
 </style>

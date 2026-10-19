@@ -20,6 +20,21 @@ export interface KeyPair {
 	pub: Uint8Array;
 }
 
+/** A static key whose private half the code never sees: `dh` computes the
+ *  shared secret with a peer's public key (a non-extractable WebCrypto
+ *  key, see relay/deviceKey.ts). A KeyPair is one too. */
+export interface StaticKey {
+	pub: Uint8Array;
+	dh?: (peer: Uint8Array) => Promise<Uint8Array>;
+	priv?: Uint8Array;
+}
+
+async function staticDh(s: StaticKey, peer: Uint8Array): Promise<Uint8Array> {
+	if (s.dh) return s.dh(peer);
+	if (s.priv) return x25519.getSharedSecret(s.priv, peer);
+	throw new Error('noise: static key without a private half');
+}
+
 export function generateKeyPair(): KeyPair {
 	const { secretKey, publicKey } = x25519.keygen();
 	return { priv: secretKey, pub: publicKey };
@@ -131,16 +146,19 @@ export interface Transport {
 	recv: CipherState;
 }
 
-/** The IK initiator: `-> e, es, s, ss` then `<- e, ee, se`. */
+/** The IK initiator: `-> e, es, s, ss` then `<- e, ee, se`. With a
+ *  KeyPair the messages can be made synchronously (writeMessage1 /
+ *  readMessage2, the test vectors); with any StaticKey asynchronously
+ *  (write1 / read2), which a WebCrypto key needs. */
 export class Initiator {
 	#ss: SymmetricState;
-	#s: KeyPair;
+	#s: StaticKey;
 	#rs: Uint8Array;
 	#e: KeyPair;
 	#sent = false;
 
 	/** `ephemeral` is for test vectors only; normally a fresh key is drawn. */
-	constructor(s: KeyPair, rs: Uint8Array, prologue: Uint8Array = PROLOGUE, ephemeral?: Uint8Array) {
+	constructor(s: StaticKey, rs: Uint8Array, prologue: Uint8Array = PROLOGUE, ephemeral?: Uint8Array) {
 		if (rs.length !== DH) throw new Error('noise: remote static key must be 32 bytes');
 		this.#s = s;
 		this.#rs = rs;
@@ -156,24 +174,47 @@ export class Initiator {
 	}
 
 	writeMessage1(payload: Uint8Array): Uint8Array {
+		const priv = this.#s.priv;
+		if (!priv) throw new Error('noise: use write1 with this key');
+		return this.#write1(payload, x25519.getSharedSecret(priv, this.#rs));
+	}
+
+	async write1(payload: Uint8Array): Promise<Uint8Array> {
+		return this.#write1(payload, await staticDh(this.#s, this.#rs));
+	}
+
+	/** `ss`: DH(s, rs), computed before (it does not depend on the hash). */
+	#write1(payload: Uint8Array, ss_: Uint8Array): Uint8Array {
 		if (this.#sent) throw new Error('noise: message 1 already written');
 		this.#sent = true;
 		const ss = this.#ss;
 		ss.mixHash(this.#e.pub);
 		ss.mixKey(x25519.getSharedSecret(this.#e.priv, this.#rs));
 		const s = ss.encryptAndHash(this.#s.pub);
-		ss.mixKey(x25519.getSharedSecret(this.#s.priv, this.#rs));
+		ss.mixKey(ss_);
 		return concat(this.#e.pub, s, ss.encryptAndHash(payload));
 	}
 
 	readMessage2(message: Uint8Array): { payload: Uint8Array; transport: Transport } {
-		if (!this.#sent) throw new Error('noise: message 1 not written yet');
+		const priv = this.#s.priv;
+		if (!priv) throw new Error('noise: use read2 with this key');
 		if (message.length < DH + TAG) throw new Error('noise: message 2 too short');
+		return this.#read2(message, x25519.getSharedSecret(priv, message.subarray(0, DH)));
+	}
+
+	async read2(message: Uint8Array): Promise<{ payload: Uint8Array; transport: Transport }> {
+		if (message.length < DH + TAG) throw new Error('noise: message 2 too short');
+		return this.#read2(message, await staticDh(this.#s, message.subarray(0, DH)));
+	}
+
+	/** `se`: DH(s, re). */
+	#read2(message: Uint8Array, se: Uint8Array): { payload: Uint8Array; transport: Transport } {
+		if (!this.#sent) throw new Error('noise: message 1 not written yet');
 		const ss = this.#ss;
 		const re = message.subarray(0, DH);
 		ss.mixHash(re);
 		ss.mixKey(x25519.getSharedSecret(this.#e.priv, re));
-		ss.mixKey(x25519.getSharedSecret(this.#s.priv, re));
+		ss.mixKey(se);
 		const payload = ss.decryptAndHash(message.subarray(DH));
 		const [send, recv] = ss.split();
 		return { payload, transport: { send, recv } };

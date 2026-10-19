@@ -25,7 +25,16 @@
 		onAddressChange
 	}: { address: string; onAddressChange: () => void } = $props();
 
-	type Device = { id: string; name: string; paired_at: number };
+	type Device = { id: string; name: string; paired_at: number; pending?: boolean; check?: string; scopes?: string[]; last_seen?: number | null };
+	/** The elevated scopes a phone may be granted (LynShen-CLI scopes.rs). */
+	const SCOPES = [
+		{ id: 'full_auto', label: 'settings.backend.scopeFullAuto' },
+		{ id: 'full_access', label: 'settings.backend.scopeFullAccess' },
+		{ id: 'add_folder', label: 'settings.backend.scopeAddFolder' },
+		{ id: 'terminal', label: 'settings.backend.scopeTerminal' }
+	] as const;
+	/** The device whose scopes are open. */
+	let openScopes = $state<string | null>(null);
 	type RelayStatus = { enabled: boolean; connected: boolean; host?: string; url?: string };
 	let devices = $state<Device[]>([]);
 	/** The pairing on show: its code, expiry and what the QR code holds. */
@@ -87,7 +96,7 @@
 			// Chat accounts have their own page (聊天连接).
 			const next = ((reply.devices as (Device & { kind?: string })[]) ?? []).filter((d) => !isChatDevice(d));
 			// A new device means the shown code was just used.
-			if (pairing && next.length > devices.length) stopPairing();
+			if (pairing && next.length > devices.length) stopPairing(false);
 			devices = next;
 			error = '';
 		} catch (e) {
@@ -121,11 +130,36 @@
 		}
 	}
 
-	function stopPairing() {
+	/** Closes the pairing dialog; `cancel`: its code pairs nobody from now
+	 *  on (the daemon forgets it), unless it was just used. */
+	function stopPairing(cancel = true) {
+		const code = pairing?.code;
 		pairing = null;
 		if (poll) clearInterval(poll);
 		if (tick) clearInterval(tick);
 		poll = tick = null;
+		if (cancel && code) daemon.request({ op: 'pair_cancel', code }).catch(() => {});
+	}
+
+	async function confirmDevice(device: Device) {
+		try {
+			await daemon.request({ op: 'device_confirm', device: device.id });
+			await refresh();
+		} catch (e) {
+			error = message(e);
+		}
+	}
+
+	async function setScope(device: Device, scope: string, on: boolean) {
+		const next = new Set(device.scopes ?? []);
+		if (on) next.add(scope);
+		else next.delete(scope);
+		try {
+			await daemon.request({ op: 'device_scopes', device: device.id, scopes: SCOPES.map((x) => x.id).filter((id) => next.has(id)) });
+			await refresh();
+		} catch (e) {
+			error = message(e);
+		}
 	}
 
 	async function copyLink() {
@@ -151,8 +185,12 @@
 	onMount(() => {
 		void refresh();
 		void loadRelay();
-		// The relay connects in the background; keep the status line current.
-		statusPoll = setInterval(() => void loadRelay(), 5000);
+		// The relay connects in the background; keep the status line current,
+		// and a phone that paired (and waits to be confirmed) shows up.
+		statusPoll = setInterval(() => {
+			void loadRelay();
+			void refresh();
+		}, 5000);
 	});
 	onDestroy(() => {
 		stopPairing();
@@ -221,12 +259,45 @@
 			<span class="none">{t('settings.backend.noDevices')}</span>
 		{/if}
 		{#each devices as device (device.id)}
-			<div class="device">
-				<DeviceMobileIcon size={14} />
-				<span class="name">{device.name}</span>
-				<span class="when">{new Date(device.paired_at).toLocaleDateString()}</span>
-				<Button size="sm" variant="ghost" onclick={() => revoke(device)}>{t('settings.backend.revoke')}</Button>
-			</div>
+			{#if device.pending}
+				<!-- Paired with the code just shown; trusted once the user sees the
+				     phone shows the same check code. -->
+				<div class="confirm" role="alertdialog" aria-label={t('settings.backend.pairPending', { name: device.name })}>
+					<strong>{t('settings.backend.pairPending', { name: device.name })}</strong>
+					<span class="check">{(device.check ?? '').slice(0, 3)} {(device.check ?? '').slice(3)}</span>
+					<span class="hint">{t('settings.backend.pairPendingHint')}</span>
+					<div class="confirm-actions">
+						<Button size="sm" variant="primary" onclick={() => confirmDevice(device)}>{t('settings.backend.pairConfirm')}</Button>
+						<Button size="sm" variant="ghost" onclick={() => revoke(device)}>{t('settings.backend.pairReject')}</Button>
+					</div>
+				</div>
+			{:else}
+				<div class="device">
+					<DeviceMobileIcon size={14} />
+					<button class="name link" aria-expanded={openScopes === device.id} onclick={() => (openScopes = openScopes === device.id ? null : device.id)}>
+						{device.name}
+						{#if device.scopes?.length}<span class="granted">+{device.scopes.length}</span>{/if}
+					</button>
+					<span class="when">{new Date(device.paired_at).toLocaleDateString()}</span>
+					<Button size="sm" variant="ghost" onclick={() => revoke(device)}>{t('settings.backend.revoke')}</Button>
+				</div>
+				{#if openScopes === device.id}
+					<div class="scopes">
+						<span class="scopes-head">{t('settings.backend.deviceScopes')}</span>
+						<span class="hint">{t('settings.backend.deviceScopesHint')}</span>
+						{#each SCOPES as scope (scope.id)}
+							<label class="scope">
+								<span>{t(scope.label)}</span>
+								<Switch
+									checked={device.scopes?.includes(scope.id) ?? false}
+									label={t(scope.label)}
+									onChange={(on) => setScope(device, scope.id, on)}
+								/>
+							</label>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 		{/each}
 		{#if error}<Notice>{error}</Notice>{/if}
 	</div>
@@ -395,5 +466,68 @@
 		font-size: var(--fs-xs);
 		color: var(--dim2);
 		line-height: 1.5;
+	}
+	.confirm {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 12px;
+		border: 1px solid var(--accent);
+		border-radius: var(--r-md);
+		background: var(--surface2);
+	}
+	.confirm .check {
+		font-family: var(--font-mono);
+		font-size: 26px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+	}
+	.confirm-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.hint {
+		font-size: var(--fs-xs);
+		color: var(--dim);
+		line-height: 1.45;
+	}
+	.name.link {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+	.granted {
+		padding: 0 6px;
+		border-radius: var(--r-full);
+		background: var(--warn);
+		color: #000;
+		font-size: var(--fs-2xs);
+	}
+	.scopes {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin: 0 0 8px 22px;
+		padding: 10px 12px;
+		border-radius: var(--r-md);
+		background: var(--surface2);
+	}
+	.scopes-head {
+		font-size: var(--fs-sm);
+		font-weight: 500;
+	}
+	.scope {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		font-size: var(--fs-sm);
 	}
 </style>
