@@ -13,6 +13,7 @@
 //!   adds them through the daemon (`mcp_set`), as Settings → MCP does, so
 //!   open sessions pick them up.
 
+pub mod continue_on;
 mod dsh;
 mod mcp;
 mod opencode;

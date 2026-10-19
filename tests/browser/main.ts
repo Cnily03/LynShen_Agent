@@ -317,6 +317,8 @@ Object.assign(window, {
         case 'read_text': return String(args.path).endsWith('.md') ? '# 交接说明\n\n- 第一条\n- 第二条\n\n一段很长的说明文字，'.padEnd(400, '长') + '\n\n```ts\nconst x = 1;\n```\n' : '';
         case 'stat_text': return {mtime_ms: 1, size: 10};
         case 'plugin:opener|reveal_item_in_dir': return null;
+        // A Claude Code / Codex conversation carried to LynShen (ticket #40).
+        case 'continue_on_lynshen_cmd': return {id: 's19a0b1c2d3e4f5a6', title: '对话宽度跟随窗口', cwd: args.cwd, turns: 12};
         default: return null;
       }
     }

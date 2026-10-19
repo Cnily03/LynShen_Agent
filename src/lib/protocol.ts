@@ -227,6 +227,11 @@ export function nativeSessions(source: NativeSource, cwd: string): Promise<Nativ
 export function importNativeSession(source: 'claude' | 'codex' | 'dsh', cwd: string, id: string): Promise<{ id: string; title: string }> {
 	return invoke('import_native_session', { source, cwd, id });
 }
+/** A Claude Code / Codex conversation (its session or thread id) carried
+ *  into a new LynShen session of the same folder (ticket #40). */
+export function continueOnLynShen(source: 'claude' | 'codex', cwd: string, id: string): Promise<{ id: string; title: string; cwd: string; turns: number }> {
+	return invoke('continue_on_lynshen_cmd', { source, cwd, id });
+}
 /** Records that OpenCode conversation `from` continues in daemon session `to`
  *  (a copy OpenCode made): the import lists show it as imported, and opening
  *  it again opens the copy. */

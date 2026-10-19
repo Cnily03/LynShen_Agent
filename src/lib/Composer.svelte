@@ -86,6 +86,7 @@
 		repoName = '',
 		onBranchChanged,
 		onBackend,
+		onContinueOnLynShen,
 		onSubmit,
 		onStop,
 		onSteer,
@@ -144,6 +145,8 @@
 		/** A branch was switched to or created from the chip. */
 		onBranchChanged?: () => void;
 		onBackend?: (b: BackendId, acpAgent?: AcpAgentRef) => void | Promise<void>;
+		/** A started Claude Code / Codex conversation: continue it on LynShen. */
+		onContinueOnLynShen?: () => void;
 		onSubmit: () => void;
 		onStop: () => void;
 		onSteer: () => void;
@@ -377,7 +380,7 @@
 	}
 	// Exposed to the page (⇧⌘M): opens the model menu when the session has one.
 	export function openModelMenu() {
-		if ((chat.efforts.length || bcaps.modelPicker || !backendLocked) && !modelPopoverVisible) toggleModelPopover();
+		if ((chat.efforts.length || bcaps.modelPicker || !backendLocked || onContinueOnLynShen) && !modelPopoverVisible) toggleModelPopover();
 	}
 	// Exposed to the page: drop a web-element reference chip at the caret.
 	export function insertToken(token: string) {
@@ -1119,7 +1122,7 @@
 		{#if payer}
 			<span class="fbtn static payer" class:warn={payer.warn} role="note" title={payer.title} aria-label={payer.title}>{payer.label}</span>
 		{/if}
-		{#if chat.efforts.length || bcaps.modelPicker || !backendLocked || gateway !== null}
+		{#if chat.efforts.length || bcaps.modelPicker || !backendLocked || gateway !== null || onContinueOnLynShen}
 			<!-- The model button opens the model menu (agent, model, effort, provider). -->
 			<button
 				class="fbtn model"
@@ -1160,6 +1163,7 @@
 				onEffort={setEffort}
 				{onSwitch}
 				{onBackend}
+				{onContinueOnLynShen}
 				onRefreshModels={() => onModel()}
 			/>
 		{/if}
