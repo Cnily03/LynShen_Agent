@@ -80,7 +80,9 @@ fn api_call_status(
 ) -> Result<Value, CallFailure> {
     let mut last_network_err = String::new();
     for index in base_order() {
-        let mut req = http().request(method, &format!("{}{}", BASES[index], path));
+        // AD-H5/AD-H6: every gateway call of the app names this computer, so a
+        // sign-in binds the new device key to it and later calls pass its check.
+        let mut req = crate::device_header::apply(http().request(method, &format!("{}{}", BASES[index], path)));
         if let Some(token) = bearer {
             req = req.set("Authorization", &format!("Bearer {token}"));
         }
@@ -196,8 +198,7 @@ pub(crate) fn gateway_key_bytes(
         .map_err(|message| key_failure(None, Some("not_signed_in"), &message, None))?;
     let mut last_network_err = String::new();
     for index in base_order() {
-        let mut req = http()
-            .request(method, &format!("{}{}", BASES[index], path))
+        let mut req = crate::device_header::apply(http().request(method, &format!("{}{}", BASES[index], path)))
             .set("Authorization", &format!("Bearer {key}"));
         if let Some(kind) = content_type {
             req = req.set("Content-Type", kind);
