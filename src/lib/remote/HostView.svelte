@@ -626,6 +626,8 @@
 	.wide nav {
 		position: static;
 		flex-direction: column;
+		/* Full-width rows, not the phone bar's end-aligned buttons (ticket #51). */
+		align-items: stretch;
 		gap: 2px;
 		padding: 6px 8px 8px;
 		border: none;

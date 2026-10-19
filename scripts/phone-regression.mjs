@@ -5,6 +5,7 @@
 // `node scripts/phone-regression.mjs [port]` on its own.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium, webkit, expect } from '@playwright/test';
@@ -90,6 +91,34 @@ try {
 			await expect(page.locator('.session')).toHaveCount(0);
 			await page.waitForTimeout(600);
 			await page.screenshot({ path: `/tmp/phone-pair-check-${name}.png` });
+
+			// An iPad (ticket #51): iPadOS Safari says Macintosh. The wide
+			// layout's sections are full-width rows from the left, and the page
+			// root is the theme's canvas, not see-through (the desktop app's
+			// macOS window only), so no white shows under the home indicator.
+			if (name === 'webkit') {
+				const ipadUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Safari/605.1.15';
+				const appHtml = readFileSync('src/app.html', 'utf8')
+					.replaceAll('%sveltekit.assets%', '')
+					.replace('%sveltekit.head%', '<script type="module" src="/tests/browser/main.ts"></script>')
+					.replace('%sveltekit.body%', '<div id="app"></div>');
+				for (const [w, h] of [[1366, 1024], [1024, 1366]]) {
+					const ipad = await browser.newContext({ viewport: { width: w, height: h }, userAgent: ipadUA, hasTouch: true });
+					const ip = await ipad.newPage();
+					ip.on('pageerror', (e) => errors.push(e.message));
+					await ip.addInitScript(() => localStorage.setItem('lynshen-theme', 'dark'));
+					await ip.route((u) => u.pathname === '/ipad', (r) => r.fulfill({ contentType: 'text/html', body: appHtml }));
+					await ip.goto(`http://127.0.0.1:${port}/ipad?remoteHost&wide`);
+					const rows = ip.locator('aside.side nav button');
+					await expect(rows).toHaveCount(4, { timeout: 30000 });
+					const side = await ip.locator('aside.side').boundingBox();
+					for (const box of await Promise.all((await rows.all()).map((r) => r.boundingBox())))
+						assert.ok(box.x - side.x < 16 && box.width > side.width - 32, `${w}×${h}: a section row spans the column (${box.x}, ${box.width})`);
+					assert.equal(await ip.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), 'rgb(26, 26, 26)', `${w}×${h}: the root is the dark canvas`);
+					await ip.screenshot({ path: `/tmp/phone-ipad-${w}x${h}.png`, scale: 'css' });
+					await ipad.close();
+				}
+			}
 
 			// 全自动 is a locked row until the computer allows this phone; an
 			// escalation can only be denied here.
