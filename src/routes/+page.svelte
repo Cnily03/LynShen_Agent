@@ -2006,8 +2006,8 @@
 
 	{#if showGreeting}<Greeting name={account.user?.username ?? ''} onDone={greetingDone} />{/if}
 	<UpdatePrompt />
-	<!-- Over the workbench, not over the first-run pages. -->
-	{#if !showSetup}<TrialGrantCard />{/if}
+	<!-- Over the workbench, not over the first-run pages or the greeting. -->
+	{#if !showSetup && !showGreeting}<TrialGrantCard />{/if}
 	{#if showSetup}
 		<Welcome
 			sessionId={activeId}

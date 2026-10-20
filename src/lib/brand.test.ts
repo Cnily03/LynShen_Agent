@@ -11,6 +11,7 @@ import mark from './aogiri-mark.svg?raw';
 import wordmark from './aogiri-wordmark.svg?raw';
 import lockup from './aogiri-lockup.svg?raw';
 import lynshen from './lynshen-mark.svg?raw';
+import greeting from './welcome/Greeting.svelte?raw';
 import trayRust from '../../src-tauri/src/lib.rs?raw';
 import { LAUNCH } from './launch';
 
@@ -114,6 +115,31 @@ describe('the launch screen in app.html', () => {
 		// After the cap and its fade, so it never cuts the fade short.
 		expect(Number(/\}, (\d+)\);\s*\}\s*\}\)\(\);/.exec(html)?.[1])).toBeGreaterThan(LAUNCH.capMs + LAUNCH.fadeMs);
 		expect(html).toMatch(/<div id="launch" aria-hidden="true" data-tauri-drag-region>/);
+	});
+});
+
+describe('the first-run greeting (Greeting.svelte)', () => {
+	const css = greeting.slice(greeting.indexOf('<style>'));
+	const rule = (sel: string, src: string) => {
+		const m = new RegExp(`(?:^|\\n)\\s*${sel.replace(/[.#]/g, (c) => '\\' + c)} \\{([^}]*)\\}`).exec(src);
+		return m ? m[1] : '';
+	};
+	const geometry = (src: string, sel: string) =>
+		Object.fromEntries([...rule(sel, src).matchAll(/(left|top|width|height|border-radius|transform):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+	it('draws the mark with the launch screen’s geometry, its light in LynShen’s teal', () => {
+		for (const [mine, launch] of [['.t1', '#launch .l-t1'], ['.t2', '#launch .l-t2'], ['.ray', '#launch .l-ray']]) {
+			const a = geometry(css, mine);
+			const b = geometry(html, launch);
+			for (const k of ['width', 'height', 'transform'] as const) if (b[k]) expect(a[k], `${mine} ${k}`).toBe(b[k].replace('-20.00deg', '-20deg'));
+		}
+		expect(css).toContain('--teal: var(--lynshen-light);');
+		expect(rule('.ray i', css)).toContain('background: var(--teal);');
+	});
+	it('animates transform, opacity and its opening only, with no filter', () => {
+		for (const [, props] of css.matchAll(/transition:\s*([^;]+);/g)) {
+			for (const part of props.split(/,(?![^(]*\))/)) expect(['transform', 'opacity', 'clip-path', 'left', 'top', '--hole']).toContain(part.trim().split(/\s+/)[0]);
+		}
+		expect(css).not.toMatch(/filter|blur|will-change/);
 	});
 });
 
