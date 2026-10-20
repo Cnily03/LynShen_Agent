@@ -136,7 +136,6 @@
 	import { agentChanges, agentChangesOf, agentChangesPanel } from '$lib/agents/agentChanges.svelte';
 	import { subagentPages, subagentOf, subagentPanel, type SubagentPlace } from '$lib/agents/subagentPages.svelte';
 	import SubagentPane from '$lib/agents/SubagentPane.svelte';
-	import FilePreview from '$lib/preview/FilePreview.svelte';
 	import { filePreviews } from '$lib/preview/store.svelte';
 	import { dropPreviewTabs, previewOf, previewPanel } from '$lib/preview/kinds';
 	import { fileName } from '$lib/attachments';
@@ -149,14 +148,18 @@
 	import TurnsPanel from '$lib/TurnsPanel.svelte';
 	import FilesPanel from '$lib/FilesPanel.svelte';
 	import GitPanel from '$lib/GitPanel.svelte';
-	import TerminalPanel from '$lib/TerminalPanel.svelte';
 	import { terminalRequests } from '$lib/sandbox/terminal.svelte';
 	import BrowserPanel from '$lib/BrowserPanel.svelte';
 	import DiagnosticsPanel from '$lib/DiagnosticsPanel.svelte';
 	import AgentRunsPanel from '$lib/AgentRunsPanel.svelte';
 	import TeamPanel from '$lib/agents/TeamPanel.svelte';
-	import TuiPanel from '$lib/TuiPanel.svelte';
-	import EditorPane from '$lib/editor/EditorPane.svelte';
+	import type TuiPanel from '$lib/TuiPanel.svelte';
+	import Lazy from '$lib/ui/Lazy.svelte';
+	// Loaded when first shown (ui/Lazy.svelte): CodeMirror and xterm.
+	const FilePreview = () => import('$lib/preview/FilePreview.svelte');
+	const TerminalPanel = () => import('$lib/TerminalPanel.svelte');
+	const TuiPanelCode = () => import('$lib/TuiPanel.svelte');
+	const EditorPane = () => import('$lib/editor/EditorPane.svelte');
 	import QuickOpen from '$lib/editor/QuickOpen.svelte';
 	import { editorStore } from '$lib/editor/editorStore.svelte';
 
@@ -930,6 +933,9 @@
 	// ---------- pane registry ----------
 	// Global flows always target the active session's pane: palette commands,
 	// ⌘F find, file drops and browser element picks.
+	/** Engine frames of text and figures streaming in: none adds, removes or
+	 *  changes a plan (see `deliver`). */
+	const STREAM_FRAMES = new Set(['assistant_delta', 'reasoning_delta', 'tool_update', 'usage', 'context_usage', 'compaction_progress']);
 	const panes = new Map<string, ChatPaneApi>();
 	function registerPane(id: string, api: ChatPaneApi) {
 		panes.set(id, api);
@@ -1406,8 +1412,13 @@
 				if (!s) return;
 				const wasBusy = s.chat.busy;
 				const hadApproval = s.chat.pendingApproval?.callId ?? null;
-				const hadPlan = s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
-				const lastPlan = s.chat.messages.findLast((m) => m.kind === 'plan');
+				// A frame of text streaming changes no plan: the plans are not
+				// looked for (each look reads the whole conversation, on every
+				// delta of a reply).
+				const type = (parsed as { type?: unknown } | null)?.type;
+				const planless = typeof type === 'string' && STREAM_FRAMES.has(type);
+				const hadPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
+				const lastPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan');
 				// Capture the raw frame for the diagnostics trace so a mis-parsed or
 				// dropped tool frame is inspectable after the fact.
 				s.chat.captureFrame(data, parsed);
@@ -1463,13 +1474,13 @@
 					const ask = s.chat.pendingApproval;
 					if (ask && ask.callId !== hadApproval && !ask.questions?.length)
 						void notify(shownTitle(s.chat.title), t('shell.notifyApproval', { what: ask.summary.slice(0, 120) }));
-					const plan = s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
+					const plan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan' && m.status === 'pending');
 					if (plan && plan !== hadPlan && plan.kind === 'plan')
 						void notify(shownTitle(s.chat.title), t('shell.notifyPlan', { title: plan.title }));
 				}
 				// A plan the model starts writing (or proposes whole) opens in its
 				// page beside this session's chat.
-				const newPlan = s.chat.messages.findLast((m) => m.kind === 'plan');
+				const newPlan = planless ? undefined : s.chat.messages.findLast((m) => m.kind === 'plan');
 				if (newPlan && newPlan !== lastPlan && newPlan.kind === 'plan' && (newPlan.status === 'drafting' || newPlan.status === 'pending') && tilesReady && chatSessionsIn(tiles).includes(s.id))
 					openPlanPage(s.id, newPlan.id);
 								// This session's tile (if any) sticks to the bottom while streaming.
@@ -1807,8 +1818,9 @@
 											     resuming this conversation by id (never a standalone tui:* tab),
 											     once the engine has its daemon session (a new one is starting). -->
 											{#if sess.chat.sessionId && daemon.sessionOf(sid)}
-											<TuiPanel
-												bind:this={tuiPanels[sid]}
+											<Lazy
+												load={TuiPanelCode}
+												bind:instance={tuiPanels[sid]}
 												backend={sess.backendId}
 												cwd={store.projectPathOf(sid) ?? ''}
 												session={daemon.sessionOf(sid)}
@@ -1878,7 +1890,7 @@
 										<SubagentPane chat={sessionMap.get(sub.sessionId)?.chat} agentId={sub.agentId} onOp={(op) => dispatch(sub.sessionId, op)} />
 									{/key}
 								{:else if previewOf(tab.panel)}
-									<FilePreview path={previewOf(tab.panel)!} root={activeProject?.path ?? ''} />
+									<Lazy load={FilePreview} path={previewOf(tab.panel)!} root={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'goal'}<GoalPanel goal={chat?.goal ?? null} />
 								{:else if tab.panel === 'agents'}{#if chat && activeId}{#key activeId}<AgentRunsPanel {chat} onOp={(op) => activeId && dispatch(activeId, op)} />{/key}{/if}
 								{:else if tab.panel === 'team'}{#if chat && activeId}{#key activeId}<TeamPanel
@@ -1895,11 +1907,11 @@
 								{:else if tab.panel === 'turns'}<TurnsPanel turns={chat?.turnTimeline ?? []} onOpenFile={openActiveFile} />
 								{:else if tab.panel === 'files'}<FilesPanel rootDir={activeProject?.path ?? ''} />
 								{:else if tab.panel === 'git'}<GitPanel cwd={activeProject?.path ?? ''} worktree={activeProject?.worktree ?? null} llm={llmTarget} onOpenTask={(path, meta) => openTaskProject(path, meta)} onTaskRemoved={closeTaskProject} />
-								{:else if tab.panel === 'term'}<TerminalPanel cwd={terminalRequests.cwdOf(tab.id) ?? activeProject?.path ?? ''} tabId={tab.id} />
+								{:else if tab.panel === 'term'}<Lazy load={TerminalPanel} cwd={terminalRequests.cwdOf(tab.id) ?? activeProject?.path ?? ''} tabId={tab.id} />
 								{:else if tab.panel === 'browser'}<BrowserPanel />
 								{:else if tab.panel === 'diag'}<DiagnosticsPanel chat={chat ?? null} />
-								{:else if tab.panel === 'audit'}<EditorPane onAiSend={sendAiEdit} />
-								{:else if tui}<TuiPanel backend={tui} cwd={activeProject?.path ?? ''} onOpenSettings={() => openSettings('agents')} />
+								{:else if tab.panel === 'audit'}<Lazy load={EditorPane} onAiSend={sendAiEdit} />
+								{:else if tui}<Lazy load={TuiPanelCode} backend={tui} cwd={activeProject?.path ?? ''} onOpenSettings={() => openSettings('agents')} />
 								{/if}
 							{/snippet}
 						</Mosaic>

@@ -116,6 +116,90 @@ try {
     assert.equal(await lp.evaluate(() => window.__launch.shown), false);
     await lp.context().close();
     console.log('Launch screen passed: first frame in dark and light, the five entrances on the kit timetable, the frame behind, slow start at the cap, a fast start after the whole entrance and its hold, a late start at readiness, click and key skip, reduced motion at readiness, none outside the desktop app.');
+    // Under the policy the desktop app sends (tickets #41/#42 and #44): the
+    // style-src of tauri.conf.json, with the nonce Tauri adds to app.html's
+    // <style> unless dangerousDisableAssetCspModification names style-src.
+    // A nonce made the browser ignore 'unsafe-inline': the logo's light
+    // (a style attribute) drew black, and CodeMirror's injected theme was
+    // refused, so 审阅 showed only line numbers.
+    const conf = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')).app.security;
+    const nonced = !(conf.dangerousDisableAssetCspModification ?? []).includes('style-src');
+    const cspHtml = nonced ? appHtml.replace('<style>', '<style nonce="7">') : appHtml;
+    const csp = `default-src 'self'; style-src ${conf.csp['style-src']}${nonced ? " 'nonce-7'" : ''}; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; connect-src 'self' ws:`;
+    for (const theme of ['dark', 'light']) {
+      const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+      const p = await ctx.newPage();
+      const refused = [];
+      p.on('console', (m) => /Content Security Policy/.test(m.text()) && refused.push(m.text().slice(0, 160)));
+      await p.route((u) => u.pathname === '/', (r) => r.fulfill({contentType: 'text/html', headers: {'Content-Security-Policy': csp}, body: cspHtml}));
+      await p.addInitScript((theme) => localStorage.setItem('lynshen-theme', theme), theme);
+      await p.goto(`${origin}/?shell&preview&theme=${theme}`);
+      const light = p.locator('aside .brand .mark svg path').nth(2);
+      await expect(light).toBeAttached({timeout: 30000});
+      const tile = theme === 'dark' ? 'rgb(194, 88, 31)' : 'rgb(240, 164, 101)';
+      assert.equal(await light.evaluate((el) => getComputedStyle(el).fill), tile, `${theme}: the logo's light`);
+      await p.locator('button.ufile', {hasText: 'chatWidth.ts'}).click();
+      const content = p.locator('.preview:visible .cm-content');
+      await expect(content).toContainText('export function chatColumnWidth');
+      assert.equal(await p.locator('.preview:visible .cm-scroller').evaluate((el) => getComputedStyle(el).display), 'flex', `${theme}: CodeMirror's own styles apply`);
+      const [gutter, text] = await Promise.all([p.locator('.preview:visible .cm-gutters').boundingBox(), content.boundingBox()]);
+      assert.ok(gutter && text && Math.abs(gutter.y - text.y) < 2 && text.x >= gutter.x + gutter.width - 1, `${theme}: the text sits beside its line numbers`);
+      assert.deepEqual(refused, [], `${theme}: styles refused by the policy`);
+      await ctx.close();
+    }
+    // 审阅 on a Markdown file under the same policy, in Chromium and WebKit
+    // (WebKitGTK on Linux, ticket #53; WebView2 on Windows, #44): the text
+    // beside its line numbers, wrapped lines not stretching the gutter, and
+    // the file's folder and path a click away.
+    for (const [engine, launchIt] of [['Chromium', () => browser], ['WebKit', () => webkit.launch()]]) {
+      const b = await launchIt();
+      const ctx = await b.newContext({viewport: {width: 900, height: 700}});
+      const p = await ctx.newPage();
+      const refused = [];
+      p.on('pageerror', (e) => errors.push(`${engine}: ${e.message}`));
+      p.on('console', (m) => /Content Security Policy|Refused to apply/.test(m.text()) && refused.push(m.text().slice(0, 160)));
+      const editorHtml = (await (await fetch(`${origin}/tests/browser/index.html`)).text());
+      await p.route((u) => u.pathname === '/editor', (r) => r.fulfill({contentType: 'text/html', headers: {'Content-Security-Policy': csp}, body: editorHtml.replace('<head>', nonced ? '<head><style nonce="7">html{background:#1a1a1a}</style>' : '<head><style>html{background:#1a1a1a}</style>')}));
+      await p.goto(`${origin}/editor?editor`);
+      const md = p.locator('.editor .cm-content');
+      await expect(md).toContainText('交接说明', {timeout: 30000});
+      assert.equal(await p.locator('.editor .cm-scroller').evaluate((el) => getComputedStyle(el).display), 'flex', `${engine}: 审阅 has CodeMirror's styles`);
+      const [g, c] = await Promise.all([p.locator('.editor .cm-gutters').boundingBox(), md.boundingBox()]);
+      assert.ok(g && c && Math.abs(g.y - c.y) < 2 && c.x >= g.x + g.width - 1 && c.width > 200, `${engine}: the Markdown text beside its line numbers`);
+      assert.deepEqual(refused, [], `${engine}: styles refused in 审阅`);
+      // 打开所在文件夹 and 复制文件路径 (ticket #53).
+      await p.evaluate(() => (window.__calls.length = 0));
+      await p.getByRole('button', {name: '打开所在文件夹'}).click();
+      await expect.poll(() => p.evaluate(() => window.__calls.find((c) => c.command === 'plugin:opener|reveal_item_in_dir')?.args?.paths?.[0] ?? window.__calls.find((c) => c.command === 'plugin:opener|reveal_item_in_dir')?.args?.path)).toBe('/Users/me/code/app/HANDOFF.md');
+      await expect(p.getByRole('button', {name: '复制文件路径'})).toBeVisible();
+      await p.locator('.etab').first().click({button: 'right'});
+      await expect(p.getByRole('menuitem', {name: '复制文件路径'})).toBeVisible();
+      await expect(p.getByRole('menuitem', {name: '打开所在文件夹'})).toBeVisible();
+      if (engine === 'WebKit') await p.screenshot({path: '/tmp/review-md-webkit.png'});
+      await ctx.close();
+      if (b !== browser) await b.close();
+    }
+    console.log('Desktop CSP passed: the logo light keeps its colour and CodeMirror its styles under the app\'s policy, dark and light; 审阅 shows a Markdown file in Chromium and WebKit, with 打开所在文件夹 and 复制文件路径.');
+    // Ticket #40: a started Claude Code conversation stays on Claude Code;
+    // the model menu offers to continue it in a new LynShen conversation,
+    // which carries it over (continue_on_lynshen_cmd) and opens it.
+    {
+      const cp = await browser.newPage({viewport: {width: 1320, height: 880}});
+      cp.on('pageerror', (e) => errors.push(e.message));
+      await cp.goto(base + '?shell&claudeChat');
+      const modelBtn = cp.locator('.composer-wrap .fbtn.model');
+      await expect(modelBtn).toBeVisible({timeout: 60000});
+      await modelBtn.click();
+      const carry = cp.getByRole('button', {name: '在 LynShen 上继续这段对话'});
+      await expect(carry).toBeVisible();
+      await carry.click();
+      await expect(cp.getByText('在 LynShen 上继续？')).toBeVisible();
+      await cp.getByRole('button', {name: '新开 LynShen 对话'}).click();
+      await expect.poll(() => cp.evaluate(() => window.__calls.find((c) => c.command === 'continue_on_lynshen_cmd')?.args)).toEqual({source: 'claude', cwd: '/Users/me/code/lynshen-desktop', id: '0b9c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d'});
+      await expect.poll(() => cp.evaluate(() => { const s = window.__shellStore; const a = s.allSessions.find((x) => x.id === s.activeId); return a && [a.backendId, a.chat.sessionId]; })).toEqual(['lynshen', 's19a0b1c2d3e4f5a6']);
+      await cp.close();
+      console.log('Continue on LynShen passed: offered for a started Claude Code conversation, confirmed, carried over and opened.');
+    }
   }
   await page.goto(base + '?projects');
   for (let i=1;i<=3;i++) {
@@ -1094,7 +1178,7 @@ try {
   await expect(widthRow.locator('.opt.on')).toHaveText('自适应');
   await widthRow.getByRole('button',{name:'铺满'}).click();
   await expect(widthRow.locator('.opt.on')).toHaveText('铺满');
-  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [2, 'full']);
+  assert.deepEqual(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('lynshen-prefs')); return [p.version, p.chatWidth]; }), [3, 'full']);
   await page.getByPlaceholder('搜索设置').fill('对话宽度');
   await expect(page.getByRole('button',{name:/^对话宽度/})).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('lynshen-prefs'));
@@ -1905,7 +1989,7 @@ try {
   }));
   const mac = await frosted('?shell&frost=vibrancy', {sidebarVibrancy: true, glass: 40});
   await expect.poll(async () => (await frostState(mac)).told).toEqual([false]);
-  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [2, false], told: [false]});
+  assert.deepEqual(await frostState(mac), {root: null, sidebar: 'rgb(20, 20, 20)', stored: [3, false], told: [false]});
   // Turned on afterwards it is a choice: macOS frosts at once, and it is
   // still on after a restart.
   await mac.evaluate(() => window.__prefs.setSidebarVibrancy(true));
@@ -1914,7 +1998,7 @@ try {
   await mac.reload();
   await expect(mac.locator('.composer')).toBeVisible({timeout:30000});
   await expect.poll(async () => (await frostState(mac)).root).toBe('on');
-  assert.deepEqual((await frostState(mac)).stored, [2, true]);
+  assert.deepEqual((await frostState(mac)).stored, [3, true]);
   await mac.close();
   // A Windows window is see-through or not for its lifetime: the choice is
   // handed to the app and shows after the next start.
@@ -3477,6 +3561,12 @@ try {
     await expect(mp.locator('.pop.mp .qs [role=option]')).toHaveText([/自动选择|自动/, /GPT Image 2/, /全部模型/]);
     await mp.keyboard.press('Escape');
     await expect(mp.locator('.pop.mp')).toHaveCount(0);
+    // The compaction model can follow the conversation's model (ticket #47):
+    // written as an empty compact_model.
+    await mp.locator('#set-compact-model .trigger').click();
+    await mp.locator('.pop.mp').getByRole('option', {name:/跟随当前模型/}).click();
+    await expect(mp.locator('#set-compact-model .trigger')).toContainText('跟随当前模型');
+    await expect.poll(() => mp.evaluate(() => window.__calls.filter((c) => c.command === 'write_config' && 'compact_model' in c.args.patch).map((c) => c.args.patch.compact_model).at(-1))).toBe('');
     await mp.close();
   }
   // Settings → 聊天连接: a Telegram bot's state, binding with a code (link

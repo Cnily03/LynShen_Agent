@@ -22,6 +22,9 @@ jobs:
       - run: pnpm test
       - run: pnpm exec playwright install --with-deps chromium webkit
       - run: node scripts/browser-regression.mjs
+      # A long conversation's cost: rows rendered as it opens, per-delta cost
+      # against a short one, heap and listeners, clocks while hidden.
+      - run: node scripts/perf-check.mjs
       - run: node scripts/phone-regression.mjs
       - run: node --test scripts/prepare-desktop-release.test.mjs scripts/phone-csp.test.mjs
       - run: python3 scripts/test-receive-desktop-release.py

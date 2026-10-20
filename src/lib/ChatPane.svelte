@@ -33,6 +33,7 @@
 
 <script lang="ts">
 	import AgentAvatar from '$lib/AgentAvatar.svelte';
+	import { visibleInterval } from '$lib/visibleInterval';
 	import { agentDirectory } from '$lib/agents.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
@@ -49,6 +50,7 @@
 		sessionHistory,
 		nativeSessions,
 		importNativeSession,
+		continueOnLynShen,
 		git,
 		gitCheckpointCapture,
 		gitCheckpointRestore,
@@ -532,10 +534,12 @@
 		refreshGitBranch();
 	});
 	// …and refreshed in place on window focus + a slow poll, so a checkout made
-	// in GitPanel or an external terminal doesn't leave the footer stale.
+	// in GitPanel or an external terminal doesn't leave the footer stale. The
+	// poll (a git process each time, for every conversation on screen) runs
+	// only while the window has focus: a checkout made elsewhere meanwhile
+	// shows when the window has it again.
 	$effect(() => {
-		const iv = setInterval(refreshGitBranch, 12_000);
-		return () => clearInterval(iv);
+		return visibleInterval(() => document.hasFocus() && refreshGitBranch(), 12_000);
 	});
 
 	/** config.json's model list as the picker shows it (what the native
@@ -1576,6 +1580,31 @@
 		}
 	}
 
+	// Ticket #40: a started Claude Code / Codex conversation stays on its
+	// engine; its messages, tool calls and results can go on in a new LynShen
+	// conversation (the original is kept).
+	const canContinueOnLynShen = $derived(
+		(chat.backendId === 'claude' || chat.backendId === 'codex') && !!chat.sessionId && !!project && !project.home && backendLocked
+	);
+	async function continueOnLynShenHere() {
+		const proj = project;
+		const source = chat.backendId;
+		const id = chat.sessionId;
+		if (!proj || !id || (source !== 'claude' && source !== 'codex')) return;
+		const engine = BACKEND_LABELS[source];
+		const ok = await confirm({
+			title: t('chat.continueOnLynShenTitle'),
+			message: t('chat.continueOnLynShenBody', { engine }),
+			confirmLabel: t('chat.continueOnLynShenConfirm')
+		});
+		if (!ok) return;
+		try {
+			const made = await continueOnLynShen(source, proj.path, id);
+			store.openSaved(proj, made.id, made.title, 'lynshen');
+		} catch (e) {
+			toast.error(t('chat.continueOnLynShenFailed', { error: e instanceof Error ? e.message : String(e) }));
+		}
+	}
 	function rewindToMessage(text: string, userIndex: number) {
 		// codex (thread/rollback) and claude (resume-at-uuid respawn) rewind without
 		// the lynshen checkpoint_view round-trip — confirm directly from the index.
@@ -1845,6 +1874,7 @@
 			repoName={project?.name ?? ''}
 			onBranchChanged={refreshGitBranch}
 			onBackend={(b, acpAgent) => store.switchBackend(session.id, b, acpAgent)}
+			onContinueOnLynShen={canContinueOnLynShen ? continueOnLynShenHere : undefined}
 			bind:pickerQuery
 		bind:pickerSelIdx={selIdx}
 			onEffort={setEffort}

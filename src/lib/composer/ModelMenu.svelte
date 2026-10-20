@@ -47,6 +47,7 @@
 		onSwitch,
 		onBackend,
 		onRefreshModels,
+		onContinueOnLynShen,
 		gateway = null
 	}: {
 		chat: ChatState;
@@ -67,6 +68,9 @@
 		onBackend?: (b: BackendId, acpAgent?: AcpAgentRef) => void | Promise<void>;
 		/** Re-request the model catalog (after an agent switch). */
 		onRefreshModels: () => void;
+		/** A Claude Code / Codex conversation that has started: continue it in
+		 *  a new LynShen conversation (ticket #40). */
+		onContinueOnLynShen?: () => void;
 		/** An OpenCode session: whether it runs on the LynShen gateway (null:
 		 *  no gateway switch here). */
 		gateway?: boolean | null;
@@ -263,6 +267,13 @@
 			{#key toolProvider.model}<GroupPicker model={toolProvider.model} tool={toolProvider} />{/key}
 		{/if}
 
+		{#if backendLocked && onContinueOnLynShen}
+			<section class="carry" role="group" aria-label={t('chat.continueOnLynShen')}>
+				<button class="agent" onclick={() => (onClose(), onContinueOnLynShen())} title={t('chat.continueOnLynShenHint')}>
+					<BackendIcon backend="lynshen" size={15} /><span>{t('chat.continueOnLynShen')}</span>
+				</button>
+			</section>
+		{/if}
 		{#if !backendLocked && canSwitchAgent}
 			<section class="agents" role="group" aria-label={t('chat.switchBackend')}>
 				{#each shownNative as id (id)}
@@ -399,6 +410,11 @@
 		color: var(--dim);
 		font-size: var(--fs-sm);
 		font-weight: 500;
+	}
+	.carry {
+		display: flex;
+		padding: 2px;
+		border-top: 1px solid var(--hairline);
 	}
 	.agents {
 		display: flex;

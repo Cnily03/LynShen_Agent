@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from '$lib/visibleInterval';
 	// Rate-limit warning above the composer, with a live reset countdown.
 	import { t } from '$lib/i18n';
 	import Notice from '$lib/ui/Notice.svelte';
@@ -14,8 +15,7 @@
 	// A ticking clock so the "resets in …" countdown stays live.
 	let now = $state(Date.now());
 	$effect(() => {
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		return visibleInterval(() => (now = Date.now()), 1000);
 	});
 
 	const remaining = $derived(rateLimit.resetsAt ? Math.max(0, rateLimit.resetsAt - now) : 0);

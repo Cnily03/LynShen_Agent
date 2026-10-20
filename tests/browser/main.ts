@@ -313,6 +313,12 @@ Object.assign(window, {
         // the folder a first message makes there.
         case 'default_workspace_dir': return '/Users/me/Documents/LynShen';
         case 'create_chat_dir': return `${args.root}/${args.name}`;
+        // 审阅 (the editor) on a Markdown file (tickets #44, #53).
+        case 'read_text': return String(args.path).endsWith('.md') ? '# 交接说明\n\n- 第一条\n- 第二条\n\n一段很长的说明文字，'.padEnd(400, '长') + '\n\n```ts\nconst x = 1;\n```\n' : '';
+        case 'stat_text': return {mtime_ms: 1, size: 10};
+        case 'plugin:opener|reveal_item_in_dir': return null;
+        // A Claude Code / Codex conversation carried to LynShen (ticket #40).
+        case 'continue_on_lynshen_cmd': return {id: 's19a0b1c2d3e4f5a6', title: '对话宽度跟随窗口', cwd: args.cwd, turns: 12};
         default: return null;
       }
     }
@@ -342,5 +348,5 @@ const remote = params.has('remote');
 const remoteHost = params.has('remoteHost');
 if (remote || remoteHost) Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
 document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
-const { default: Fixture } = remoteHost ? await import('./RemoteHost.svelte') : remote ? await import('./Remote.svelte') : shell ? await import('./Shell.svelte') : panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
+const { default: Fixture } = params.has('editor') ? await import('./Editor.svelte') : remoteHost ? await import('./RemoteHost.svelte') : remote ? await import('./Remote.svelte') : shell ? await import('./Shell.svelte') : panels ? await import('./Panels.svelte') : await import('./Regression.svelte');
 mount(Fixture, {target:document.getElementById('app')!});

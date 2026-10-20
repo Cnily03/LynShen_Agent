@@ -27,6 +27,9 @@
         } catch (e) {}
         var ua = navigator.userAgent;
         root.setAttribute('data-os', /Macintosh|Mac OS X/.test(ua) ? 'macos' : /Windows/.test(ua) ? 'windows' : 'linux');
+        // The desktop app's window, not a browser (iPadOS Safari also says
+        // Macintosh): only that window may leave its root see-through.
+        if (window.__TAURI_INTERNALS__) root.setAttribute('data-app', '');
         if (location.pathname.indexOf('/remote') === 0) root.classList.add('remote-boot');
         // The launch screen (#launch below; src/lib/launch.ts takes it away):
         // the desktop app's main window at /, from its first frame. Should
@@ -54,7 +57,7 @@
       html[data-theme='light'] {
         background: #f6f5f2;
       }
-      html[data-os='macos'] {
+      html[data-app][data-os='macos'] {
         background: transparent;
       }
       /* The launch screen (design.md, "Launch screen"; src/lib/launch.ts): the

@@ -408,6 +408,12 @@ const settings = {
 			noSwap: '先给「{name}」换一个快捷键。',
 			swap: '交换'
 		},
+		network: {
+			proxyTitle: '代理',
+			proxy: '网络代理',
+			proxyHint: 'HTTP 代理，如 http://127.0.0.1:7890。网页抓取、本地搜索和智能体运行的命令（git、npm、curl 等）走这个代理；模型请求不走。留空则不用代理。需要 LynShen CLI 0.7.8 或更新',
+			proxyInvalid: '格式不对：要写 http://主机:端口 或 主机:端口（暂不支持 socks5）'
+		},
 		page: {
 			back: '返回',
 			search: '搜索设置',
@@ -1064,7 +1070,7 @@ const settings = {
 			thinkingSummaries: '显示思考摘要',
 			thinkingSummariesHint: '支持的引擎（Claude Code、Codex）在回复前展示思考过程的摘要。对已打开的会话同样生效。',
 			cacheMissAlert: '缓存未命中提醒',
-			cacheMissAlertHint: '可在 5 秒内停止任务',
+			cacheMissAlertHint: '一次请求没命中提示缓存（这次输入按全价计费）时在顶部提示几秒，可以顺手停止任务。不会暂停执行',
 			turnStatsPreview: '预览',
 			turnStatsNone: '不显示统计',
 			turnStat: {
@@ -1081,6 +1087,8 @@ const settings = {
 			compactionThreshold: '压缩阈值',
 			compactionThresholdSub: '占用上下文窗口的百分比',
 			compactModel: '压缩模型',
+			compactModelHint: '当前对话的模型没写出摘要时由它来写，空闲时的对话摘要也用它',
+			followCurrentModel: '跟随当前模型',
 			titles: '对话标题',
 			titleModel: '标题模型',
 			titleModelHint: '为对话自动命名',
@@ -1672,6 +1680,12 @@ const settings = {
 			swapToNone: 'After the swap, {name} has no shortcut.',
 			noSwap: 'Change the shortcut for {name} first.',
 			swap: 'Swap'
+		},
+		network: {
+			proxyTitle: 'Proxy',
+			proxy: 'Network proxy',
+			proxyHint: 'An HTTP proxy, e.g. http://127.0.0.1:7890. Web fetches, the local search and the commands the agent runs (git, npm, curl…) go through it; model requests do not. Empty: no proxy. Needs LynShen CLI 0.7.8 or later',
+			proxyInvalid: 'Not a proxy address: write http://host:port or host:port (socks5 is not supported yet)'
 		},
 		page: {
 			back: 'Back',
@@ -2326,7 +2340,7 @@ const settings = {
 			thinkingSummaries: 'Show thinking summaries',
 			thinkingSummariesHint: 'Engines that support it (Claude Code, Codex) show a summary of their thinking before replying. Applies to open sessions too.',
 			cacheMissAlert: 'Cache miss alert',
-			cacheMissAlertHint: 'Lets you stop the task within 5 seconds',
+			cacheMissAlertHint: 'A note for a few seconds when a request missed the prompt cache (its input is billed in full), with a button to stop the task. It does not pause anything',
 			turnStatsPreview: 'Preview',
 			turnStatsNone: 'No stats shown',
 			turnStat: {
@@ -2344,6 +2358,8 @@ const settings = {
 			compactionThreshold: 'Compaction threshold',
 			compactionThresholdSub: 'Share of the context window',
 			compactModel: 'Compaction model',
+			compactModelHint: 'Writes the summary when the conversation’s model did not, and the idle conversation summary',
+			followCurrentModel: 'Same as the conversation’s model',
 			titles: 'Conversation titles',
 			titleModel: 'Title model',
 			titleModelHint: 'Names conversations automatically',

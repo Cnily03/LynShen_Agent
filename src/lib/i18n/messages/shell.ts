@@ -7,7 +7,7 @@ const shell = {
 		notifyApproval: '等你批准：{what}',
 		notifyPlan: '计划待批准：{title}',
 		cacheMiss: {
-			message: '「{title}」缓存未命中：本次输入 {input} token，只命中 {cached} token。不操作的话，5 秒后继续执行。',
+			message: '「{title}」缓存未命中：本次输入 {input} token，只命中 {cached} token。任务照常进行，要停下可以点「停止任务」。',
 			stop: '停止任务'
 		},
 		untitled: '未命名',
@@ -288,6 +288,7 @@ const shell = {
 		rewindLabel: '回退确认',
 		rewindQuestion: '回退到这一轮并重写？',
 		rewindBody: '对话会回退到这条消息发出前，<b>此后的文件改动也会一并还原</b>。原消息已填入输入框，可修改后重新发送。此操作不可撤销。',
+		rewindBodyPlain: '对话会回退到这条消息发出前，此后的文件改动也会一并还原。原消息会放回输入框，可修改后重新发送。此操作不可撤销。',
 		rewindConfirm: '回退并重写',
 
 		// dialogs (page)
@@ -454,6 +455,7 @@ const shell = {
 			agents: 'Agent',
 			back: '返回',
 			messagePlaceholder: '发消息…',
+			commandOnComputer: '{command} 要在电脑上用',
 			send: '发送',
 			stop: '停止',
 			disconnected: '连接中断',
@@ -575,7 +577,14 @@ const shell = {
 			send: '提交',
 			sent: '已提交工单 {no}，回复可在控制台的「工单」页查看',
 			needLogin: '请先登录 LynShen 账户再提交。',
-			environment: '版本：Aogiri 桌面端 {version} · 系统：{system}'
+			environment: '版本：Aogiri 桌面端 {version} · 系统：{system}',
+			hintWeb: '会以工单提交到「{computer}」上登录的 LynShen 账户，进度和回复可在控制台的「工单」页查看。',
+			withLogsWeb: '附带「{computer}」的日志',
+			logsNoteWeb: '由电脑附上它的引擎和后台服务日志的最后部分，发送前会去掉令牌、API Key、授权头和路径里的用户名，并压缩。',
+			environmentWeb: '来自网页端（app.lynshen.org）· 电脑：{computer} · 设备：{system}',
+			menu: '反馈问题',
+			needComputer: '电脑没有回应，请确认它已开机并连上远程访问。',
+			needNewerEngine: '电脑上的 Aogiri 版本较旧，还不能从这里提交工单。请在电脑上更新，或在电脑上用「反馈问题」提交。'
 		},
 		requirement: {
 			title: '需求',
@@ -1121,7 +1130,7 @@ const shell = {
 		notifyApproval: 'Waiting for your approval: {what}',
 		notifyPlan: 'Plan to approve: {title}',
 		cacheMiss: {
-			message: '{title}: prompt cache miss. {cached} of {input} input tokens were cached. Continuing in 5 seconds.',
+			message: '{title}: prompt cache miss. {cached} of {input} input tokens were cached. The task goes on; stop it here if you want.',
 			stop: 'Stop task'
 		},
 		untitled: 'Untitled',
@@ -1399,6 +1408,7 @@ const shell = {
 		rewindLabel: 'Confirm rewind',
 		rewindQuestion: 'Rewind to this turn and rewrite?',
 		rewindBody: 'The conversation rewinds to before this message, <b>and file changes made after it are reverted too</b>. The original message is placed in the input box so you can edit and resend. This cannot be undone.',
+		rewindBodyPlain: 'The conversation goes back to before this message, and the file changes made since are reverted too. The message goes back into the box to edit and send again. This cannot be undone.',
 		rewindConfirm: 'Rewind and rewrite',
 
 		// dialogs (page)
@@ -1565,6 +1575,7 @@ const shell = {
 			agents: 'Agents',
 			back: 'Back',
 			messagePlaceholder: 'Message…',
+			commandOnComputer: '{command} works on the computer only',
 			send: 'Send',
 			stop: 'Stop',
 			disconnected: 'Disconnected',
@@ -1684,7 +1695,14 @@ const shell = {
 			send: 'Send',
 			sent: 'Ticket {no} sent; replies show in the console',
 			needLogin: 'Sign in to your LynShen account first.',
-			environment: 'Version: Aogiri desktop {version} · System: {system}'
+			environment: 'Version: Aogiri desktop {version} · System: {system}',
+			hintWeb: 'Sent as a ticket of the LynShen account signed in on “{computer}”; replies show under Tickets in the console.',
+			withLogsWeb: 'Attach the logs of “{computer}”',
+			logsNoteWeb: 'The computer attaches the end of its engine and background service logs, with tokens, API keys, authorization headers and user names in paths taken out, compressed.',
+			environmentWeb: 'From the web page (app.lynshen.org) · computer: {computer} · device: {system}',
+			menu: 'Send feedback',
+			needComputer: 'The computer does not answer. Check that it is on and connected to remote access.',
+			needNewerEngine: 'The Aogiri on the computer is too old to send a ticket from here. Update it on the computer, or send it there with Send feedback.'
 		},
 		requirement: {
 			title: 'Requirements',

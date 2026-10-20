@@ -5,6 +5,7 @@
 // `node scripts/phone-regression.mjs [port]` on its own.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium, webkit, expect } from '@playwright/test';
@@ -90,6 +91,102 @@ try {
 			await expect(page.locator('.session')).toHaveCount(0);
 			await page.waitForTimeout(600);
 			await page.screenshot({ path: `/tmp/phone-pair-check-${name}.png` });
+
+			// An iPad (ticket #51): iPadOS Safari says Macintosh. The wide
+			// layout's sections are full-width rows from the left, and the page
+			// root is the theme's canvas, not see-through (the desktop app's
+			// macOS window only), so no white shows under the home indicator.
+			if (name === 'webkit') {
+				const ipadUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Safari/605.1.15';
+				const appHtml = readFileSync('src/app.html', 'utf8')
+					.replaceAll('%sveltekit.assets%', '')
+					.replace('%sveltekit.head%', '<script type="module" src="/tests/browser/main.ts"></script>')
+					.replace('%sveltekit.body%', '<div id="app"></div>');
+				for (const [w, h] of [[1366, 1024], [1024, 1366]]) {
+					const ipad = await browser.newContext({ viewport: { width: w, height: h }, userAgent: ipadUA, hasTouch: true });
+					const ip = await ipad.newPage();
+					ip.on('pageerror', (e) => errors.push(e.message));
+					await ip.addInitScript(() => localStorage.setItem('lynshen-theme', 'dark'));
+					await ip.route((u) => u.pathname === '/ipad', (r) => r.fulfill({ contentType: 'text/html', body: appHtml }));
+					await ip.goto(`http://127.0.0.1:${port}/ipad?remoteHost&wide`);
+					const rows = ip.locator('aside.side nav button');
+					await expect(rows).toHaveCount(4, { timeout: 30000 });
+					const side = await ip.locator('aside.side').boundingBox();
+					for (const box of await Promise.all((await rows.all()).map((r) => r.boundingBox())))
+						assert.ok(box.x - side.x < 16 && box.width > side.width - 32, `${w}×${h}: a section row spans the column (${box.x}, ${box.width})`);
+					assert.equal(await ip.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), 'rgb(26, 26, 26)', `${w}×${h}: the root is the dark canvas`);
+					await ip.screenshot({ path: `/tmp/phone-ipad-${w}x${h}.png`, scale: 'css' });
+					await ipad.close();
+				}
+			}
+
+			// "/" opens the engine's commands in the box, as on the desktop
+			// (ticket #46); a command goes as a command, not a message; one the
+			// computer runs is not listed and is not sent.
+			await page.goto(`${base}?remoteHost&open=s-cache&scopes=full_access&idleAfterApprove`);
+			await expect(card).toBeVisible({ timeout: 30000 });
+			await card.getByRole('button', { name: /允许一次/ }).click();
+			await expect(card).toHaveCount(0);
+			await expect(page.locator('.composer .cact.stop')).toHaveCount(0);
+			await page.evaluate(() => window.__remoteOps.splice(0));
+			const field = page.locator('.composer textarea');
+			await field.fill('/');
+			const tray = page.locator('.composer .tray');
+			await expect(tray.getByRole('option')).toHaveText([/\/compact/, /\/context/, /\/rewind/]);
+			await tray.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+			await page.screenshot({ path: `/tmp/phone-slash-tray-${name}.png` });
+			await field.fill('/co');
+			await expect(tray.getByRole('option')).toHaveText([/\/compact/, /\/context/]);
+			await tray.getByRole('option', { name: /\/compact/ }).click();
+			await expect(field).toHaveValue('/compact ');
+			await expect(tray).toHaveCount(0);
+			await page.locator('.composer .cact.send').click();
+			await expect.poll(async () => (await ops()).filter((o) => o.op === 'command').map((o) => o.input)).toEqual(['/compact']);
+			assert.ok(!(await ops()).some((o) => o.op === 'user_message'), 'a command is not a message');
+			await field.fill('/login');
+			await page.locator('.composer .cact.send').click();
+			await expect(page.getByText('/login 要在电脑上用')).toBeVisible();
+			assert.ok(!(await ops()).some((o) => o.op === 'command' && o.input === '/login'), '/login not sent');
+			// A sent message's buttons show without hover (a touch screen):
+			// rewind asks, restores that turn and puts the message back.
+			const sentRow = page.locator('.row.user').first();
+			await expect(sentRow.locator('.uedit.rewind')).toBeVisible();
+			await sentRow.locator('.uedit.rewind').click();
+			await expect(page.getByText('回退到这一轮并重写？')).toBeVisible();
+			await page.getByRole('button', { name: '回退并重写' }).click();
+			await expect.poll(async () => (await ops()).filter((o) => o.op === 'command').map((o) => o.input).at(-1)).toBe('/rewind e1');
+			await expect(field).toHaveValue('把会话缓存改成按会话分片，跑完单元测试再提交。');
+			await expect(page.getByText('回退到这一轮并重写？')).toHaveCount(0);
+			await page.screenshot({ path: `/tmp/phone-slash-${name}.png` });
+
+			// 反馈问题 from the phone (ticket #45): sent through the computer,
+			// which signs it and attaches its logs; the screenshot and the
+			// phone's platform go along.
+			await page.goto(`${base}?remoteHost&feedback`);
+			const dialog = page.getByRole('dialog', { name: '反馈问题' });
+			await expect(dialog).toBeVisible({ timeout: 30000 });
+			await expect(dialog.getByText('会以工单提交到「MacBook Pro」上登录的 LynShen 账户')).toBeVisible();
+			await expect(dialog.getByText('附带「MacBook Pro」的日志')).toBeVisible();
+			await dialog.getByRole('button', { name: '建议', exact: true }).click();
+			await dialog.locator('input').first().fill('网页端提交工单');
+			await dialog.locator('textarea').fill('在 app.lynshen.org 上也能提交工单');
+			await page.waitForTimeout(300);
+			await page.screenshot({ path: `/tmp/phone-feedback-${name}.png` });
+			await dialog.getByRole('button', { name: '提交' }).click();
+			await expect(page.getByText('已提交工单 #54')).toBeVisible();
+			const sent = (await ops()).find((o) => o.op === 'feedback_send');
+			assert.equal(sent.title, '网页端提交工单');
+			assert.equal(sent.category, 'feature');
+			assert.equal(sent.with_logs, true);
+			assert.equal(sent.app_version, 'web');
+			assert.match(sent.body, /来自网页端（app\.lynshen\.org）· 电脑：MacBook Pro/);
+			// A computer whose engine predates it says to update.
+			await page.goto(`${base}?remoteHost&feedback&oldEngine`);
+			await expect(dialog).toBeVisible({ timeout: 30000 });
+			await dialog.locator('input').first().fill('t');
+			await dialog.locator('textarea').fill('b');
+			await dialog.getByRole('button', { name: '提交' }).click();
+			await expect(dialog.getByText('电脑上的 Aogiri 版本较旧')).toBeVisible();
 
 			// 全自动 is a locked row until the computer allows this phone; an
 			// escalation can only be denied here.

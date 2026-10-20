@@ -2,12 +2,15 @@
 // (scripts/reasoning-perf.mjs). No daemon: the script feeds engine events.
 import { mount } from 'svelte';
 import '../../src/lib/app.css';
+import { imageSrc as screenshot } from './previewFiles';
 
 Object.assign(window, {
   __TAURI_INTERNALS__: {
     metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
     transformCallback: () => 1,
     unregisterCallback: () => {},
+    // A sent image (Perf.svelte's history): a screenshot-sized picture.
+    convertFileSrc: () => screenshot(),
     invoke: async (command: string) => {
       switch (command) {
         case 'read_config': return { provider: 'monoize', models: [] };

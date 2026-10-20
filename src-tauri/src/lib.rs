@@ -21,6 +21,7 @@ mod browser;
 mod capture;
 mod file_preview;
 mod claude_history;
+mod daemon_launch;
 mod device_header;
 mod device_id;
 mod installer;
@@ -458,6 +459,52 @@ fn replace_stale_daemon() {
     }
 }
 
+/// Starts the daemon when nothing listens yet, with the phone page written
+/// out for it. Shared by the page (daemon_endpoint) and the app's launch.
+fn start_daemon(
+    app: &AppHandle,
+    bin_override: Option<&str>,
+    env: &[(String, String)],
+) -> Result<(), String> {
+    // One at a time: the launch's start and the page's first connection
+    // would otherwise both write ~/.lynshen/web (remote_web_dir).
+    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _starting = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+    #[cfg(unix)]
+    replace_stale_daemon();
+    let web = if daemon_listening() {
+        None
+    } else {
+        remote_web_dir(app)
+    };
+    ensure_daemon(bin_override, env, web.as_deref())
+}
+
+/// At launch, in the background: the daemon starts with what the page last
+/// used, so a window that stays hidden (a silent launch at login) still
+/// brings up the sessions' host and its 远程访问 link to app.lynshen.org
+/// (ticket #43: until the window was opened, the phone could not reach the
+/// computer). Before the page ever started it (first run), nothing starts
+/// here: the page does it with the settings it has.
+fn start_daemon_at_launch(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if daemon_listening() {
+            return;
+        }
+        let Ok(store) = secrets::SecretStore::app_local() else {
+            return;
+        };
+        let Some(launch) = daemon_launch::load(&daemon_launch::path(), &store) else {
+            return;
+        };
+        match start_daemon(&app, launch.bin_override.as_deref(), &launch.env) {
+            Ok(()) => desktop_log("daemon started at launch"),
+            Err(error) => desktop_log(&format!("daemon not started at launch: {error}")),
+        }
+    });
+}
+
 /// The local daemon's address and token, starting it first when needed.
 /// `bin_override` and `env` are the lynshen backend's settings, used when it
 /// has to be started.
@@ -474,14 +521,19 @@ fn daemon_endpoint(
         Some(env) => backend::validate_env(env)?,
         None => Vec::new(),
     };
-    #[cfg(unix)]
-    replace_stale_daemon();
-    let web = if daemon_listening() {
-        None
-    } else {
-        remote_web_dir(&app)
-    };
-    ensure_daemon(bin_override.as_deref(), &env, web.as_deref())?;
+    // What the app starts the daemon with at its next launch, before any
+    // window shows (start_daemon_at_launch).
+    if let Ok(store) = secrets::SecretStore::app_local() {
+        let launch = daemon_launch::DaemonLaunch {
+            bin_override: bin_override.clone(),
+            env: env.clone(),
+        };
+        if let Err(error) = daemon_launch::remember(&daemon_launch::path(), &store, &launch)
+        {
+            desktop_log(&format!("daemon launch settings not saved: {error}"));
+        }
+    }
+    start_daemon(&app, bin_override.as_deref(), &env)?;
     let path = lynshen_dir().join("daemon").join("token");
     let token = std::fs::read_to_string(&path)
         .map(|token| token.trim().to_string())
@@ -3834,6 +3886,8 @@ pub fn run() {
             set_dev_dock_icon();
             // 异步捕获登录 shell 环境快照（不阻塞启动；见 shell_env.rs）。
             shell_env::init_async();
+            // After the capture has begun: the daemon gets its PATH from it.
+            start_daemon_at_launch(app.handle());
             // Claude Code / Codex files an earlier version overwrote go back.
             tool_switch::restore_leftovers();
             #[cfg(desktop)]
@@ -3988,6 +4042,7 @@ pub fn run() {
             native_import::record_opencode_copy,
             agent_import::import_scan,
             agent_import::import_apply,
+            agent_import::continue_on::continue_on_lynshen_cmd,
             pty_open,
             pty_write,
             pty_resize,

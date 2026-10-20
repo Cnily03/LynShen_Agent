@@ -18,3 +18,12 @@ describe('session cost display', () => {
 		expect(turnParts(turn, ['cost'])).toEqual([{ text: '0.0500 积分', title: '实际扣费，已包含分组倍率', mono: true }]);
 	});
 });
+
+describe('turn figures', () => {
+	it('name the model in the duration’s tooltip when the model is not shown', () => {
+		setLocale('zh');
+		const turn = { elapsed: 49200, model: 'claude-haiku-5-5', inTokens: 0, outTokens: 0, files: 0, added: 0, removed: 0, tools: 0, cost: 0, segments: 0 } as TurnStats;
+		expect(turnParts(turn, ['elapsed'])[0]).toEqual({ text: '49.2s', title: '本轮总耗时 · claude-haiku-5-5', mono: true });
+		expect(turnParts(turn, ['elapsed', 'model'])[0]!.title).toBe('本轮总耗时');
+	});
+});

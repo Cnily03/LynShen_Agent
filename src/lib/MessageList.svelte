@@ -36,7 +36,7 @@
 	import { prefs } from '$lib/prefs.svelte';
 	import { fmtDur, turnParts } from '$lib/turnStats';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { tick } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import UserImage from '$lib/UserImage.svelte';
 	import SentFiles from '$lib/SentFiles.svelte';
 	import { copyableText, splitAttachments } from '$lib/attachments';
@@ -62,7 +62,7 @@
 		onAutoRetryNow,
 		onAutoRetryCancel,
 		findActive = null,
-		scroller = null,
+		scroller,
 		onEdit,
 		onCite,
 		onNote,
@@ -106,15 +106,20 @@
 		onAutoRetryNow?: () => void;
 		onAutoRetryCancel?: () => void;
 		findActive?: number | null;
-		// The scroll viewport (owned by +page). When provided and the history is
-		// long, rows outside the viewport are windowed out.
+		// The scroll viewport (owned by +page). When provided (null until the
+		// host has bound it) and the history is long, rows outside the viewport
+		// are windowed out.
 		scroller?: HTMLElement | null;
-		onEdit: (text: string) => void;
+		/** Puts a sent message back in the composer; without it there is no pencil. */
+		onEdit?: (text: string) => void;
 		/** Quote text selected in a reply into the composer. */
 		onCite?: (text: string) => void;
 		/** Notes the selected passage as a requirement (offered beside quoting). */
 		onNote?: (text: string) => void;
-		onRewind: (text: string, userIndex: number) => void;
+		/** Rewinds to a sent message and puts it back to rewrite; without it
+		 *  there is no rewind button (a read-only transcript, an engine that
+		 *  cannot rewind). */
+		onRewind?: (text: string, userIndex: number) => void;
 		/** Open a workspace file referenced by a chat link (editor / browser). */
 		/** A file link in a message; `context` is that message's text. */
 		onFile?: (href: string, context?: string) => void;
@@ -189,9 +194,16 @@
 	let listEl: HTMLElement;
 	let raf = 0;
 
-	// Track the viewport's scroll position + height.
+	// The viewport has been read since it was bound (see `range`).
+	let placed = $state(false);
+
+	// Track the viewport's scroll position + height. The first reading comes
+	// with the observer's first report, in the next frame: by then the host
+	// has put the view where the conversation opens (its end), and reading it
+	// at once (the top) rendered the conversation's first rows for nothing.
 	$effect(() => {
 		const el = scroller;
+		placed = false;
 		if (!el) return;
 		const sync = () => {
 			scrollTop = el.scrollTop;
@@ -199,8 +211,8 @@
 			atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
 			cite = null;
 			listTop = listEl.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+			placed = true;
 		};
-		sync();
 		el.addEventListener('scroll', sync, { passive: true });
 		const ro = new ResizeObserver(sync);
 		ro.observe(el);
@@ -210,7 +222,12 @@
 		};
 	});
 
-	const virtual = $derived(!!scroller && messages.length >= VIRTUAL_MIN);
+	// A host that passes a scroller windows its rows from the start: its
+	// scroller is bound after this list first renders (null until then), and
+	// rendering every row of a long history until it is (each reply as
+	// Markdown) took seconds and hundreds of MB on every open of a long
+	// conversation, for rows dropped a moment later.
+	const virtual = $derived(scroller !== undefined && messages.length >= VIRTUAL_MIN);
 
 	// Cumulative top offset of each row (offsets[i] = top of row i, offsets[n] = end).
 	const offsets = $derived.by(() => {
@@ -230,6 +247,15 @@
 	// [first, last] inclusive window of rows to render.
 	const range = $derived.by(() => {
 		if (!virtual) return { first: 0, last: messages.length - 1 };
+		// No viewport read yet: the end (where a conversation opens), a
+		// window's height of it and the overscan.
+		if (!scroller || !placed) {
+			const end = offsets[messages.length]!;
+			const need = (typeof window === 'undefined' ? 800 : window.innerHeight) + OVERSCAN;
+			let first = messages.length - 1;
+			while (first > 0 && end - offsets[first]! < need) first--;
+			return { first, last: messages.length - 1 };
+		}
 		const top = scrollTop - OVERSCAN;
 		const bottom = scrollTop + viewH + OVERSCAN;
 		let first = 0;
@@ -239,32 +265,52 @@
 		return { first, last };
 	});
 	const windowRows = $derived(messages.slice(range.first, range.last + 1));
-	const padTop = $derived(virtual ? offsets[range.first] : 0);
-	const padBottom = $derived(virtual ? Math.max(0, totalH - offsets[range.last + 1]) : 0);
+	// The rows windowed out are spacers, elements before and after the rows
+	// (padding on the list would do the same): the browser anchors the view
+	// to a row as a spacer changes height (scroll anchoring); it does not as
+	// the list's padding changes, and rows measured above the view as the
+	// reader scrolls up then moved the text under them.
+	const padTop = $derived(virtual ? Math.max(0, offsets[range.first]! - GAP) : 0);
+	const padBottom = $derived(virtual ? Math.max(0, totalH - offsets[range.last + 1]! - GAP) : 0);
 
-	// Measure a rendered row and cache its height, coalescing recomputes into one rAF.
+	// Measure the rendered rows and cache their heights, coalescing recomputes
+	// into one rAF. One observer for all rows: it reports a row once it is laid
+	// out (reading its height as it mounts forced a layout per row), and again
+	// when its size changes.
+	const rowMsg = new WeakMap<Element, Msg>();
+	const rowSizes =
+		typeof ResizeObserver === 'undefined'
+			? null
+			: new ResizeObserver((entries) => {
+					for (const e of entries) {
+						const msg = rowMsg.get(e.target);
+						const h = (e.target as HTMLElement).offsetHeight;
+						if (!msg || h <= 0 || heights.get(msg) === h) continue;
+						heights.set(msg, h);
+						if (!raf)
+							raf = requestAnimationFrame(() => {
+								raf = 0;
+								measureVersion++;
+							});
+					}
+				});
+	onDestroy(() => {
+		rowSizes?.disconnect();
+		cancelAnimationFrame(raf);
+	});
 	function measure(node: HTMLElement, msg: Msg) {
-		const record = () => {
-			const h = node.offsetHeight;
-			if (h > 0 && heights.get(msg) !== h) {
-				heights.set(msg, h);
-				if (!raf)
-					raf = requestAnimationFrame(() => {
-						raf = 0;
-						measureVersion++;
-					});
-			}
-		};
-		record();
-		const ro = new ResizeObserver(record);
-		ro.observe(node);
+		rowMsg.set(node, msg);
+		rowSizes?.observe(node);
 		return {
 			update(next: Msg) {
-				msg = next;
-				record();
+				if (rowMsg.get(node) === next) return;
+				rowMsg.set(node, next);
+				// Observed anew, it is reported (measured) again.
+				rowSizes?.unobserve(node);
+				rowSizes?.observe(node);
 			},
 			destroy() {
-				ro.disconnect();
+				rowSizes?.unobserve(node);
 			}
 		};
 	}
@@ -509,6 +555,16 @@
 		return !!m.text && hasText(m, m.text);
 	}
 
+	/** `hasContent` for the lists worked out over every message (the rows'
+	 *  offsets, the runs of tool calls): a message that has content keeps it
+	 *  (its text and output only grow in place; one let go of is a new
+	 *  object), so only one without any is watched for some. Read whole, the
+	 *  streaming message's text made each of them run again over the whole
+	 *  conversation on every delta. */
+	function contentful(m: Msg): boolean {
+		return untrack(() => hasContent(m)) || hasContent(m);
+	}
+
 	// A run of consecutive tool calls (rows that show nothing don't break it)
 	// renders as one row on its first call: a header naming the count and the
 	// latest call, then — expanded — the calls in a tight list. The other calls
@@ -526,7 +582,7 @@
 			run = [];
 		};
 		for (const m of messages) {
-			if (!hasContent(m)) continue;
+			if (!contentful(m)) continue;
 			// A message to another conversation keeps a row of its own: its
 			// state changes after the run.
 			if (m.kind === 'tool' && !isAgentCall(m) && m.name !== 'send_to_session') run.push(m);
@@ -544,7 +600,7 @@
 		return !!agents && m.kind === 'tool' && (SPAWN_TOOLS.has(m.name) || WAIT_TOOLS.has(m.name));
 	}
 	function shown(m: Msg): boolean {
-		return hasContent(m) && (!toolGroups.headOf.has(m) || toolGroups.members.has(m)) && !attempts.hidden.has(m);
+		return contentful(m) && (!toolGroups.headOf.has(m) || toolGroups.members.has(m)) && !attempts.hidden.has(m);
 	}
 	// Best-of-N: the spawns of one attempt group render as one card, on the
 	// group's first spawn; the others render nothing.
@@ -598,7 +654,8 @@
 
 <svelte:document onselectionchange={() => cite && window.getSelection()?.isCollapsed && (cite = null)} />
 
-<div class="list" bind:this={listEl} onmouseup={(e) => e.button === 0 && setTimeout(offerCite)} role="presentation" style:padding-top="{padTop}px" style:padding-bottom="{padBottom}px">
+<div class="list" bind:this={listEl} onmouseup={(e) => e.button === 0 && setTimeout(offerCite)} role="presentation">
+	{#if padTop > 0}<div class="spacer" style:height="{padTop}px"></div>{/if}
 	{#each windowRows as m, k (m)}
 		{@const i = range.first + k}
 		{#if shown(m)}
@@ -615,10 +672,14 @@
 				<button class="uedit ucopy" class:done={copied === m} onclick={() => copy(copyableText(m.text), m)} aria-label={t(copied === m ? 'common.copied' : 'common.copy')} title={t(copied === m ? 'common.copied' : 'common.copy')}>
 					{#if copied === m}<CheckIcon size={12} />{:else}<CopyIcon size={12} />{/if}
 				</button>
-				<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
-					<ArrowCounterClockwiseIcon size={12} />{#if drop > 1}<span class="rwn">{drop}</span>{/if}
-				</button>
-				<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
+				{#if onRewind}
+					<button class="uedit rewind" onclick={() => onRewind(m.text, userOrdinal.get(m) ?? 0)} aria-label={t('chat.rewindTitleN', { n: drop })} title={t('chat.rewindTitleN', { n: drop })}>
+						<ArrowCounterClockwiseIcon size={12} />{#if drop > 1}<span class="rwn">{drop}</span>{/if}
+					</button>
+				{/if}
+				{#if onEdit}
+					<button class="uedit" onclick={() => onEdit(m.text)} aria-label={t('chat.quoteTitle')} title={t('chat.quoteTitle')}><PencilSimpleIcon size={12} /></button>
+				{/if}
 				<div class="ucol">
 					<!-- Files and videos sent with it: chips above the bubble, which
 					     shows what was typed (attachments.ts). -->
@@ -771,6 +832,7 @@
 			</div>
 		{/if}
 	{/each}
+	{#if padBottom > 0}<div class="spacer" style:height="{padBottom}px"></div>{/if}
 	{#if retry}
 		<RetryNotice {retry} {backend} />
 	{:else if autoRetry}
@@ -843,6 +905,10 @@
 	   collapses tool cards into stray horizontal lines under content pressure. */
 	.list > :global(*) {
 		flex-shrink: 0;
+	}
+	/* The rows windowed out (see padTop): never the view's scroll anchor. */
+	.spacer {
+		overflow-anchor: none;
 	}
 	.mwrap {
 		border-radius: var(--r-md);
@@ -1125,10 +1191,11 @@
 	.tcopy:active {
 		transform: scale(0.94);
 	}
-	/* Touch screens (the phone page) have no hover: the copy buttons stay. */
+	/* Touch screens (the phone page) have no hover: a message's buttons
+	   (copy, rewind, put back) stay, as the turn's copy button does. */
 	@media (hover: none) {
 		.tcopy,
-		.uedit.ucopy {
+		.uedit {
 			opacity: 1;
 			transform: none;
 		}

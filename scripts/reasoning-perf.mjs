@@ -1,7 +1,9 @@
 // Streaming benchmark: a long reasoning block streamed into a real ChatPane
 // (production build, tests/browser/perf.html), each delta delivered the way
 // the page delivers a daemon frame: in a task of its own, through
-// ChatState.handle, then the pane follows the end. Not run in CI.
+// ChatState.handle, then the pane follows the end. Not run in CI (its short
+// version is scripts/perf-check.mjs; a long conversation:
+// scripts/desk-perf.mjs).
 //
 //   node scripts/reasoning-perf.mjs [--deltas 20000] [--windows 10] [--per-frame 4] [--words 1]
 //                                   [--open] [--answer] [--webkit] [--paint] [--port 1439]

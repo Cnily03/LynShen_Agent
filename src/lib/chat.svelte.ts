@@ -566,35 +566,82 @@ function shownPrint(name: string, output: string): string {
 const recorded = (m: Msg): m is ToolMsg => m.kind === 'tool' && !m.subagent && !m.cut && !m.running;
 
 /** The messages of a `transcript` replay. */
+/** A turn's figures as the engine records them (`turn_stats`: the model
+ *  that answered, how long the turn took, its tokens); null when the item
+ *  lacks the model or the duration. Files changed are not recorded: the
+ *  Changes panel has them. */
+export function recordedTurn(it: Record<string, unknown>): TurnStats | null {
+	if (typeof it.model !== 'string' || !it.model || typeof it.elapsed_ms !== 'number') return null;
+	return {
+		elapsed: it.elapsed_ms,
+		...(typeof it.ttft_ms === 'number' ? { ttft: it.ttft_ms } : {}),
+		inTokens: num(it.input_tokens),
+		outTokens: num(it.output_tokens),
+		files: 0,
+		added: 0,
+		removed: 0,
+		tools: num(it.tools),
+		cost: num(it.cost),
+		model: it.model,
+		segments: 0
+	};
+}
+
+/** Stamps `turn` on the last reply in `messages` since the last user
+ *  message, as a live turn's end does (#endTurn). False when the turn has no
+ *  reply (stopped before it answered). */
+function stampTurn(messages: Msg[], turn: TurnStats): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if (m.kind === 'user') return false;
+		if (m.kind === 'assistant' && !m.interrupted) {
+			m.turn = turn;
+			m.elapsed = turn.elapsed;
+			return true;
+		}
+	}
+	return false;
+}
+
 function replayMessages(items: Record<string, unknown>[]): Msg[] {
-	return items
-		.map((it): Msg | null => {
-			const role = str(it.role);
-			if (role === 'user' && str(it.content) === AUTO_CONTINUE) return { kind: 'system', text: t('chat.autoRetry.resumed') };
-			if (role === 'user') {
-				const images = arr<string>(it.images).filter((p) => typeof p === 'string');
-				return { kind: 'user', text: str(it.content), ...(images.length ? { images } : {}) };
-			}
-			if (role === 'assistant') return { kind: 'assistant', text: str(it.content) };
-			if (role === 'tool')
-				return {
-					kind: 'tool',
-					callId: '',
-					name: str(it.name),
-					output: boundedOutput(str(it.output)),
-					running: false,
-					isError: false
-				};
-			if (role === 'branch') return { kind: 'system', text: `branch: ${str(it.label)}` };
-			if (role === 'compaction') return { kind: 'compaction', state: 'done', before: 0, written: 0, since: 0, summary: str(it.summary) };
-			if (role === 'plan') return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
-			if (role === 'agent_message' && (str(it.summary) || str(it.content)))
-				return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
-			// A sandbox crossing, where the transcript keeps them (same fields as `escalated`).
-			if (role === 'escalated') return { kind: 'escalation', record: parseEscalation(it) };
-			return null;
-		})
-		.filter((m): m is Msg => m !== null);
+	const out: Msg[] = [];
+	for (const it of items) {
+		if (str(it.role) === 'turn_stats') {
+			const turn = recordedTurn(it);
+			if (turn) stampTurn(out, turn);
+			continue;
+		}
+		const m = replayMessage(it);
+		if (m) out.push(m);
+	}
+	return out;
+}
+
+function replayMessage(it: Record<string, unknown>): Msg | null {
+	const role = str(it.role);
+	if (role === 'user' && str(it.content) === AUTO_CONTINUE) return { kind: 'system', text: t('chat.autoRetry.resumed') };
+	if (role === 'user') {
+		const images = arr<string>(it.images).filter((p) => typeof p === 'string');
+		return { kind: 'user', text: str(it.content), ...(images.length ? { images } : {}) };
+	}
+	if (role === 'assistant') return { kind: 'assistant', text: str(it.content) };
+	if (role === 'tool')
+		return {
+			kind: 'tool',
+			callId: '',
+			name: str(it.name),
+			output: boundedOutput(str(it.output), str(it.name)),
+			running: false,
+			isError: false
+		};
+	if (role === 'branch') return { kind: 'system', text: `branch: ${str(it.label)}` };
+	if (role === 'compaction') return { kind: 'compaction', state: 'done', before: 0, written: 0, since: 0, summary: str(it.summary) };
+	if (role === 'plan') return { kind: 'plan', id: str(it.id), title: str(it.title), text: str(it.content), status: planStatus(it.status) };
+	if (role === 'agent_message' && (str(it.summary) || str(it.content)))
+		return { kind: 'agent_message', from: str(it.from), to: str(it.to), summary: str(it.summary) || str(it.content) };
+	// A sandbox crossing, where the transcript keeps them (same fields as `escalated`).
+	if (role === 'escalated') return { kind: 'escalation', record: parseEscalation(it) };
+	return null;
 }
 
 /** Whether every one of `want` is in `have`, in order. */
@@ -700,9 +747,19 @@ export interface TurnDiff {
 /** What a tool card keeps of an output in memory: a long one (a build log,
  *  a big file read) keeps its head and tail. Structured (JSON) outputs are
  *  kept whole when they fit, else their string fields are cut the same way,
- *  so a card still parses them. The engine's session keeps the full output. */
+ *  so a card still parses them. The engine's session keeps the full output.
+ *  An image a `read` call returns (`name`) keeps no pixels: its card shows
+ *  the file's name only, and a screenshot held 300 KB to 1 MB of base64 in
+ *  memory for as long as its conversation was open. */
 const TOOL_OUTPUT_MAX = 64 * 1024;
-export function boundedOutput(output: string): string {
+export function boundedOutput(output: string, name = ''): string {
+	if (name === 'read' && output.includes('"base64"')) {
+		const o = outputObject(output);
+		if (o?.kind === 'image' && typeof o.base64 === 'string') {
+			delete o.base64;
+			return JSON.stringify(o);
+		}
+	}
 	if (output.length <= TOOL_OUTPUT_MAX) return output;
 	const cut = (text: string, max: number) =>
 		text.length <= max ? text : `${text.slice(0, max / 2)}\n… (${text.length - max} characters not shown) …\n${text.slice(-max / 2)}`;
@@ -2050,7 +2107,7 @@ export class ChatState {
 			case 'tool_update': {
 				const t = this.#tool(str(ev.call_id));
 				if (t) {
-					t.output = boundedOutput(str(ev.output));
+					t.output = boundedOutput(str(ev.output), t.name);
 					if (SUBAGENT_CALLS.has(t.name) || t.name === 'send_to_session') t.args = t.output;
 					const started = /^started: (.+)/.exec(t.output)?.[1]?.trim();
 					if (started && !t.target) t.target = started;
@@ -2067,7 +2124,7 @@ export class ChatState {
 				this.#segStart = Date.now();
 				const t = this.#tool(str(ev.call_id));
 				if (t) {
-					t.output = boundedOutput(str(ev.output));
+					t.output = boundedOutput(str(ev.output), t.name);
 					t.running = false;
 					t.isError = ev.is_error === true;
 					// Its output came after all: the engine kept it.
@@ -2634,7 +2691,7 @@ export class ChatState {
 								callId: str(it.call_id),
 								name: str(it.name),
 								// The call's arguments name what it acted on until its output does.
-								output: boundedOutput(str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input))),
+								output: boundedOutput(str(it.output) || (it.input && typeof it.input === 'object' ? JSON.stringify(it.input) : str(it.input)), str(it.name)),
 								running: it.running === true,
 								isError: it.is_error === true
 							};
