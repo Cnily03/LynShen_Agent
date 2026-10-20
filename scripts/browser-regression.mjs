@@ -657,6 +657,29 @@ try {
   await expect(page.getByText(/当前的 LynShen 引擎还不能在这里管理技能/)).toBeVisible();
   await page.goto(base + '?plugins');
   await expect(page.getByText('document-skills')).toBeVisible();
+  // Settings → MCP 与扩展 → 安卓手机（Android-Use）: install asks first, then
+  // 连接手机 sets up the one phone, and the switch turns the tools on.
+  await page.goto(base + '?mcp');
+  const android = page.locator('#set-android-use');
+  await expect(android.getByText('未安装 · android-use 1.2.0')).toBeVisible({timeout:30000});
+  await android.getByRole('button',{name:'安装'}).click();
+  await expect(page.getByText(/校验 SHA-256 后放到 ~\/\.lynshen\/tools\/android-use/)).toBeVisible();
+  await page.getByRole('button',{name:'下载并安装'}).click();
+  await expect(android.getByText('android-use 1.2.0 · 已关闭 · sdk gphone64 arm64 · 已连接')).toBeVisible();
+  await android.getByRole('button',{name:'连接手机'}).click();
+  await expect(android.getByText(/已就绪：可以让 AI 操作这台手机了/)).toBeVisible();
+  await expect(android.getByRole('button',{name:'连接手机'})).toBeDisabled();
+  const phoneSwitch = android.getByRole('switch',{name:'让 AI 操作安卓手机'});
+  await phoneSwitch.click();
+  await expect(phoneSwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(android.getByText('android-use 1.2.0 · 已开启 · sdk gphone64 arm64 · 已连接')).toBeVisible();
+  assert.ok(await page.evaluate(() => window.__ops.some(o => o.op === 'android_use_enable' && o.enabled === true)));
+  await android.getByRole('button',{name:'展开'}).click();
+  await expect(android.getByText(/adb pair/)).toBeVisible();
+  if (process.env.ANDROID_USE_SHOTS) await android.screenshot({path: `${process.env.ANDROID_USE_SHOTS}/3-desktop-settings-row.png`});
+  // A daemon before the ops: a note to update the CLI.
+  await page.goto(base + '?mcp&oldEngine');
+  await expect(page.getByText(/后台服务版本太旧，不支持安卓手机/)).toBeVisible({timeout:30000});
   // Settings → 编码智能体 → Shell: the shells the daemon found, with their
   // versions; a choice is written to config.json; a missing PowerShell 7
   // offers its winget install and the download page.

@@ -98,18 +98,18 @@
 		{#if error}
 			<div class="pad"><Notice>{error}</Notice></div>
 		{/if}
-		<SettingsRow id="android-use-howto" title={t('settings.androidUse.howto')} stacked>
-			<button class="link" onclick={() => (howto = !howto)}>{howto ? t('settings.androidUse.hide') : t('settings.androidUse.show')}</button>
-			{#if howto}
-				<ol class="howto">
-					{#each ['step1', 'step2', 'step3', 'step4'] as step (step)}
-						<li>{t(`settings.androidUse.${step}`)}</li>
-					{/each}
-					<li>{status.wirelessHint}</li>
-				</ol>
-				<div class="src">{t('settings.androidUse.source')}</div>
-			{/if}
+		<SettingsRow id="android-use-howto" title={t('settings.androidUse.howto')}>
+			<Button size="sm" variant="secondary" onclick={() => (howto = !howto)}>{howto ? t('settings.androidUse.hide') : t('settings.androidUse.show')}</Button>
 		</SettingsRow>
+		{#if howto}
+			<ol class="howto">
+				{#each ['step1', 'step2', 'step3', 'step4'] as step (step)}
+					<li>{t(`settings.androidUse.${step}`)}</li>
+				{/each}
+				<li>{t('settings.androidUse.wireless')}</li>
+			</ol>
+			<div class="src">{t('settings.androidUse.source')}</div>
+		{/if}
 	{/if}
 </SettingsSection>
 
@@ -122,25 +122,15 @@
 	.pad {
 		padding: 8px 0;
 	}
-	.link {
-		align-self: flex-start;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--accent);
-		font: inherit;
-		font-size: 12px;
-		cursor: pointer;
-	}
 	.howto {
-		margin: 8px 0 0;
+		margin: 4px 0 0;
 		padding-left: 20px;
 		color: var(--dim);
 		font-size: 12px;
 		line-height: 1.6;
 	}
 	.src {
-		margin-top: 6px;
+		margin: 6px 0 12px;
 		color: var(--dim);
 		font-size: 11px;
 	}

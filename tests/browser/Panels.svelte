@@ -7,6 +7,7 @@
 	// Settings → 编码智能体 with its Shell section (?agents on a Mac,
 	// ?agents=windows on a PC without PowerShell 7).
 	// Settings → 回复风格 (?styles; with &oldEngine a daemon before them).
+	// Settings → MCP 与扩展 with 安卓手机（Android-Use） (?mcp).
 	// The welcome page as a first run shows it: ?welcome (the sign-in; with
 	// &authorize the browser approves it), ?welcome=relogin (after logging
 	// out: 跳过 closes it), ?welcome=guide (the walkthrough). What closed it
@@ -27,7 +28,7 @@
 	setLocale(mode.get('lang') === 'en' ? 'en' : 'zh');
 	provideRequirements(new Requirements(daemon));
 	let section = $state(
-		mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : mode.has('updates') ? 'updates' : mode.has('agents') ? 'agents' : mode.has('styles') ? 'styles' : 'skills'
+		mode.has('market') ? 'market' : mode.has('plugins') ? 'plugins' : mode.has('updates') ? 'updates' : mode.has('agents') ? 'agents' : mode.has('styles') ? 'styles' : mode.has('mcp') ? 'mcp' : 'skills'
 	);
 	// A newer version found on launch, asking whether to update now.
 	if (mode.get('updates') === 'found') {
