@@ -2,6 +2,14 @@
 // after 跳过，稍后登录, and the Get Started walkthrough from the palette).
 const setup = {
 	zh: {
+		// The one-time greeting after the first run (Greeting.svelte).
+		greeting: {
+			label: '欢迎',
+			hello: '你好，{name}',
+			helloNoName: '你好，欢迎来到 Aogiri',
+			line: '准备好了，开始吧。',
+			skip: '跳过'
+		},
 		welcome: {
 			label: '欢迎使用 Aogiri',
 			login: {
@@ -142,6 +150,13 @@ const setup = {
 		}
 	},
 	en: {
+		greeting: {
+			label: 'Welcome',
+			hello: 'Hello, {name}',
+			helloNoName: 'Hello, welcome to Aogiri',
+			line: 'All set. Let\'s begin.',
+			skip: 'Skip'
+		},
 		welcome: {
 			label: 'Welcome to Aogiri',
 			login: {

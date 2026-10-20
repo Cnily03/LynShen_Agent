@@ -107,7 +107,8 @@
 	import type { SectionKey } from '$lib/settings/nav';
 	import { folderName, type OpenableImport } from '$lib/agentImport';
 	import Welcome from '$lib/welcome/Welcome.svelte';
-	import { SETUP_DONE_KEY, firstRunStart } from '$lib/welcome/flow';
+	import { GREETING_SEEN_KEY, SETUP_DONE_KEY, firstRunStart, greetingDue } from '$lib/welcome/flow';
+	import Greeting from '$lib/welcome/Greeting.svelte';
 	import { afterWelcomeSignIn } from '$lib/welcome/firstRun';
 	import { launchReady } from '$lib/launch';
 	import { account } from '$lib/accountSession.svelte';
@@ -271,8 +272,31 @@
 		} catch {
 			/* no storage */
 		}
+		// The first run ended in this start: the greeting plays once (说明.md §4).
+		if (firstRun) startGreeting();
 		firstRun = false;
 		showSetup = false;
+	}
+	// The one-time greeting after the first run, over the workbench.
+	let showGreeting = $state(false);
+	function greetingSeen(): boolean {
+		try {
+			return !!localStorage.getItem(GREETING_SEEN_KEY);
+		} catch {
+			return true;
+		}
+	}
+	function startGreeting() {
+		if (greetingDue(true, greetingSeen())) showGreeting = true;
+	}
+	function greetingDone() {
+		try {
+			localStorage.setItem(GREETING_SEEN_KEY, '1');
+		} catch {
+			/* no storage: it does not play again in this start either */
+		}
+		showGreeting = false;
+		panes.get(store.activeId ?? '')?.focusComposer();
 	}
 	let showPalette = $state(false);
 	let showShortcuts = $state(false);
@@ -1980,6 +2004,7 @@
 	</div>
 
 
+	{#if showGreeting}<Greeting name={account.user?.username ?? ''} onDone={greetingDone} />{/if}
 	<UpdatePrompt />
 	<!-- Over the workbench, not over the first-run pages. -->
 	{#if !showSetup}<TrialGrantCard />{/if}
@@ -1999,6 +2024,7 @@
 				// over, the trial is claimed now, the engine uses the account
 				// where its provider cannot run.
 				await afterWelcomeSignIn();
+				if (firstRun) startGreeting();
 				firstRun = false;
 				showSetup = false;
 				setupView = 'login';
