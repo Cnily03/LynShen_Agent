@@ -43,3 +43,28 @@ describe('first-run flow', () => {
 		expect(accountProvider({ provider: 'lynshen' }, ['monoize', 'lynshen'])).toBeNull();
 	});
 });
+
+describe('the greeting after the first run', () => {
+	it('plays once, right after the first run ends in this start', async () => {
+		const { greetingDue } = await import('./flow');
+		expect(greetingDue(true, false)).toBe(true);
+		expect(greetingDue(true, true)).toBe(false);
+		// An install that finished the first run before (or a later start): never.
+		expect(greetingDue(false, false)).toBe(false);
+	});
+
+	it('runs its phases in order, faster with reduced motion, and skips to the opening', async () => {
+		const { GREETING_PHASES, GREETING_AT, GREETING_REDUCED_AT, greetingNext, greetingReached } = await import('./flow');
+		for (const at of [GREETING_AT, GREETING_REDUCED_AT]) {
+			const t = GREETING_PHASES.map((p) => at[p]);
+			t.slice(1).forEach((v, i) => expect(v).toBeGreaterThanOrEqual(t[i]));
+		}
+		expect(GREETING_AT.done).toBeLessThanOrEqual(6000);
+		expect(GREETING_REDUCED_AT.done).toBeLessThan(GREETING_AT.done);
+		let p: (typeof GREETING_PHASES)[number] = 'light';
+		const seen: (typeof GREETING_PHASES)[number][] = [p];
+		while (p !== 'done') seen.push((p = greetingNext(p, 'tick')));
+		expect(seen).toEqual([...GREETING_PHASES]);
+		for (const q of GREETING_PHASES) expect(greetingNext(q, 'skip')).toBe(greetingReached(q, 'open') ? q : 'open');
+	});
+});

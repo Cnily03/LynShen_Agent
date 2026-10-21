@@ -47,3 +47,63 @@ export function accountProvider(cfg: Record<string, unknown>, signedInProviders:
 	if (current && signedInProviders.includes(current)) return null;
 	return 'monoize';
 }
+
+// ─── The greeting (首次欢迎) ─────────────────────────────────────────────────
+// Once, right after the first run ends (signed in, 开始使用 or 稍后设置): a
+// teal light writes 「你好，…」, the line slides away while the light draws to
+// the middle, the 04 林光 mark assembles around it (the light becomes the
+// mark's slant), one line fades in, and a round opening shows the workbench.
+// Spec: 手机端方案/首次欢迎/说明.md §4.
+
+/** localStorage: the greeting has played (or was skipped). */
+export const GREETING_SEEN_KEY = 'lynshen-welcome-seen';
+
+/** Play the greeting now? Only when the first run just ended in this start
+ *  (an install that finished it before this version never sees it), and only once. */
+export function greetingDue(firstRunEndedNow: boolean, seen: boolean): boolean {
+	return firstRunEndedNow && !seen;
+}
+
+export const GREETING_PHASES = ['light', 'write', 'hold', 'trail', 'mark', 'line', 'open', 'done'] as const;
+export type GreetingPhase = (typeof GREETING_PHASES)[number];
+
+/** Start of each phase in ms. */
+export const GREETING_AT: Record<GreetingPhase, number> = {
+	light: 0,
+	write: 300,
+	hold: 1900,
+	trail: 2500,
+	mark: 3200,
+	line: 4300,
+	open: 4900,
+	done: 5600
+};
+/** Reduced motion: fades only. */
+export const GREETING_REDUCED_AT: Record<GreetingPhase, number> = {
+	light: 0,
+	write: 0,
+	hold: 300,
+	trail: 700,
+	mark: 700,
+	line: 1100,
+	open: 2100,
+	done: 2400
+};
+/** The opening after a skip (Enter, Space, Escape, a click). */
+export const GREETING_SKIP_OPEN_MS = 320;
+
+export function greetingTimeline(reduced: boolean): Record<GreetingPhase, number> {
+	return reduced ? GREETING_REDUCED_AT : GREETING_AT;
+}
+
+/** `tick` moves on one phase; `skip` goes to the opening (and stays once there). */
+export function greetingNext(phase: GreetingPhase, event: 'tick' | 'skip'): GreetingPhase {
+	const i = GREETING_PHASES.indexOf(phase);
+	const open = GREETING_PHASES.indexOf('open');
+	if (event === 'skip') return i < open ? 'open' : phase;
+	return GREETING_PHASES[Math.min(i + 1, GREETING_PHASES.length - 1)];
+}
+
+export function greetingReached(phase: GreetingPhase, target: GreetingPhase): boolean {
+	return GREETING_PHASES.indexOf(phase) >= GREETING_PHASES.indexOf(target);
+}

@@ -12,9 +12,14 @@
 	// &authorize the browser approves it), ?welcome=relogin (after logging
 	// out: 跳过 closes it), ?welcome=guide (the walkthrough). What closed it
 	// shows in [data-testid=welcome-closed].
+	// ?welcome&greeting: the first run as the app runs it: the sign-in, then
+	// (signed in, or 开始使用 after 跳过) the one-time greeting over the
+	// workbench (Greeting.svelte). Its end shows in [data-testid=greeting-done].
 	import SettingsPage from '../../src/lib/settings/SettingsPage.svelte';
 	import Sidebar from '../../src/lib/Sidebar.svelte';
 	import Welcome from '../../src/lib/welcome/Welcome.svelte';
+	import Greeting from '../../src/lib/welcome/Greeting.svelte';
+	import { GREETING_SEEN_KEY, greetingDue } from '../../src/lib/welcome/flow';
 	import { afterWelcomeSignIn } from '../../src/lib/welcome/firstRun';
 	import UpdatePrompt from '../../src/lib/UpdatePrompt.svelte';
 	import { updater } from '../../src/lib/updater.svelte';
@@ -58,6 +63,15 @@
 	}
 	let active = $state('');
 	let welcomeOpen = $state(true);
+	let greeting = $state(false);
+	let greetingName = $state('');
+	let greetingEnds = $state(0);
+	function firstRunEnded(name: string) {
+		if (!mode.has('greeting') || mode.get('welcome') === 'relogin') return;
+		if (!greetingDue(true, !!localStorage.getItem(GREETING_SEEN_KEY))) return;
+		greetingName = name;
+		greeting = true;
+	}
 	let closedBy = $state('');
 	const projects = $derived(store.userProjects);
 </script>
@@ -91,6 +105,21 @@
 		<div class="canvas-stub"></div>
 	</div>
 {:else if mode.has('welcome')}
+	{#if !welcomeOpen && mode.has('greeting')}
+		<div class="canvas-stub greeting-stub" data-testid="workbench"><textarea aria-label="composer" data-testid="composer"></textarea></div>
+	{/if}
+	{#if greeting}
+		<Greeting
+			name={greetingName}
+			onDone={() => {
+				localStorage.setItem(GREETING_SEEN_KEY, '1');
+				greeting = false;
+				greetingEnds++;
+				(document.querySelector('[data-testid=composer]') as HTMLElement | null)?.focus();
+			}}
+		/>
+	{/if}
+	{#if mode.has('greeting')}<p data-testid="greeting-done" hidden>{greetingEnds}</p>{/if}
 	{#if welcomeOpen}
 		<Welcome
 			sessionId="draft-test"
@@ -100,10 +129,11 @@
 			firstRun={mode.get('welcome') !== 'relogin'}
 			onRefreshAuth={() => {}}
 			onOpenSettings={() => {}}
-			onSignedIn={async () => {
+			onSignedIn={async (user) => {
 				await afterWelcomeSignIn();
 				welcomeOpen = false;
 				closedBy = 'signed-in';
+				firstRunEnded(user.username);
 			}}
 			onDismiss={() => {
 				welcomeOpen = false;
@@ -112,6 +142,7 @@
 			onClose={(c) => {
 				welcomeOpen = false;
 				closedBy = `start:${c.backend}${c.model ? `:${c.model}` : ''}`;
+				firstRunEnded('');
 			}}
 		/>
 	{:else}
@@ -140,6 +171,15 @@
 		display: flex;
 		height: 100vh;
 		background: var(--sidebar);
+	}
+	.greeting-stub {
+		position: fixed;
+		inset: 0;
+		padding: 40px;
+	}
+	.greeting-stub textarea {
+		width: 60%;
+		height: 80px;
 	}
 	.canvas-stub {
 		flex: 1;
