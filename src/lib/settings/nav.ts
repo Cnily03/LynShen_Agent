@@ -118,6 +118,7 @@ export const ROWS: SearchRow[] = [
 	{ section: 'network', id: 'read-timeout', titleKey: 'settings.behavior.readTimeout' },
 	{ section: 'mcp', id: 'mcp-servers', titleKey: 'settings.mcp.groupLabel' },
 	{ section: 'mcp', id: 'mcp-extensions', titleKey: 'settings.ext.groupLabel' },
+	{ section: 'mcp', id: 'android-use', titleKey: 'settings.androidUse.title', descKey: 'settings.androidUse.search' },
 	{ section: 'skills', id: 'skills-installed', titleKey: 'settings.section.skills', descKey: 'settings.skills.scopeHint.user' },
 	{ section: 'market', id: 'skills-market', titleKey: 'settings.section.market', descKey: 'settings.skills.browseMarket' },
 	{ section: 'plugins', id: 'plugins-foreign', titleKey: 'settings.plugins.foreign', descKey: 'settings.plugins.foreignHint' },
