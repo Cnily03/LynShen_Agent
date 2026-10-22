@@ -168,7 +168,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           mkdir -p src-tauri/binaries
           cp ".release-cli/target/${{ matrix.target }}/release/lynshen${ext}" "src-tauri/binaries/lynshen-cli-${{ matrix.target }}${ext}"
-          node scripts/third-party-notices.mjs --cargo .release-cli/Cargo.toml --title 'LynShen CLI: third-party software' --out static/lynshen-cli-third-party-notices.txt
+          node scripts/third-party-notices.mjs --cargo .release-cli/Cargo.toml --extra .release-cli/docs/third-party/android-use.txt --title 'LynShen CLI: third-party software' --out static/lynshen-cli-third-party-notices.txt
 
       # macOS builds sign with a fixed self-signed certificate (not
       # notarized) when the secret is configured; otherwise use ad-hoc signing.

@@ -65,6 +65,8 @@ export const daemonState = {
 	phoneScopes: [] as string[],
 	/** Leave the catalog's first request unanswered (a stuck daemon). */
 	stall: false,
+	/** 安卓手机（Android-Use）: installed, switched on, a phone set up. */
+	android: { installed: false, enabled: false, ready: false },
 	/** The engine reads the community sources again in the background. */
 	refreshing: false,
 	/** How long a `wait` request takes: the background refresh. */
@@ -350,8 +352,33 @@ export function chatSample(kind: string): Frame[] {
 	return [connector()];
 }
 
+/** The android_use ops (LynShen-CLI docs/android-use.md): one emulator
+ *  that allows USB debugging, the helper missing until 连接手机. */
+function androidReply(op: Frame): Frame {
+	const a = daemonState.android;
+	if (daemonState.old) return { type: 'error', message: `unknown op ${op.op}` };
+	if (op.op === 'android_use_install') a.installed = true;
+	if (op.op === 'android_use_enable') a.enabled = op.enabled === true;
+	if (op.op === 'android_use_setup') a.ready = true;
+	const phase = a.ready ? 'ready' : 'setup_host';
+	return {
+		type: 'android_use',
+		enabled: a.enabled,
+		version: '1.2.0',
+		installed: a.installed,
+		asset: 'android-use-v1.2.0-macos-aarch64.tar.gz',
+		adb: '/Users/me/Library/Android/sdk/platform-tools/adb',
+		devices: [{ serial: 'emulator-5554', state: 'device', model: 'sdk gphone64 arm64' }],
+		phase,
+		ready: a.ready,
+		hint: a.ready ? '已就绪：可以让 AI 操作这台手机了。每一步操作都会先请你确认。' : '需要在手机上安装 Android-Use 助手：在设置里点「连接手机」（命令行里运行 /android setup）。手机上会出现安装提示，按提示允许。',
+		wireless_hint: '无线连接（Android 11 及以上）：手机和电脑连同一个 Wi-Fi，在 开发者选项 → 无线调试 里打开它并点「使用配对码配对设备」，在电脑终端运行 adb pair 手机显示的IP:端口 并输入配对码，再运行 adb connect IP:端口。无线调试让配对过的电脑都能控制手机，用完请关掉。'
+	};
+}
+
 function reply(op: Frame): Frame | null {
 	const s = daemonState;
+	if (String(op.op).startsWith('android_use_')) return androidReply(op);
 	if (String(op.op).startsWith('connector_') || ['device_revoke', 'device_list', 'relay_status', 'device_confirm', 'device_scopes', 'pair_cancel', 'pair_start'].includes(op.op)) return connectorReply(op);
 	const list = () => (op.backend === 'claude' ? s.claude : s.list);
 	if (s.old && String(op.op).startsWith('skill') && op.op !== 'skills_catalog' && op.op !== 'skill_install')

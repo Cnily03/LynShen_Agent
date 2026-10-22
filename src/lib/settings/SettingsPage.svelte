@@ -116,6 +116,7 @@
 	import DaemonSection from './DaemonSection.svelte';
 	import ChatConnectorsSection from './ChatConnectorsSection.svelte';
 	import McpSection from './McpSection.svelte';
+	import AndroidUseSection from './AndroidUseSection.svelte';
 	import ImportSection from './ImportSection.svelte';
 	import type { OpenableImport } from '$lib/agentImport';
 	import SkillsSection from './SkillsSection.svelte';
@@ -1463,6 +1464,8 @@
 				{:else if current === 'mcp'}
 					<!-- The LynShen CLI's servers; only a LynShen session can apply edits live. -->
 					<McpSection {sessionId} chat={caps(chat).mcpManage ? chat : undefined} />
+					<!-- A built-in extension of the LynShen engine, off until turned on here. -->
+					<AndroidUseSection />
 				{:else if current === 'skills'}
 					<!-- The marketplace is this page's second tab ('market' opens it). -->
 					<SkillsSection

@@ -657,6 +657,29 @@ try {
   await expect(page.getByText(/当前的 LynShen 引擎还不能在这里管理技能/)).toBeVisible();
   await page.goto(base + '?plugins');
   await expect(page.getByText('document-skills')).toBeVisible();
+  // Settings → MCP 与扩展 → 安卓手机（Android-Use）: install asks first, then
+  // 连接手机 sets up the one phone, and the switch turns the tools on.
+  await page.goto(base + '?mcp');
+  const android = page.locator('#set-android-use');
+  await expect(android.getByText('未安装 · android-use 1.2.0')).toBeVisible({timeout:30000});
+  await android.getByRole('button',{name:'安装'}).click();
+  await expect(page.getByText(/校验 SHA-256 后放到 ~\/\.lynshen\/tools\/android-use/)).toBeVisible();
+  await page.getByRole('button',{name:'下载并安装'}).click();
+  await expect(android.getByText('android-use 1.2.0 · 已关闭 · sdk gphone64 arm64 · 已连接')).toBeVisible();
+  await android.getByRole('button',{name:'连接手机'}).click();
+  await expect(android.getByText(/已就绪：可以让 AI 操作这台手机了/)).toBeVisible();
+  await expect(android.getByRole('button',{name:'连接手机'})).toBeDisabled();
+  const phoneSwitch = android.getByRole('switch',{name:'让 AI 操作安卓手机'});
+  await phoneSwitch.click();
+  await expect(phoneSwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(android.getByText('android-use 1.2.0 · 已开启 · sdk gphone64 arm64 · 已连接')).toBeVisible();
+  assert.ok(await page.evaluate(() => window.__ops.some(o => o.op === 'android_use_enable' && o.enabled === true)));
+  await android.getByRole('button',{name:'展开'}).click();
+  await expect(android.getByText(/adb pair/)).toBeVisible();
+  if (process.env.ANDROID_USE_SHOTS) await android.screenshot({path: `${process.env.ANDROID_USE_SHOTS}/3-desktop-settings-row.png`});
+  // A daemon before the ops: a note to update the CLI.
+  await page.goto(base + '?mcp&oldEngine');
+  await expect(page.getByText(/后台服务版本太旧，不支持安卓手机/)).toBeVisible({timeout:30000});
   // Settings → 编码智能体 → Shell: the shells the daemon found, with their
   // versions; a choice is written to config.json; a missing PowerShell 7
   // offers its winget install and the download page.
@@ -3329,6 +3352,58 @@ try {
   await expect(first.getByTestId('welcome-closed')).toHaveText('dismissed');
   await first.close();
 
+  // The one-time greeting after the first run (Greeting.svelte; 首次欢迎):
+  // after the sign-in it writes the account's name, assembles the mark, opens
+  // onto the workbench and gives the composer focus; it plays once; without
+  // an account it greets without a name; Tab stays on 跳过 and Enter skips;
+  // reduced motion fades without the light; nothing after logging out.
+  const greet = await browser.newPage({viewport:{width:1280,height:800}});
+  greet.on('pageerror', e => errors.push(e.message));
+  const greeting = () => greet.getByRole('dialog',{name:'欢迎',exact:true});
+  await greet.goto(base + '?welcome&greeting&authorize&freshConfig');
+  await greet.getByRole('button',{name:'在浏览器中授权 Aogiri'}).click({timeout:30000});
+  await expect(greeting()).toBeVisible({timeout:20000});
+  await expect(greet.locator('.greeting .hello')).toHaveText('你好，Test user');
+  await expect(greet.locator('.greeting .mark.in')).toBeVisible({timeout:5000});
+  await expect(greet.locator('.greeting .line')).toHaveText('准备好了，开始吧。');
+  await expect(greet.getByTestId('greeting-done')).toHaveText('1', {timeout:6000});
+  await expect(greeting()).toHaveCount(0);
+  await expect(greet.getByTestId('composer')).toBeFocused();
+  assert.equal(await greet.evaluate(() => localStorage.getItem('lynshen-welcome-seen')), '1');
+  await greet.goto(base + '?welcome&greeting');
+  await greet.getByRole('button',{name:'跳过，稍后登录'}).click();
+  await greet.getByRole('button',{name:'开始使用'}).click();
+  await greet.waitForTimeout(600);
+  await expect(greeting()).toHaveCount(0);
+  await greet.evaluate(() => localStorage.removeItem('lynshen-welcome-seen'));
+  await greet.goto(base + '?welcome&greeting');
+  await greet.getByRole('button',{name:'跳过，稍后登录'}).click();
+  await greet.getByRole('button',{name:'开始使用'}).click();
+  await expect(greet.locator('.greeting .hello')).toHaveText('你好，欢迎来到 Aogiri');
+  await expect(greet.getByRole('button',{name:'跳过',exact:true})).toBeFocused();
+  await greet.keyboard.press('Tab');
+  await expect(greet.getByRole('button',{name:'跳过',exact:true})).toBeFocused();
+  await greet.keyboard.press('Enter');
+  await expect(greet.getByTestId('greeting-done')).toHaveText('1', {timeout:1500});
+  await greet.evaluate(() => localStorage.removeItem('lynshen-welcome-seen'));
+  await greet.goto(base + '?welcome=relogin&greeting');
+  await greet.getByRole('button',{name:'跳过，稍后登录'}).click();
+  await greet.waitForTimeout(600);
+  await expect(greeting()).toHaveCount(0);
+  await greet.close();
+  {
+    const ctx = await browser.newContext({viewport:{width:1280,height:800}, reducedMotion:'reduce'});
+    const still = await ctx.newPage();
+    still.on('pageerror', e => errors.push(e.message));
+    await still.goto(base + '?welcome&greeting');
+    await still.getByRole('button',{name:'跳过，稍后登录'}).click();
+    await still.getByRole('button',{name:'开始使用'}).click();
+    await expect(still.locator('.greeting.reduced')).toBeVisible();
+    await expect(still.locator('.greeting .spark')).toBeHidden();
+    await expect(still.getByTestId('greeting-done')).toHaveText('1', {timeout:4000});
+    await ctx.close();
+  }
+
   // The composer's modes: five, in Claude Code's order, numbered 1–5. In a
   // narrow window, in Chinese and English, each description wraps inside its
   // row (also a long one), never under the check or the number, and the menu
@@ -3679,5 +3754,5 @@ try {
     await ip.close();
   }
   assert.deepEqual(errors, []);
-  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page; in Chromium and WebKit the wheel over the cards, the navigator\'s sub-agents and 工作组 never scrolls the conversation, and an errored sub-agent shows as failed with its error (the whole error on its line) after its worktree was discarded, a discarded finished one grey), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, the balance until it recovers and 已恢复使用套餐, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a gateway before contract v1.2, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields), Settings → 导入 (Codex prompts, opening what a run imported.');
+  console.log('Browser regressions passed: reactive drafts, one new conversation per place until its first message (新对话, a project\'s +), account authorization, logout, API key label, provider OAuth, a custom provider (the form checks, per model the window, output cap, thinking, effort tiers and input kinds, editing it; a text-only model in the composer), mounted tabs, home model, title bar menu, skills, marketplace, plugins, sidebar fold and archive, welcome and approval menu click-away, menu click-away under glass, long reasoning and reply, steered reply, plan menu click-away, conversation width setting and column, the plan and subagents cards (beside the column at 1440 × 900, title lines and popovers at 1100 × 760, 1040 × 680 and beside a tool leaf, collapse, keyboard, opening and stopping a subagent, a failed or waiting step opening the plan, chips and a sheet on the phone page; in Chromium and WebKit the wheel over the cards, the navigator\'s sub-agents and 工作组 never scrolls the conversation, and an errored sub-agent shows as failed with its error (the whole error on its line) after its worktree was discarded, a discarded finished one grey), window frost default and migration, light theme surfaces, attached files as chips (sent, history, copy, quote, resend, queue, rewind, phone page), sandbox card and settings (Windows 沙箱（预览） on a Windows page), the shell setting (versions, choices written, PowerShell 7 install, an older daemon), reply styles (the default written, a built-in viewed and copied, a personal style edited and deleted, an older daemon, the composer + menu sending set_style, a deleted style), product name, sent files previewed in a tab beside the conversation, first-use trial claim (grant card once, final after a grant, a refusal asked again once per start, the card asking whether this device pays with the trial), the short account card, who pays this device (the plan or the balance, under a slow gateway, an ended plan; a plan new to the device shown once, paying by default with 改用余额), a turn the plan stopped (the window and its recovery, waiting, the balance until it recovers and 已恢复使用套餐, 改用余额继续, renewing, a model outside the plan; the pickers marking 套餐外 on the plan, nothing on the balance; who pays at the composer foot, a fourth device, the windows read again after requests), Settings → 账户 (read without a logged-out flash, its groups, the plan windows, 购买套餐 and 充值 in the app), Settings → 套餐与充值 (who pays, devices in use, a gateway before contract v1.2, a plan bought paying by default with 改用余额 and its end date, renewal from the current end, an upgrade at the quoted price, no downgrade, the scope line, plans with windows in words, packs, a custom amount, a WeChat QR code checked until paid, the replace notice, the Alipay page, continuing a payment, a refused payment and a network failure retried safely, a gateway without the store), the first run (sign-in first, trial claimed at once, the optional agent page, the skippable walkthrough, the one-time greeting after it: name, mark, opening, focus, once, keys, reduced motion), the five composer modes (order, wrapping in zh and en, narrow windows, Shift+Tab, number keys), the model pickers (quick switcher: rows, keys, pin; browser: typing, an input method, Chinese words, aliases, folding, an unavailable model, a long name; the fallback without a catalog; the settings pickers; dark and light at 1040 × 680), the chat connectors page (state, a binding code closed by its binding, the chat limits, adding a bot with its checks, unbinding, phones only on 远程访问, an older daemon; Discord and QQ: invite, QQ note, bind command, their add fields), Settings → 导入 (Codex prompts, opening what a run imported.');
 } finally { await browser.close(); await server.close(); }

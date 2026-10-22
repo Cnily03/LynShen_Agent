@@ -11,3 +11,30 @@ identify their products; their use implies no affiliation or endorsement.
 src/lib/fonts/noto-serif-sc-display.woff2 is a subset of Noto Serif SC
 (Copyright 2017-2024 Adobe, from github.com/google/fonts), licensed under the
 SIL Open Font License, Version 1.1; see src/lib/fonts/OFL.txt.
+
+安卓手机（Android-Use） in Settings installs, when the user asks, android-use
+1.2.0 (https://github.com/austinintelligence/android-use) through the LynShen
+CLI into ~/.lynshen/tools/android-use. It is not bundled with the app.
+android-use is used under the MIT License:
+
+    MIT License
+
+    Copyright (c) 2026 drperky20
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
