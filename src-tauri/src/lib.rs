@@ -41,6 +41,7 @@ mod shell_icons;
 mod tool_login;
 mod tool_path;
 mod tool_switch;
+mod window_state;
 
 use backend::BackendKind;
 
@@ -3821,16 +3822,6 @@ fn set_dev_dock_icon() {
     }
 }
 
-/// What the window-state plugin restores. Not decorations (see below), and
-/// not visibility: the app creates the main window hidden and shows it itself
-/// once it has its background, or not at all on a silent launch at login
-/// (main_window::create). With visibility the plugin would show the window
-/// as soon as it is ready, before either.
-fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
-    use tauri_plugin_window_state::StateFlags;
-    StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // An update keeps the bundle's path: a LynShen.app takes the new name and
@@ -3858,11 +3849,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
-        // Decorations are left to the config: a state saved by a version with the
-        // native title bar (0.3.x) would otherwise bring it back over the drawn one.
+        // The main window's size and position (window_state.rs). Not the
+        // embedded browser's: browser.rs places that window itself.
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_state_flags(window_state_flags())
+                .with_state_flags(window_state::flags())
+                .with_denylist(&[browser::BROWSER_LABEL])
                 .build(),
         )
         .setup(|app| {
@@ -3906,13 +3898,22 @@ pub fn run() {
             Ok(())
         })
         // 关闭主窗口时隐藏到托盘而不是退出（macOS/Windows/Linux 一致），
-        // 真正退出通过托盘菜单「退出」。
+        // 真正退出通过托盘菜单「退出」。窗口的大小和位置在隐藏时写盘，拖动或
+        // 缩放停下约一秒后也写盘（window_state.rs）。
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     let _ = window.hide();
                     api.prevent_close();
+                    window_state::save(window.app_handle(), "hide");
                 }
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                    window_state::settle(window);
+                }
+                _ => {}
             }
         })
         .manage(Ptys::default())

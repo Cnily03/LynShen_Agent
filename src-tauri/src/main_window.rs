@@ -189,7 +189,7 @@ pub(crate) fn create(app: &tauri::App, hidden: bool) -> tauri::Result<WebviewWin
         .cloned()
         .ok_or(tauri::Error::WindowNotFound)?;
     // Hidden until it has its background (below): the window-state plugin
-    // moves and sizes it meanwhile, and no longer shows it (window_state_flags).
+    // moves and sizes it meanwhile, and no longer shows it (window_state::flags).
     config.visible = false;
     config.theme = prefs.theme.native();
     // Windows: see-through only with Mica behind it.
