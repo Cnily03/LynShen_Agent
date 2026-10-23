@@ -267,10 +267,13 @@ pub async fn update_install(
 
 /// Windows installation exits the running process. Only apply after the user
 /// requests a restart and the frontend has flushed its unsaved workspace state.
+/// The window's size and position go to disk here too: that exit skips the
+/// window-state plugin's own save (window_state.rs, ticket #58).
 #[tauri::command]
-pub async fn update_apply(pending: State<'_, Pending>) -> Result<(), String> {
+pub async fn update_apply(app: AppHandle, pending: State<'_, Pending>) -> Result<(), String> {
     let downloaded = pending.downloaded.lock().unwrap_or_else(|e| e.into_inner());
     let (update, bytes) = downloaded.as_ref().ok_or("no downloaded update to apply")?;
+    crate::window_state::save_and_wait(&app, "update");
     update.install(bytes).map_err(|error| error.to_string())
 }
 
