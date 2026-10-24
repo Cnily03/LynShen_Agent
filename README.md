@@ -1,10 +1,21 @@
-# Aogiri · 梧桐
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="design/brand/aogiri-horizontal-dark.svg">
+    <img src="design/brand/aogiri-horizontal-light.svg" alt="Aogiri · 梧桐" width="440">
+  </picture>
 
-把编程智能体、代码和项目工具放在同一个桌面工作台里。
+  <p>把编程智能体、代码和项目工具放在同一个桌面工作台里。</p>
+
+  <p>
+    <a href="https://www.lynshen.org/download">官网下载</a> ·
+    <a href="https://github.com/Libra1337/LynShen_Agent/releases">全部版本</a> ·
+    <a href="https://github.com/Libra1337/LynShen_Agent/issues">问题反馈</a>
+  </p>
+
+  <p><strong>简体中文</strong> · <a href="README.en-US.md">English</a></p>
+</div>
 
 你可以同时管理多个项目和会话，使用 LynShen、Claude Code、Codex 或兼容 [ACP](https://agentclientprotocol.com) 的智能体，并在对话旁查看文件、Git 改动、终端和网页。支持 macOS、Windows 和 Linux。
-
-[官网下载](https://www.lynshen.org/download) · [全部版本](https://github.com/Libra1337/LynShen_Agent/releases) · [问题反馈](https://github.com/Libra1337/LynShen_Agent/issues)
 
 ## 安装
 
